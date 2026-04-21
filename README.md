@@ -15,7 +15,13 @@ git clone <repo-url> && cd uit-cli
 pip install -e .
 ```
 
-If `uit` isn't found after install, Python's script directory isn't on your PATH:
+Verify it works:
+
+```bash
+uit --help
+```
+
+If you get `command not found`, Python's script directory isn't on your PATH yet:
 
 ```bash
 # macOS / Linux — add to ~/.zshrc or ~/.bashrc
