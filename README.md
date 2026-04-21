@@ -132,6 +132,23 @@ uit raw core_course_get_contents courseid=19589
 uit raw mod_assign_get_assignments "courseids[0]=19227"
 ```
 
+## Workflow
+
+IDs flow between commands:
+
+```
+uit courses --current        -> get course IDs
+uit contents  <course_id>   -> browse modules and files
+uit download  <course_id>   -> download all course files
+uit deadlines                -> get assignment IDs and due dates
+uit grades    <course_id>   -> view grades
+uit submit    <assign_id> <file>  -> submit to assignment
+uit status    <assign_id>   -> check submission result
+
+ID chain: courses -> course_id -> contents/download/deadlines/grades
+          deadlines -> assign_id -> submit/status
+```
+
 ## Agent-friendly mode
 
 Add `--json` before any command to get structured JSON output:
@@ -153,10 +170,13 @@ uit --json raw core_webservice_get_site_info
 ]
 ```
 
-Errors also return JSON in this mode:
+Errors also return JSON with actionable hints:
 
 ```json
-{"error": "Course or activity not accessible."}
+{
+  "error": "Khóa học hay hoạt động không truy cập được.",
+  "hint": "Check if the ID is correct. Use 'uit courses' for course IDs, 'uit deadlines' for assignment IDs."
+}
 ```
 
 ## Configuration
