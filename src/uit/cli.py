@@ -309,13 +309,61 @@ def cmd_grades(args):
         table(rows, [("item", "ITEM", 50), ("grade", "GRADE", 10), ("max", "MAX", 6), ("percentage", "%", 10)])
 
 
+def cmd_functions(args):
+    """List and search available Moodle API functions."""
+    info = call("core_webservice_get_site_info")
+    fns = info.get("functions", [])
+
+    query = args.query
+    if query:
+        fns = [f for f in fns if query.lower() in f["name"].lower()]
+
+    if _json_mode:
+        rows = [{"name": f["name"], "version": f.get("version", "")} for f in fns]
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+
+    if not fns:
+        print(f'(no functions matching "{query}")')
+        return
+
+    # Group by module prefix
+    groups: dict[str, list[str]] = {}
+    for f in fns:
+        parts = f["name"].split("_", 2)
+        prefix = "_".join(parts[:2]) if len(parts) >= 2 else parts[0]
+        groups.setdefault(prefix, []).append(f["name"])
+
+    for prefix in sorted(groups):
+        names = sorted(groups[prefix])
+        print(f"\n{prefix} ({len(names)})")
+        for name in names:
+            print(f"  {name}")
+
+    print(f"\nTotal: {len(fns)} functions")
+    if not query:
+        print("Tip: uit functions <keyword> to filter, e.g. 'uit functions assign'")
+    print("Tip: uit raw <function_name> key=value ... to call any function")
+
+
 def cmd_raw(args):
-    """Call any Moodle API function directly. Agent power tool."""
+    """Call any Moodle API function directly."""
     params = {}
     for p in (args.params or []):
         k, _, v = p.partition("=")
         params[k] = v
-    result = call(args.function, **params)
+    try:
+        result = call(args.function, **params)
+    except RuntimeError as e:
+        msg = str(e)
+        # Moodle returns parameter errors when you call with wrong/missing params.
+        # Surface them directly — they effectively document the function signature.
+        hint = (
+            "Moodle error messages reveal required parameters. "
+            "Try calling with no params to see what's needed, "
+            "or check: https://courses.uit.edu.vn/admin/webservice/documentation.php (admin access required)."
+        )
+        die(msg, hint)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -323,16 +371,20 @@ def cmd_raw(args):
 
 WORKFLOW = """
 workflow:
-  uit courses --current        -> get course IDs
-  uit contents  <course_id>    -> browse modules and files
-  uit download  <course_id>    -> download all course files
-  uit deadlines                -> get assignment IDs and due dates
-  uit grades    <course_id>    -> view grades
+  uit courses --current             -> get course IDs
+  uit contents  <course_id>         -> browse modules and files
+  uit download  <course_id>         -> download all course files
+  uit deadlines                     -> get assignment IDs and due dates
+  uit grades    <course_id>         -> view grades
   uit submit    <assign_id> <file>  -> submit to assignment
-  uit status    <assign_id>    -> check submission result
+  uit status    <assign_id>         -> check submission result
+  uit functions [keyword]           -> discover raw API functions
+  uit raw <function> key=value      -> call any Moodle API function
 
   ID chain: courses -> course_id -> contents/download/deadlines/grades
             deadlines -> assign_id -> submit/status
+
+  Use --json before any command for structured JSON output.
 """
 
 
@@ -383,9 +435,13 @@ def main():
     p = sub.add_parser("grades", help="Show grade report for a course")
     p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
 
+    # functions
+    p = sub.add_parser("functions", help="List/search available Moodle API functions (420+)")
+    p.add_argument("query", nargs="?", default="", help="Filter by keyword, e.g. 'assign', 'quiz', 'forum'")
+
     # raw
-    p = sub.add_parser("raw", help="Call any Moodle API function directly")
-    p.add_argument("function", help="API function name, e.g. core_course_get_contents")
+    p = sub.add_parser("raw", help="Call any Moodle API function (use 'uit functions' to discover)")
+    p.add_argument("function", help="API function name (from 'uit functions')")
     p.add_argument("params", nargs="*", help="Parameters as key=value, e.g. courseid=19589")
 
     args = parser.parse_args()
@@ -405,6 +461,7 @@ def main():
         "submit": cmd_submit,
         "status": cmd_status,
         "grades": cmd_grades,
+        "functions": cmd_functions,
         "raw": cmd_raw,
     }[args.command]
     try:

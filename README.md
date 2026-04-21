@@ -2,7 +2,9 @@
 
 A CLI for [courses.uit.edu.vn](https://courses.uit.edu.vn) — the Moodle LMS at UIT (University of Information Technology, VNU-HCM).
 
-Download course materials, track deadlines, submit assignments, and check grades — all from your terminal. Designed to be both human-readable and agent-friendly.
+Download course materials, track deadlines, submit assignments, and check grades — all from your terminal.
+
+Designed to be used by both humans and AI agents.
 
 ## Setup
 
@@ -13,7 +15,7 @@ git clone <repo-url> && cd uit-cli
 pip install -e .
 ```
 
-Get your API token:
+Get your API token by visiting (in a browser, while logged in):
 
 ```
 https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
@@ -25,11 +27,34 @@ Initialize:
 uit init <your-token>
 ```
 
-This saves credentials to `~/.uit/.env` (chmod 600). Alternatively, copy `.env.example` to `.env` in the project directory and fill in your values.
+Credentials are saved to `~/.uit/.env` (chmod 600). You can also place a `.env` file in your project directory — it takes precedence. See `.env.example` for the format.
+
+## Workflow
+
+Commands produce IDs that feed into other commands:
+
+```
+uit courses --current             -> course IDs
+uit contents  <course_id>         -> browse modules and files
+uit download  <course_id>         -> download all course files
+uit deadlines                     -> assignment IDs and due dates
+uit grades    <course_id>         -> view grades
+uit submit    <assign_id> <file>  -> submit to assignment
+uit status    <assign_id>         -> check submission result
+uit functions [keyword]           -> discover 420+ raw API functions
+uit raw <function> key=value      -> call any Moodle API function
+
+ID chain: courses -> course_id -> contents / download / deadlines / grades
+          deadlines -> assign_id -> submit / status
+```
+
+Use `--json` before any command for structured JSON output.
 
 ## Commands
 
-### List courses
+### `uit courses`
+
+List enrolled courses. Each row includes a **course ID** used by other commands.
 
 ```bash
 uit courses              # all enrolled courses
@@ -40,13 +65,14 @@ ID        SHORT                 COURSE
 ----------------------------------------------------------------------------------
 19589     SE362.Q21             An toan phan mem va he thong - SE362.Q21
 19227     CS410.Q21             Mang neural va thuat giai di truyen - CS410.Q21
-19207     CS313.Q23             Khai thac du lieu va ung dung - CS313.Q23
 ```
 
-### Browse course contents
+### `uit contents <course_id>`
+
+Browse sections, modules, and files in a course.
 
 ```bash
-uit contents <course_id>
+uit contents 19589       # course_id from 'uit courses'
 ```
 ```
 ============================================================
@@ -59,62 +85,62 @@ uit contents <course_id>
                -> Security subjects.docx  (21KB)
 ```
 
-### Download course materials
+### `uit download <course_id>`
+
+Download all files from a course, organized by section and subfolder.
 
 ```bash
-uit download <course_id>                # download to ./
-uit download <course_id> -o ~/UIT       # download to ~/UIT/
-uit download <course_id> --force        # re-download existing files
+uit download 19589                # download to ./SE362.Q21/
+uit download 19589 -o ~/UIT       # download to ~/UIT/SE362.Q21/
+uit download 19589 --force        # re-download existing files
 ```
 
-Files are organized by section and subfolder, matching the Moodle structure. Existing files are skipped by default.
+Existing files are skipped by default.
 
-### Track deadlines
+### `uit deadlines`
+
+List assignment deadlines. Each row includes an **assignment ID** used by `submit` and `status`.
 
 ```bash
-uit deadlines                           # upcoming deadlines, all courses
-uit deadlines --course-id <id>          # filter to one course
-uit deadlines --all                     # include past deadlines
+uit deadlines                     # upcoming, all courses
+uit deadlines --course-id 19227   # filter to one course
+uit deadlines --all               # include past deadlines
 ```
 ```
-DUE                 COURSE            COURSE NAME                  ASSIGNMENT                  ID
----------------------------------------------------------------------------------------------------------
-2026-04-12 23:55    CS410.Q21         Mang neural va thuat...      DE & CEM Exercise           102727
-```
-
-### Submit assignments
-
-```bash
-uit submit <assign_id> ./report.pdf
+DUE                 COURSE       COURSE NAME                       ASSIGNMENT                   ID
+-------------------------------------------------------------------------------------------------------
+2026-04-12 23:59    CS410.Q21    Mang neural va thuat giai...      DE & CEM Exercise            102727
 ```
 
-The `assign_id` comes from the `ID` column in `uit deadlines`.
+### `uit submit <assign_id> <file>`
 
-```
-Uploading ./report.pdf...
-Submitting to assignment 102727...
-status: submitted
-submission_status: submitted
-time: 2026-04-10 14:32
-```
-
-### Check submission status
+Upload and submit a file to an assignment.
 
 ```bash
-uit status <assign_id>
+uit submit 102727 ./report.pdf    # assign_id from 'uit deadlines'
+```
+
+### `uit status <assign_id>`
+
+Check submission status and grade for an assignment.
+
+```bash
+uit status 102727                 # assign_id from 'uit deadlines'
 ```
 ```
 assign_id: 102727
 status: submitted
-submitted: 2026-04-10 14:32
+submitted: 2026-04-12 16:34
 attempt: 1
-files: [{'name': 'report.pdf', 'size': 245760}]
+files: [{'name': 'BT2_23521146.zip', 'size': 4427807}]
 ```
 
-### View grades
+### `uit grades <course_id>`
+
+Show grade report for a course.
 
 ```bash
-uit grades <course_id>
+uit grades 19207                  # course_id from 'uit courses'
 ```
 ```
 ITEM                                               GRADE       MAX     %
@@ -123,65 +149,95 @@ Exercise 1                                         85          100     85.00 %
 Exercise 2                                         -           100
 ```
 
-### Raw API access
+### `uit functions [keyword]`
 
-Call any of Moodle's 400+ web service functions directly:
+Discover the 420+ Moodle API functions available to your token. This is the entry point for anything not covered by the built-in commands.
+
+```bash
+uit functions                     # list all, grouped by module
+uit functions assign              # search for assignment-related functions
+uit functions quiz                # search for quiz-related functions
+uit functions calendar            # search for calendar functions
+```
+```
+mod_assign (23)
+  mod_assign_get_assignments
+  mod_assign_get_submission_status
+  mod_assign_save_submission
+  ...
+```
+
+### `uit raw <function> [key=value ...]`
+
+Call any Moodle API function directly. Use `uit functions` to discover function names.
 
 ```bash
 uit raw core_course_get_contents courseid=19589
 uit raw mod_assign_get_assignments "courseids[0]=19227"
+uit raw core_calendar_get_action_events_by_timesort "timesortfrom=$(date +%s)"
 ```
 
-## Workflow
+**Figuring out parameters:** Function names are descriptive (e.g., `core_course_get_contents` takes `courseid`). If you guess wrong, Moodle returns an error naming the missing/invalid parameter — this is the fastest way to learn the signature. Call with no params first if unsure.
 
-IDs flow between commands:
+## Agent integration
 
-```
-uit courses --current        -> get course IDs
-uit contents  <course_id>   -> browse modules and files
-uit download  <course_id>   -> download all course files
-uit deadlines                -> get assignment IDs and due dates
-uit grades    <course_id>   -> view grades
-uit submit    <assign_id> <file>  -> submit to assignment
-uit status    <assign_id>   -> check submission result
+### JSON mode
 
-ID chain: courses -> course_id -> contents/download/deadlines/grades
-          deadlines -> assign_id -> submit/status
-```
-
-## Agent-friendly mode
-
-Add `--json` before any command to get structured JSON output:
+Add `--json` before any command. All output becomes structured JSON on stdout — including errors.
 
 ```bash
 uit --json courses --current
-uit --json deadlines
+uit --json deadlines --course-id 19227
 uit --json status 102727
-uit --json raw core_webservice_get_site_info
+uit --json functions assign
 ```
 
-```json
-[
-  {
-    "id": 19589,
-    "short": "SE362.Q21",
-    "name": "An toan phan mem va he thong - SE362.Q21"
-  }
-]
-```
+### Error format
 
-Errors also return JSON with actionable hints:
+Errors exit with code 1 and include actionable hints:
 
 ```json
 {
-  "error": "Khóa học hay hoạt động không truy cập được.",
+  "error": "Khoa hoc hay hoat dong khong truy cap duoc.",
   "hint": "Check if the ID is correct. Use 'uit courses' for course IDs, 'uit deadlines' for assignment IDs."
 }
 ```
 
-## Configuration
+### Typical agent workflow
 
-`uit init` saves credentials to `~/.uit/.env`. You can also place a `.env` file in your working directory (it takes precedence). See `.env.example` for the format.
+```bash
+# 1. Discover courses
+uit --json courses --current
+
+# 2. Pick a course, get its assignments
+uit --json deadlines --course-id 19589
+
+# 3. Check what's been submitted
+uit --json status <assign_id>
+
+# 4. Download materials if needed
+uit --json download <course_id> -o /tmp/materials
+
+# 5. Submit when ready
+uit submit <assign_id> ./solution.pdf
+
+# 6. For anything else, discover and call raw API
+uit --json functions <keyword>
+uit --json raw <function_name> key=value
+```
+
+### Self-discovery
+
+An agent with no prior knowledge can orient itself:
+
+1. `uit --help` — shows all commands, the workflow diagram, and the ID chain
+2. `uit <command> --help` — shows required args and where each ID comes from
+3. `uit functions <keyword>` — searches available API functions
+4. `uit raw <function>` — call with wrong/no params to get Moodle's error revealing the required parameters
+
+No external documentation is needed. The Moodle instance's own API docs (`/admin/webservice/documentation.php`) require admin access, so the CLI is designed to be self-documenting.
+
+## Configuration
 
 | Variable | Description |
 |---|---|
@@ -189,15 +245,17 @@ Errors also return JSON with actionable hints:
 | `UIT_BASE_URL` | Moodle instance URL (default: `https://courses.uit.edu.vn`) |
 | `UIT_USER_ID` | Your Moodle user ID (auto-detected by `uit init`) |
 
+Config is read from `.env` — first checking the working directory (and parents), then `~/.uit/.env`.
+
 ## Project structure
 
 ```
 uit-cli/
   src/uit/
-    cli.py        # commands and output formatting
-    api.py        # moodle REST client (call, upload, download)
-    config.py     # .env loader
-  pyproject.toml  # package definition, entry point
+    cli.py        # commands, output formatting, arg parsing
+    api.py        # Moodle REST client (call, upload, download)
+    config.py     # .env file loader
+  pyproject.toml  # package definition and 'uit' entry point
   .env.example    # credential template
 ```
 
