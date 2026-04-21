@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 200" width="620" height="200">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap');
+      .bg { fill: #1a1b26; }
+      .crest { fill: #5b9cf5; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; }
+      .uit { fill: #56d6d6; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; font-weight: 700; }
+      .ver { fill: #565a6e; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; }
+    </style>
+  </defs>
+  <rect class="bg" width="620" height="200" rx="10"/>
+  <!-- Crest (blue) -->
+  <text class="crest" x="20" y="30">       ▄▄███▄▄  ▄▄▄███▄</text>
+  <text class="crest" x="20" y="46">     ▄█▀██▀█▄█▀▀▀▄  ▀▀▀█▄</text>
+  <text class="crest" x="20" y="62">   ▄███▀▄██▀      ▀▄    █</text>
+  <text class="crest" x="20" y="78">   ▄█▀▄█▀▄   ▄     █    ▀</text>
+  <text class="crest" x="20" y="94">   ▀▄█▀ ███▄███     ▄  ▄▀</text>
+  <text class="crest" x="20" y="110">  ▄██▄▄ ▀▀███▀▀▄▄▄  ▀  ▀</text>
+  <text class="crest" x="20" y="126"> ██▀ ▀█ ██▀ ▀██▀██ █</text>
+  <text class="crest" x="20" y="142"> ███ ▄▄█▀██   ██▀█▄▄</text>
+  <text class="crest" x="20" y="158"> ███  ▀██▄██▄██▄██▀</text>
+  <text class="crest" x="20" y="174"> ███▄    ▀▀▀▀▀█▀▀</text>
+  <text class="crest" x="20" y="190">  ▀███████▀▀▀</text>
+  <!-- UIT text (cyan) -->
+  <text class="uit" x="240" y="62">██╗   ██╗██╗████████╗</text>
+  <text class="uit" x="240" y="78">██║   ██║██║╚══██╔══╝</text>
+  <text class="uit" x="240" y="94">██║   ██║██║   ██║</text>
+  <text class="uit" x="240" y="110">██║   ██║██║   ██║</text>
+  <text class="uit" x="240" y="126">╚██████╔╝██║   ██║</text>
+  <text class="uit" x="240" y="142"> ╚═════╝ ╚═╝   ╚═╝</text>
+  <!-- Version -->
+  <text class="ver" x="398" y="142">v0.1.0</text>
+</svg>

@@ -1,10 +1,12 @@
-# uit
+<p align="center">
+  <img src="assets/logo.svg" alt="uit-cli" width="620">
+</p>
 
-A CLI for [courses.uit.edu.vn](https://courses.uit.edu.vn) — the Moodle LMS at UIT (University of Information Technology, VNU-HCM).
-
-Navigate courses, read announcements, download materials, inspect assignments, submit work, and check grades — all from your terminal.
-
-Designed to be used by both humans and AI agents.
+<p align="center">
+  A CLI for <a href="https://courses.uit.edu.vn">courses.uit.edu.vn</a> — the Moodle LMS at UIT (University of Information Technology, VNU-HCM).<br>
+  Navigate courses, read announcements, download materials, inspect assignments, submit work, and check grades — all from your terminal.<br>
+  Designed to be used by both humans and AI agents.
+</p>
 
 ## Setup
 
