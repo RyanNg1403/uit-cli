@@ -113,53 +113,6 @@ uit view-discussion 77900            # read a specific forum thread
 
 ---
 
-## Agent integration
-
-Add `--json` before any command for structured output that scripts and AI agents can parse:
-
-```bash
-uit --json courses --current
-uit --json view 428837
-uit --json deadlines
-```
-
-Errors also return JSON with actionable hints:
-
-```json
-{
-  "error": "Khoa hoc hay hoat dong khong truy cap duoc.",
-  "hint": "Check if the ID is correct. Use 'uit courses' for course IDs, 'uit contents' for module IDs."
-}
-```
-
-<details>
-<summary>Agent self-discovery — no docs needed</summary>
-
-An agent with no prior knowledge can orient itself:
-
-1. `uit --help` — all commands, workflow diagram, ID chain
-2. `uit <command> --help` — required args and where each ID comes from
-3. `uit courses` -> `uit contents <id>` -> `uit view <id>` — traverse the course tree
-4. `uit functions <keyword>` + `uit raw` — escape hatch for anything the built-in commands don't cover
-
-Calling `uit raw <function>` with wrong/no params returns Moodle's error naming the missing parameter — this is the fastest way to learn any function's signature.
-</details>
-
-<details>
-<summary>Typical agent session</summary>
-
-```bash
-uit --json courses --current
-uit --json contents 19207
-uit --json view 428837           # -> assign_id, description, due date
-uit --json announcements 19207 --full
-uit --json download 19207 --module 428955 -o /tmp
-uit submit 101617 ./solution.pdf
-```
-</details>
-
----
-
 ## Configuration
 
 `uit init` saves credentials to `~/.uit/.env`. You can also place a `.env` file in your project directory (takes precedence). See `.env.example`.
