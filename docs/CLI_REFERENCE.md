@@ -278,6 +278,8 @@ uit raw core_course_get_contents
 # -> Error: missing required parameter 'courseid'
 ```
 
+For full parameter schemas, see the [Moodle Web Service API functions reference](https://docs.moodle.org/dev/Web_service_API_functions).
+
 ---
 
 ## JSON mode

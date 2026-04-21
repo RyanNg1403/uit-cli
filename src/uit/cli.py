@@ -904,7 +904,7 @@ def cmd_raw(args):
         hint = (
             "Moodle error messages reveal required parameters. "
             "Try calling with no params to see what's needed, "
-            "or check: https://courses.uit.edu.vn/admin/webservice/documentation.php (admin access required)."
+            "or check: https://docs.moodle.org/dev/Web_service_API_functions"
         )
         die(msg, hint)
     print(json.dumps(result, ensure_ascii=False, indent=2))
