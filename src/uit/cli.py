@@ -855,6 +855,23 @@ def cmd_raw(args):
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+# ── Branding ─────────────────────────────────────────────────────────────
+
+LOGO = r"""
+  \033[1;34m       ▄▄███▄▄  ▄▄▄███▄\033[0m
+  \033[1;34m     ▄█▀██▀█▄█▀▀▀▄  ▀▀▀█▄\033[0m
+  \033[1;34m   ▄███▀▄██▀      ▀▄    █\033[0m    \033[1;36m██╗   ██╗██╗████████╗\033[0m
+  \033[1;34m   ▄█▀▄█▀▄   ▄     █    ▀\033[0m    \033[1;36m██║   ██║██║╚══██╔══╝\033[0m
+  \033[1;34m   ▀▄█▀ ███▄███     ▄  ▄▀\033[0m    \033[1;36m██║   ██║██║   ██║\033[0m
+  \033[1;34m  ▄██▄▄ ▀▀███▀▀▄▄▄  ▀  ▀\033[0m     \033[1;36m██║   ██║██║   ██║\033[0m
+  \033[1;34m ██▀ ▀█ ██▀ ▀██▀██ █\033[0m         \033[1;36m╚██████╔╝██║   ██║\033[0m
+  \033[1;34m ███ ▄▄█▀██   ██▀█▄▄\033[0m          \033[1;36m╚═════╝ ╚═╝   ╚═╝\033[0m  \033[2mv0.1.0\033[0m
+  \033[1;34m ███  ▀██▄██▄██▄██▀\033[0m
+  \033[1;34m ███▄    ▀▀▀▀▀█▀▀\033[0m
+  \033[1;34m  ▀███████▀▀▀\033[0m
+""".replace(r"\033", "\033")
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────
 
 WORKFLOW = """
@@ -956,7 +973,21 @@ def main():
 
     args = parser.parse_args()
     if not args.command:
-        parser.print_help()
+        if args.json:
+            parser.print_help()
+        else:
+            print(LOGO)
+            print("  CLI for courses.uit.edu.vn — Moodle LMS at UIT")
+            print()
+            print("  \033[1mGet started:\033[0m    uit courses --current")
+            print("  \033[1mBrowse:\033[0m         uit contents <course_id>")
+            print("  \033[1mInspect:\033[0m        uit view <module_id>")
+            print("  \033[1mAnnouncements:\033[0m  uit announcements <course_id>")
+            print("  \033[1mDownload:\033[0m       uit download <course_id>")
+            print("  \033[1mDeadlines:\033[0m      uit deadlines")
+            print()
+            print("  \033[2muit --help for all commands and the full workflow diagram\033[0m")
+            print()
         sys.exit(0)
 
     global _json_mode
