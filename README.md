@@ -73,6 +73,8 @@ view     -> assign_id  -> submit / status
          -> discussion_id -> view-discussion
 ```
 
+For flags, output formats, and detailed behavior of each command, see the [CLI Reference](docs/CLI_REFERENCE.md).
+
 ---
 
 ## Examples
