@@ -8,6 +8,7 @@ import os
 import re
 import sys
 from datetime import datetime
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -113,6 +114,41 @@ def sanitize(name: str) -> str:
     return "".join(c if c.isalnum() or c in " ._-" else "_" for c in name).strip()
 
 
+def loading(msg: str):
+    """Print a dim loading hint to stderr (hidden in JSON mode)."""
+    if not _json_mode:
+        print(f"\033[2m{msg}\033[0m", file=sys.stderr)
+
+
+def _parse_moodle_url(value: str) -> int | None:
+    """Extract an ID from a Moodle URL. Returns None if not a URL."""
+    parsed = urlparse(value.strip())
+    if not (parsed.scheme and parsed.netloc):
+        return None
+    query = parse_qs(parsed.query)
+    # /mod/forum/discuss.php?d=X
+    if "discuss.php" in parsed.path:
+        vals = query.get("d", [])
+        if vals and vals[0].isdigit():
+            return int(vals[0])
+    # /mod/*/view.php?id=X or /course/view.php?id=X
+    vals = query.get("id", [])
+    if vals and vals[0].isdigit():
+        return int(vals[0])
+    return None
+
+
+def _id_or_url(value: str) -> int:
+    """Argparse type: accept an integer ID or Moodle URL."""
+    try:
+        return int(value)
+    except ValueError:
+        result = _parse_moodle_url(value)
+        if result is not None:
+            return result
+        raise argparse.ArgumentTypeError(f"expected an integer ID or Moodle URL, got: {value}")
+
+
 # ── Commands ─────────────────────────────────────────────────────────────
 
 def cmd_init(args):
@@ -138,6 +174,7 @@ def cmd_init(args):
 
 
 def cmd_courses(args):
+    loading("Loading courses...")
     courses = call("core_enrol_get_users_courses", userid=get("user_id"))
     if not courses:
         out([])
@@ -152,6 +189,7 @@ def cmd_courses(args):
 
 
 def cmd_contents(args):
+    loading("Loading course contents...")
     sections = call("core_course_get_contents", courseid=args.course_id)
     if _json_mode:
         items = []
@@ -190,6 +228,7 @@ def cmd_contents(args):
 
 def _resolve_assign_to_module(assign_id):
     """Try to find the module ID (cmid) for an assign_id."""
+    loading("Resolving assignment ID...")
     courses = call("core_enrol_get_users_courses", userid=get("user_id"))
     course_ids = [c["id"] for c in courses]
     params = {f"courseids[{i}]": cid for i, cid in enumerate(course_ids)}
@@ -204,6 +243,7 @@ def _resolve_assign_to_module(assign_id):
 def cmd_view(args):
     """Inspect any module by its ID. Also accepts assign_id from 'uit deadlines'."""
     module_id = args.module_id
+    loading("Loading module...")
     # Resolve module type and instance
     try:
         info = call("core_course_get_course_module", cmid=module_id)
@@ -541,6 +581,7 @@ def _view_book(module_id, instance, course_id, name):
 def cmd_view_discussion(args):
     """Read all posts in a forum discussion."""
     disc_id = args.discussion_id
+    loading("Loading discussion...")
     result = call("mod_forum_get_discussion_posts", discussionid=disc_id)
     posts = result.get("posts", [])
 
@@ -587,6 +628,7 @@ def cmd_view_discussion(args):
 def cmd_announcements(args):
     """Show announcements (Cac thong bao) for a course."""
     course_id = args.course_id
+    loading("Loading announcements...")
     sections = call("core_course_get_contents", courseid=course_id)
 
     # Find the announcements forum — usually the first forum module
@@ -668,6 +710,7 @@ def cmd_announcements(args):
 
 def cmd_download(args):
     course_id = args.course_id
+    loading("Loading course files...")
     courses = call("core_enrol_get_users_courses", userid=get("user_id"))
     course_name = next((c["shortname"] for c in courses if c["id"] == course_id), str(course_id))
     dest_root = os.path.join(args.output or ".", sanitize(course_name))
@@ -720,6 +763,7 @@ def cmd_download(args):
 
 
 def cmd_deadlines(args):
+    loading("Loading deadlines...")
     if args.course_id:
         course_ids = [args.course_id]
     else:
@@ -786,6 +830,7 @@ def cmd_submit(args):
 
 
 def cmd_status(args):
+    loading("Loading submission status...")
     status = call("mod_assign_get_submission_status", assignid=args.assign_id)
     sub = status.get("lastattempt", {}).get("submission", {})
     feedback = status.get("feedback", {})
@@ -816,6 +861,7 @@ def cmd_status(args):
 
 
 def cmd_grades(args):
+    loading("Loading grades...")
     result = call("gradereport_user_get_grade_items", courseid=args.course_id, userid=get("user_id"))
     items = result.get("usergrades", [{}])[0].get("gradeitems", [])
 
@@ -836,6 +882,7 @@ def cmd_grades(args):
 
 def cmd_functions(args):
     """List and search available Moodle API functions."""
+    loading("Loading functions...")
     info = call("core_webservice_get_site_info")
     fns = info.get("functions", [])
 
@@ -984,33 +1031,33 @@ def main():
 
     # contents
     p = sub.add_parser("contents", help="Browse course tree — sections, modules, files (outputs module IDs)")
-    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
+    p.add_argument("course_id", type=_id_or_url, help="Course ID or course URL")
 
     # view
     p = sub.add_parser("view", help="Inspect any module: assignment, forum, resource, lesson, quiz, ...")
-    p.add_argument("module_id", type=int, help="Module ID from 'uit contents', or assignment ID from 'uit deadlines'")
+    p.add_argument("module_id", type=_id_or_url, help="Module ID, assignment ID, or Moodle URL")
 
     # view-discussion
     p = sub.add_parser("view-discussion", help="Read all posts in a forum discussion")
-    p.add_argument("discussion_id", type=int, help="Discussion ID from 'uit view' on a forum or 'uit announcements'")
+    p.add_argument("discussion_id", type=_id_or_url, help="Discussion ID or discuss.php URL")
 
     # announcements
     p = sub.add_parser("announcements", help="Read course announcements (Cac thong bao)")
-    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
+    p.add_argument("course_id", type=_id_or_url, help="Course ID or course URL")
     p.add_argument("-n", "--limit", type=int, help="Show only the N most recent")
     p.add_argument("--full", action="store_true", help="Show full message content, not just subjects")
 
     # download
     p = sub.add_parser("download", help="Download files from a course (all, or filtered)")
-    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
+    p.add_argument("course_id", type=_id_or_url, help="Course ID or course URL")
     p.add_argument("-o", "--output", default=".", help="Output directory (default: .)")
-    p.add_argument("--module", type=int, help="Only download from this module ID (from 'uit contents')")
+    p.add_argument("--module", type=_id_or_url, help="Only download from this module ID or URL")
     p.add_argument("--file", help="Only download files matching this name (substring match)")
     p.add_argument("--force", action="store_true", help="Re-download existing files")
 
     # deadlines
     p = sub.add_parser("deadlines", help="List assignment deadlines (outputs assign IDs)")
-    p.add_argument("--course-id", type=int, help="Course ID to filter (from 'uit courses')")
+    p.add_argument("--course-id", type=_id_or_url, help="Course ID or URL to filter")
     p.add_argument("--all", action="store_true", help="Include past deadlines")
 
     # submit
@@ -1030,7 +1077,7 @@ def main():
 
     # grades
     p = sub.add_parser("grades", help="Show grade report for a course")
-    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
+    p.add_argument("course_id", type=_id_or_url, help="Course ID or course URL")
 
     # functions
     p = sub.add_parser("functions", help="List/search available Moodle API functions (420+)")

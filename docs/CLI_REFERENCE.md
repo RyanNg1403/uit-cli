@@ -11,6 +11,17 @@ Full reference for every `uit` command. For a quick overview, see [README.md](..
 | `--json` | Output structured JSON on stdout. Errors also return JSON. |
 | `--help` | Show help with workflow diagram and ID chain. |
 
+## URL support
+
+Any command that accepts an ID also accepts a Moodle URL. The CLI extracts the ID from the URL automatically.
+
+```bash
+uit view 'https://courses.uit.edu.vn/mod/assign/view.php?id=428837'
+uit contents 'https://courses.uit.edu.vn/course/view.php?id=19207'
+uit view-discussion 'https://courses.uit.edu.vn/mod/forum/discuss.php?d=77900'
+uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
+```
+
 ---
 
 ## `uit init <token>`

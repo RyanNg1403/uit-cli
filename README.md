@@ -115,6 +115,14 @@ uit announcements 19438 --full       # read announcements with full content
 uit view-discussion 77900            # read a specific forum thread
 ```
 
+**Paste Moodle URLs directly — no need to extract IDs:**
+
+```bash
+uit view 'https://courses.uit.edu.vn/mod/assign/view.php?id=428837'
+uit contents 'https://courses.uit.edu.vn/course/view.php?id=19207'
+uit view-discussion 'https://courses.uit.edu.vn/mod/forum/discuss.php?d=77900'
+```
+
 ---
 
 ## Configuration
