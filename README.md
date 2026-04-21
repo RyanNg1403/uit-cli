@@ -4,7 +4,8 @@
 
 <p align="center">
   Access your UIT course materials faster — from your terminal or through AI agents.<br>
-  Download lectures, check deadlines, read announcements, submit assignments, and more.
+  Download lectures, check deadlines, read announcements, submit assignments, and more.<br>
+  Built on <a href="https://docs.moodle.org/dev/Web_service_API_functions">Moodle Web Services</a> — works with any Moodle instance.
 </p>
 
 <p align="center">
