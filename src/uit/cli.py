@@ -9,6 +9,8 @@ import re
 import sys
 from datetime import datetime
 
+import requests
+
 from uit.config import get, save
 from uit.api import call, upload_file, download_file
 
@@ -117,7 +119,6 @@ def cmd_init(args):
     token = args.token
     base_url = args.url.rstrip("/")
 
-    import requests
     resp = requests.get(
         f"{base_url}/webservice/rest/server.php",
         params={
@@ -138,6 +139,9 @@ def cmd_init(args):
 
 def cmd_courses(args):
     courses = call("core_enrol_get_users_courses", userid=get("user_id"))
+    if not courses:
+        out([])
+        return
     if args.current:
         max_cat = max(c.get("category", 0) for c in courses)
         courses = [c for c in courses if c.get("category", 0) >= max_cat - 20]
@@ -587,11 +591,9 @@ def cmd_announcements(args):
 
     # Find the announcements forum — usually the first forum module
     forum_id = None
-    forum_module_id = None
     for section in sections:
         for mod in section.get("modules", []):
             if mod.get("modname") == "forum":
-                forum_module_id = mod["id"]
                 # Get instance ID from course module info
                 cm_info = call("core_course_get_course_module", cmid=mod["id"])
                 forum_id = cm_info.get("cm", {}).get("instance")
@@ -701,9 +703,14 @@ def cmd_download(args):
                     if not _json_mode:
                         print("  OK")
                 except Exception as e:
-                    results.append({"file": f["filename"], "status": "error", "error": str(e)})
+                    err_msg = str(e)
+                    # Strip token from error messages (requests may include the full URL)
+                    token = get("token")
+                    if token in err_msg:
+                        err_msg = err_msg.replace(token, "***")
+                    results.append({"file": f["filename"], "status": "error", "error": err_msg})
                     if not _json_mode:
-                        print(f"  FAIL: {e}")
+                        print(f"  FAIL: {err_msg}")
 
     if _json_mode:
         print(json.dumps({"dest": dest_root, "files": results}, ensure_ascii=False, indent=2))
@@ -920,7 +927,7 @@ LOGO = r"""
   \033[1;34m   ▀▄█▀ ███▄███     ▄  ▄▀\033[0m    \033[1;36m██║   ██║██║   ██║\033[0m
   \033[1;34m  ▄██▄▄ ▀▀███▀▀▄▄▄  ▀  ▀\033[0m     \033[1;36m██║   ██║██║   ██║\033[0m
   \033[1;34m ██▀ ▀█ ██▀ ▀██▀██ █\033[0m         \033[1;36m╚██████╔╝██║   ██║\033[0m
-  \033[1;34m ███ ▄▄█▀██   ██▀█▄▄\033[0m          \033[1;36m╚═════╝ ╚═╝   ╚═╝\033[0m  \033[2mv0.1.0\033[0m
+  \033[1;34m ███ ▄▄█▀██   ██▀█▄▄\033[0m          \033[1;36m╚═════╝ ╚═╝   ╚═╝\033[0m
   \033[1;34m ███  ▀██▄██▄██▄██▀\033[0m
   \033[1;34m ███▄    ▀▀▀▀▀█▀▀\033[0m
   \033[1;34m  ▀███████▀▀▀\033[0m
