@@ -2,6 +2,7 @@
 """uit — CLI for courses.uit.edu.vn"""
 
 import argparse
+import html
 import json
 import os
 import sys
@@ -14,6 +15,20 @@ from uit.api import call, upload_file, download_file
 # ── Output helpers ───────────────────────────────────────────────────────
 
 _json_mode = False
+
+
+def die(msg: str, hint: str = ""):
+    """Print error and exit. JSON-safe."""
+    payload = {"error": msg}
+    if hint:
+        payload["hint"] = hint
+    if _json_mode:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"Error: {msg}", file=sys.stderr)
+        if hint:
+            print(f"Hint:  {hint}", file=sys.stderr)
+    sys.exit(1)
 
 
 def out(data):
@@ -36,6 +51,9 @@ def table(rows: list[dict], columns: list[tuple[str, str, int]]):
     if _json_mode:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
         return
+    if not rows:
+        print("(no results)")
+        return
     header = "  ".join(h.ljust(w) for _, h, w in columns)
     print(header)
     print("-" * len(header))
@@ -45,6 +63,11 @@ def table(rows: list[dict], columns: list[tuple[str, str, int]]):
             val = str(row.get(key, ""))
             parts.append(val.ljust(w))
         print("  ".join(parts))
+
+
+def clean(text: str) -> str:
+    """Decode HTML entities (Moodle returns &amp; etc.)."""
+    return html.unescape(text)
 
 
 def ts(epoch: int) -> str:
@@ -63,7 +86,6 @@ def cmd_init(args):
     token = args.token
     base_url = args.url.rstrip("/")
 
-    # Fetch user info to get user_id and validate the token
     import requests
     resp = requests.get(
         f"{base_url}/webservice/rest/server.php",
@@ -76,8 +98,7 @@ def cmd_init(args):
     )
     data = resp.json()
     if "exception" in data:
-        print(f"Error: {data['message']}", file=sys.stderr)
-        sys.exit(1)
+        die(data.get("message", "invalid token"))
 
     user_id = data["userid"]
     save(token, user_id, base_url)
@@ -91,22 +112,21 @@ def cmd_courses(args):
         courses = [c for c in courses if c.get("category", 0) >= max_cat - 20]
 
     courses.sort(key=lambda x: x["id"], reverse=True)
-    rows = [{"id": c["id"], "short": c["shortname"], "name": c["fullname"]} for c in courses]
+    rows = [{"id": c["id"], "short": c["shortname"], "name": clean(c["fullname"])} for c in courses]
     table(rows, [("id", "ID", 8), ("short", "SHORT", 20), ("name", "COURSE", 50)])
 
 
 def cmd_contents(args):
     sections = call("core_course_get_contents", courseid=args.course_id)
     if _json_mode:
-        # Flatten to a clean structure for agents
         items = []
         for section in sections:
             for mod in section.get("modules", []):
                 item = {
-                    "section": section["name"],
+                    "section": clean(section["name"]),
                     "module_id": mod["id"],
                     "type": mod.get("modname", ""),
-                    "name": mod["name"],
+                    "name": clean(mod["name"]),
                 }
                 if mod.get("contents"):
                     item["files"] = [
@@ -121,11 +141,11 @@ def cmd_contents(args):
         if not section.get("modules"):
             continue
         print(f"\n{'='*60}")
-        print(f"  {section['name']}")
+        print(f"  {clean(section['name'])}")
         print(f"{'='*60}")
         for mod in section["modules"]:
             modtype = mod.get("modname", "?")
-            print(f"  [{modtype:<10}] {mod['name']}")
+            print(f"  [{modtype:<10}] {clean(mod['name'])}")
             for f in mod.get("contents", []):
                 size = f.get("filesize", 0)
                 size_str = f"{size/1024:.0f}KB" if size < 1_048_576 else f"{size/1_048_576:.1f}MB"
@@ -191,8 +211,8 @@ def cmd_deadlines(args):
                 "id": a["id"],
                 "cmid": a["cmid"],
                 "course": course["shortname"],
-                "course_name": course["fullname"],
-                "name": a["name"],
+                "course_name": clean(course["fullname"]),
+                "name": clean(a["name"]),
                 "due": a["duedate"],
                 "due_fmt": ts(a["duedate"]),
             })
@@ -211,16 +231,14 @@ def cmd_deadlines(args):
 def cmd_submit(args):
     filepath = args.file
     if not os.path.isfile(filepath):
-        print(f"Error: file not found: {filepath}", file=sys.stderr)
-        sys.exit(1)
+        die(f"file not found: {filepath}")
 
     if not _json_mode:
         print(f"Uploading {filepath}...")
     upload_result = upload_file(filepath)
     item_id = upload_result.get("itemid")
     if not item_id:
-        print(json.dumps({"status": "error", "detail": "upload failed", "response": upload_result}, ensure_ascii=False), file=sys.stderr)
-        sys.exit(1)
+        die("upload failed", f"response: {upload_result}")
 
     if not _json_mode:
         print(f"Submitting to assignment {args.assign_id}...")
@@ -279,7 +297,7 @@ def cmd_grades(args):
     rows = []
     for item in items:
         rows.append({
-            "item": item.get("itemname") or item.get("itemtype", "?"),
+            "item": clean(item.get("itemname") or item.get("itemtype", "?")),
             "grade": item.get("gradeformatted", "-"),
             "max": item.get("grademax", ""),
             "percentage": item.get("percentageformatted", ""),
@@ -303,57 +321,77 @@ def cmd_raw(args):
 
 # ── CLI ──────────────────────────────────────────────────────────────────
 
+WORKFLOW = """
+workflow:
+  uit courses --current        -> get course IDs
+  uit contents  <course_id>    -> browse modules and files
+  uit download  <course_id>    -> download all course files
+  uit deadlines                -> get assignment IDs and due dates
+  uit grades    <course_id>    -> view grades
+  uit submit    <assign_id> <file>  -> submit to assignment
+  uit status    <assign_id>    -> check submission result
+
+  ID chain: courses -> course_id -> contents/download/deadlines/grades
+            deadlines -> assign_id -> submit/status
+"""
+
+
 def main():
-    parser = argparse.ArgumentParser(prog="uit", description="CLI for courses.uit.edu.vn")
-    parser.add_argument("--json", action="store_true", help="Output as JSON (agent-friendly)")
+    parser = argparse.ArgumentParser(
+        prog="uit",
+        description="CLI for courses.uit.edu.vn (Moodle LMS at UIT).",
+        epilog=WORKFLOW,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--json", action="store_true", help="JSON output for scripts and agents")
     sub = parser.add_subparsers(dest="command")
 
     # init
-    p = sub.add_parser("init", help="Set up credentials")
-    p.add_argument("token", help="Moodle API token (from /login/token.php)")
+    p = sub.add_parser("init", help="Set up credentials (~/.uit/.env)")
+    p.add_argument("token", help="Moodle API token from /login/token.php")
     p.add_argument("--url", default="https://courses.uit.edu.vn", help="Moodle base URL")
 
     # courses
-    p = sub.add_parser("courses", help="List enrolled courses")
+    p = sub.add_parser("courses", help="List enrolled courses (outputs course IDs)")
     p.add_argument("--current", action="store_true", help="Current semester only")
 
     # contents
-    p = sub.add_parser("contents", help="Show course contents")
-    p.add_argument("course_id", type=int)
+    p = sub.add_parser("contents", help="Browse sections, modules, and files in a course")
+    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
 
     # download
     p = sub.add_parser("download", help="Download all files from a course")
-    p.add_argument("course_id", type=int)
-    p.add_argument("-o", "--output", default=".", help="Output directory")
+    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
+    p.add_argument("-o", "--output", default=".", help="Output directory (default: .)")
     p.add_argument("--force", action="store_true", help="Re-download existing files")
 
     # deadlines
-    p = sub.add_parser("deadlines", help="Upcoming assignment deadlines")
-    p.add_argument("--course-id", type=int, help="Filter to one course")
+    p = sub.add_parser("deadlines", help="List assignment deadlines (outputs assign IDs)")
+    p.add_argument("--course-id", type=int, help="Course ID to filter (from 'uit courses')")
     p.add_argument("--all", action="store_true", help="Include past deadlines")
 
     # submit
-    p = sub.add_parser("submit", help="Submit a file to an assignment")
-    p.add_argument("assign_id", type=int, help="Assignment ID (from 'uit deadlines')")
-    p.add_argument("file", help="File path to submit")
+    p = sub.add_parser("submit", help="Upload and submit a file to an assignment")
+    p.add_argument("assign_id", type=int, help="Assignment ID from 'uit deadlines'")
+    p.add_argument("file", help="Path to file to submit")
 
     # status
-    p = sub.add_parser("status", help="Check submission status")
-    p.add_argument("assign_id", type=int)
+    p = sub.add_parser("status", help="Check submission status and grade for an assignment")
+    p.add_argument("assign_id", type=int, help="Assignment ID from 'uit deadlines'")
 
     # grades
-    p = sub.add_parser("grades", help="Show grades for a course")
-    p.add_argument("course_id", type=int)
+    p = sub.add_parser("grades", help="Show grade report for a course")
+    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
 
     # raw
-    p = sub.add_parser("raw", help="Call any Moodle API function (agent power tool)")
-    p.add_argument("function", help="e.g. core_course_get_contents")
-    p.add_argument("params", nargs="*", help="key=value pairs")
+    p = sub.add_parser("raw", help="Call any Moodle API function directly")
+    p.add_argument("function", help="API function name, e.g. core_course_get_contents")
+    p.add_argument("params", nargs="*", help="Parameters as key=value, e.g. courseid=19589")
 
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
-        sys.exit(1)
+        sys.exit(0)
 
     global _json_mode
     _json_mode = args.json
@@ -372,11 +410,11 @@ def main():
     try:
         cmd(args)
     except RuntimeError as e:
-        if _json_mode:
-            print(json.dumps({"error": str(e)}, ensure_ascii=False))
-        else:
-            print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        msg = str(e)
+        hint = ""
+        if "không truy cập" in msg or "not accessible" in msg.lower():
+            hint = "Check if the ID is correct. Use 'uit courses' for course IDs, 'uit deadlines' for assignment IDs."
+        die(msg, hint)
     except KeyboardInterrupt:
         sys.exit(130)
 
