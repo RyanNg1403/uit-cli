@@ -7,23 +7,25 @@
     </style>
   </defs>
   <rect class="bg" width="750" height="210" rx="10"/>
-  <!-- Crest (blue) - each line at 16px vertical spacing -->
-  <text class="crest" xml:space="preserve" x="24" y="30">       ▄▄███▄▄  ▄▄▄███▄</text>
-  <text class="crest" xml:space="preserve" x="24" y="46">     ▄█▀██▀█▄█▀▀▀▄  ▀▀▀█▄</text>
-  <text class="crest" xml:space="preserve" x="24" y="62">   ▄███▀▄██▀      ▀▄    █</text>
-  <text class="crest" xml:space="preserve" x="24" y="78">   ▄█▀▄█▀▄   ▄     █    ▀</text>
-  <text class="crest" xml:space="preserve" x="24" y="94">   ▀▄█▀ ███▄███     ▄  ▄▀</text>
-  <text class="crest" xml:space="preserve" x="24" y="110">  ▄██▄▄ ▀▀███▀▀▄▄▄  ▀  ▀</text>
-  <text class="crest" xml:space="preserve" x="24" y="126"> ██▀ ▀█ ██▀ ▀██▀██ █</text>
-  <text class="crest" xml:space="preserve" x="24" y="142"> ███ ▄▄█▀██   ██▀█▄▄</text>
-  <text class="crest" xml:space="preserve" x="24" y="158"> ███  ▀██▄██▄██▄██▀</text>
-  <text class="crest" xml:space="preserve" x="24" y="174"> ███▄    ▀▀▀▀▀█▀▀</text>
-  <text class="crest" xml:space="preserve" x="24" y="190">  ▀███████▀▀▀</text>
-  <!-- UIT text (cyan) - vertically centered with crest -->
-  <text class="uit" xml:space="preserve" x="290" y="52">██╗   ██╗██╗████████╗</text>
-  <text class="uit" xml:space="preserve" x="290" y="74">██║   ██║██║╚══██╔══╝</text>
-  <text class="uit" xml:space="preserve" x="290" y="96">██║   ██║██║   ██║</text>
-  <text class="uit" xml:space="preserve" x="290" y="118">██║   ██║██║   ██║</text>
-  <text class="uit" xml:space="preserve" x="290" y="140">╚██████╔╝██║   ██║</text>
-  <text class="uit" xml:space="preserve" x="290" y="162"> ╚═════╝ ╚═╝   ╚═╝</text>
+  <g transform="translate(80, 0)">
+    <!-- Crest (blue) - each line at 16px vertical spacing -->
+    <text class="crest" xml:space="preserve" x="24" y="30">       ▄▄███▄▄  ▄▄▄███▄</text>
+    <text class="crest" xml:space="preserve" x="24" y="46">     ▄█▀██▀█▄█▀▀▀▄  ▀▀▀█▄</text>
+    <text class="crest" xml:space="preserve" x="24" y="62">   ▄███▀▄██▀      ▀▄    █</text>
+    <text class="crest" xml:space="preserve" x="24" y="78">   ▄█▀▄█▀▄   ▄     █    ▀</text>
+    <text class="crest" xml:space="preserve" x="24" y="94">   ▀▄█▀ ███▄███     ▄  ▄▀</text>
+    <text class="crest" xml:space="preserve" x="24" y="110">  ▄██▄▄ ▀▀███▀▀▄▄▄  ▀  ▀</text>
+    <text class="crest" xml:space="preserve" x="24" y="126"> ██▀ ▀█ ██▀ ▀██▀██ █</text>
+    <text class="crest" xml:space="preserve" x="24" y="142"> ███ ▄▄█▀██   ██▀█▄▄</text>
+    <text class="crest" xml:space="preserve" x="24" y="158"> ███  ▀██▄██▄██▄██▀</text>
+    <text class="crest" xml:space="preserve" x="24" y="174"> ███▄    ▀▀▀▀▀█▀▀</text>
+    <text class="crest" xml:space="preserve" x="24" y="190">  ▀███████▀▀▀</text>
+    <!-- UIT text (cyan) - vertically centered with crest -->
+    <text class="uit" xml:space="preserve" x="290" y="52">██╗   ██╗██╗████████╗</text>
+    <text class="uit" xml:space="preserve" x="290" y="74">██║   ██║██║╚══██╔══╝</text>
+    <text class="uit" xml:space="preserve" x="290" y="96">██║   ██║██║   ██║</text>
+    <text class="uit" xml:space="preserve" x="290" y="118">██║   ██║██║   ██║</text>
+    <text class="uit" xml:space="preserve" x="290" y="140">╚██████╔╝██║   ██║</text>
+    <text class="uit" xml:space="preserve" x="290" y="162"> ╚═════╝ ╚═╝   ╚═╝</text>
+  </g>
 </svg>
