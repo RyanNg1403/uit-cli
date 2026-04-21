@@ -2,9 +2,10 @@
 """uit — CLI for courses.uit.edu.vn"""
 
 import argparse
-import html
+import html as html_mod
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -67,7 +68,34 @@ def table(rows: list[dict], columns: list[tuple[str, str, int]]):
 
 def clean(text: str) -> str:
     """Decode HTML entities (Moodle returns &amp; etc.)."""
-    return html.unescape(text)
+    return html_mod.unescape(text)
+
+
+def html_to_text(html_str: str) -> str:
+    """Convert HTML to readable plain text. Preserves line breaks and list items."""
+    if not html_str:
+        return ""
+    s = html_str
+    # Block-level elements -> newlines
+    s = re.sub(r'<br\s*/?>', '\n', s)
+    s = re.sub(r'</p>', '\n', s)
+    s = re.sub(r'</div>', '\n', s)
+    s = re.sub(r'</h[1-6]>', '\n', s)
+    s = re.sub(r'<li[^>]*>', '  - ', s)
+    s = re.sub(r'</li>', '\n', s)
+    # Strip remaining tags
+    s = re.sub(r'<[^>]+>', '', s)
+    s = html_mod.unescape(s)
+    # Collapse excessive blank lines
+    s = re.sub(r'\n{3,}', '\n\n', s)
+    return s.strip()
+
+
+def extract_urls(html_str: str) -> list[str]:
+    """Extract href URLs from HTML."""
+    if not html_str:
+        return []
+    return re.findall(r'href="([^"]+)"', html_str)
 
 
 def ts(epoch: int) -> str:
@@ -145,11 +173,468 @@ def cmd_contents(args):
         print(f"{'='*60}")
         for mod in section["modules"]:
             modtype = mod.get("modname", "?")
-            print(f"  [{modtype:<10}] {clean(mod['name'])}")
+            mid = mod["id"]
+            print(f"  {mid:<8} [{modtype:<10}] {clean(mod['name'])}")
             for f in mod.get("contents", []):
                 size = f.get("filesize", 0)
                 size_str = f"{size/1024:.0f}KB" if size < 1_048_576 else f"{size/1_048_576:.1f}MB"
-                print(f"               -> {f['filename']}  ({size_str})")
+                print(f"                          -> {f['filename']}  ({size_str})")
+
+
+def cmd_view(args):
+    """Inspect any module by its ID. Type-aware: shows the right details."""
+    module_id = args.module_id
+    # Resolve module type and instance
+    info = call("core_course_get_course_module", cmid=module_id)
+    cm = info.get("cm", {})
+    modname = cm.get("modname", "")
+    instance = cm.get("instance")
+    course_id = cm.get("course")
+    name = clean(cm.get("name", ""))
+
+    handler = {
+        "assign": _view_assign,
+        "forum": _view_forum,
+        "resource": _view_resource,
+        "folder": _view_resource,
+        "lesson": _view_lesson,
+        "url": _view_url,
+        "quiz": _view_quiz,
+        "page": _view_page,
+        "book": _view_book,
+    }.get(modname)
+
+    if handler:
+        handler(module_id, instance, course_id, name)
+    else:
+        # Generic fallback: show what we know
+        result = {"module_id": module_id, "type": modname, "name": name, "instance": instance, "course_id": course_id}
+        # Try to get files from contents
+        sections = call("core_course_get_contents", courseid=course_id)
+        files = _find_module_files(sections, module_id)
+        if files:
+            result["files"] = files
+        out(result)
+
+
+def _find_module_files(sections, module_id):
+    """Find files for a specific module from course contents."""
+    for section in sections:
+        for mod in section.get("modules", []):
+            if mod["id"] == module_id and mod.get("contents"):
+                return [
+                    {"filename": f["filename"], "fileurl": f["fileurl"], "filesize": f.get("filesize", 0)}
+                    for f in mod["contents"] if f.get("type") == "file"
+                ]
+    return []
+
+
+def _view_assign(module_id, instance, course_id, name):
+    # Get assignment details
+    params = {f"courseids[0]": course_id}
+    result = call("mod_assign_get_assignments", **params)
+    assign = None
+    for c in result.get("courses", []):
+        for a in c.get("assignments", []):
+            if a["id"] == instance:
+                assign = a
+                break
+
+    if not assign:
+        die(f"Assignment instance {instance} not found in course {course_id}")
+
+    intro_html = assign.get("intro", "")
+    intro_text = html_to_text(intro_html)
+    urls = extract_urls(intro_html)
+
+    # Get submission status
+    sub_status = call("mod_assign_get_submission_status", assignid=instance)
+    sub = sub_status.get("lastattempt", {}).get("submission", {})
+
+    data = {
+        "module_id": module_id,
+        "assign_id": instance,
+        "type": "assign",
+        "name": clean(assign["name"]),
+        "due": ts(assign["duedate"]),
+        "cutoff": ts(assign.get("cutoffdate", 0)),
+        "description": intro_text,
+        "submission_status": sub.get("status", "none"),
+    }
+
+    if urls:
+        data["urls"] = urls
+    if sub.get("timemodified"):
+        data["submitted_at"] = ts(sub["timemodified"])
+
+    # Files attached to assignment description
+    attach = assign.get("introattachments", [])
+    if attach:
+        data["attachments"] = [{"filename": f["filename"], "fileurl": f.get("fileurl", ""), "filesize": f.get("filesize", 0)} for f in attach]
+
+    # Submission config
+    file_enabled = any(
+        c.get("plugin") == "file" and c.get("subtype") == "assignsubmission" and c.get("name") == "enabled" and c.get("value") == "1"
+        for c in assign.get("configs", [])
+    )
+    text_enabled = any(
+        c.get("plugin") == "onlinetext" and c.get("subtype") == "assignsubmission" and c.get("name") == "enabled" and c.get("value") == "1"
+        for c in assign.get("configs", [])
+    )
+    submission_types = []
+    if file_enabled:
+        submission_types.append("file")
+    if text_enabled:
+        submission_types.append("onlinetext")
+    if submission_types:
+        data["submission_types"] = submission_types
+
+    if _json_mode:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"[assign] {data['name']}")
+        print(f"assign_id:   {data['assign_id']}  (use with 'uit submit' / 'uit status')")
+        print(f"due:         {data['due']}")
+        if data["cutoff"]:
+            print(f"cutoff:      {data['cutoff']}")
+        print(f"status:      {data['submission_status']}")
+        if data.get("submitted_at"):
+            print(f"submitted:   {data['submitted_at']}")
+        if submission_types:
+            print(f"accepts:     {', '.join(submission_types)}")
+        if data.get("attachments"):
+            print(f"\nAttachments:")
+            for f in data["attachments"]:
+                print(f"  {f['filename']}")
+        if intro_text:
+            print(f"\nDescription:\n{intro_text}")
+        if urls:
+            print(f"\nURLs:")
+            for u in urls:
+                print(f"  {u}")
+
+
+def _view_forum(module_id, instance, course_id, name):
+    discussions = call("mod_forum_get_forum_discussions", forumid=instance)
+    discs = discussions.get("discussions", [])
+
+    rows = []
+    for d in discs:
+        rows.append({
+            "id": d["discussion"],
+            "subject": clean(d.get("subject", "")),
+            "author": d.get("userfullname", ""),
+            "replies": d.get("numreplies", 0),
+            "date": ts(d.get("timemodified", 0)),
+        })
+
+    if _json_mode:
+        print(json.dumps({"module_id": module_id, "type": "forum", "name": name, "discussions": rows}, ensure_ascii=False, indent=2))
+    else:
+        print(f"[forum] {name}")
+        print(f"module_id: {module_id}\n")
+        table(rows, [("id", "ID", 8), ("subject", "SUBJECT", 50), ("author", "AUTHOR", 20), ("replies", "RE", 4), ("date", "DATE", 18)])
+        if rows:
+            print(f"\nTip: uit view-discussion <discussion_id> to read posts")
+
+
+def _view_resource(module_id, instance, course_id, name):
+    sections = call("core_course_get_contents", courseid=course_id)
+    files = _find_module_files(sections, module_id)
+    data = {"module_id": module_id, "type": "resource", "name": name, "files": files}
+
+    if _json_mode:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"[resource] {name}")
+        print(f"module_id: {module_id}\n")
+        for f in files:
+            size = f["filesize"]
+            size_str = f"{size/1024:.0f}KB" if size < 1_048_576 else f"{size/1_048_576:.1f}MB"
+            print(f"  {f['filename']}  ({size_str})")
+        if files:
+            print(f"\nTip: uit download {course_id} --module {module_id}")
+
+
+def _view_lesson(module_id, instance, course_id, name):
+    lesson = call("mod_lesson_get_lesson", lessonid=instance)
+    info = lesson.get("lesson", {})
+    intro_html = info.get("intro", "")
+    intro_text = html_to_text(intro_html)
+    urls = extract_urls(intro_html)
+
+    data = {
+        "module_id": module_id,
+        "type": "lesson",
+        "name": clean(info.get("name", name)),
+        "description": intro_text,
+    }
+    if urls:
+        data["urls"] = urls
+
+    if _json_mode:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"[lesson] {data['name']}")
+        print(f"module_id: {module_id}")
+        if intro_text:
+            print(f"\nDescription:\n{intro_text}")
+        if urls:
+            print(f"\nURLs:")
+            for u in urls:
+                print(f"  {u}")
+
+
+def _view_url(module_id, instance, course_id, name):
+    sections = call("core_course_get_contents", courseid=course_id)
+    target_url = ""
+    for section in sections:
+        for mod in section.get("modules", []):
+            if mod["id"] == module_id and mod.get("contents"):
+                target_url = mod["contents"][0].get("fileurl", "")
+                break
+
+    data = {"module_id": module_id, "type": "url", "name": name, "url": target_url}
+    if _json_mode:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"[url] {name}")
+        print(f"module_id: {module_id}")
+        print(f"url: {target_url}")
+
+
+def _view_quiz(module_id, instance, course_id, name):
+    quizzes = call("mod_quiz_get_quizzes_by_courses", **{f"courseids[0]": course_id})
+    quiz = None
+    for q in quizzes.get("quizzes", []):
+        if q["id"] == instance:
+            quiz = q
+            break
+
+    if not quiz:
+        out({"module_id": module_id, "type": "quiz", "name": name, "error": "quiz not found"})
+        return
+
+    intro_text = html_to_text(quiz.get("intro", ""))
+    attempts = call("mod_quiz_get_user_attempts", quizid=instance, userid=get("user_id"), status="all")
+    att_list = attempts.get("attempts", [])
+
+    data = {
+        "module_id": module_id,
+        "type": "quiz",
+        "name": clean(quiz.get("name", name)),
+        "time_open": ts(quiz.get("timeopen", 0)),
+        "time_close": ts(quiz.get("timeclose", 0)),
+        "time_limit": quiz.get("timelimit", 0),
+        "grade": quiz.get("grade", 0),
+        "attempts": len(att_list),
+        "description": intro_text,
+    }
+
+    if _json_mode:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"[quiz] {data['name']}")
+        print(f"module_id: {module_id}")
+        print(f"opens:     {data['time_open']}")
+        print(f"closes:    {data['time_close']}")
+        if data["time_limit"]:
+            print(f"limit:     {data['time_limit']}s")
+        print(f"max grade: {data['grade']}")
+        print(f"attempts:  {data['attempts']}")
+        if intro_text:
+            print(f"\nDescription:\n{intro_text}")
+
+
+def _view_page(module_id, instance, course_id, name):
+    pages = call("mod_page_get_pages_by_courses", **{f"courseids[0]": course_id})
+    page = None
+    for p in pages.get("pages", []):
+        if p["id"] == instance:
+            page = p
+            break
+
+    if not page:
+        out({"module_id": module_id, "type": "page", "name": name})
+        return
+
+    content_html = page.get("content", "")
+    content_text = html_to_text(content_html)
+    urls = extract_urls(content_html)
+
+    data = {"module_id": module_id, "type": "page", "name": clean(page.get("name", name)), "content": content_text}
+    if urls:
+        data["urls"] = urls
+
+    if _json_mode:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"[page] {data['name']}")
+        print(f"module_id: {module_id}")
+        if content_text:
+            print(f"\n{content_text}")
+        if urls:
+            print(f"\nURLs:")
+            for u in urls:
+                print(f"  {u}")
+
+
+def _view_book(module_id, instance, course_id, name):
+    books = call("mod_book_get_books_by_courses", **{f"courseids[0]": course_id})
+    book = None
+    for b in books.get("books", []):
+        if b["id"] == instance:
+            book = b
+            break
+
+    intro_text = html_to_text(book.get("intro", "")) if book else ""
+    data = {"module_id": module_id, "type": "book", "name": name, "description": intro_text}
+
+    sections = call("core_course_get_contents", courseid=course_id)
+    files = _find_module_files(sections, module_id)
+    if files:
+        data["files"] = files
+
+    if _json_mode:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"[book] {name}")
+        print(f"module_id: {module_id}")
+        if intro_text:
+            print(f"\n{intro_text}")
+        if files:
+            print(f"\nFiles:")
+            for f in files:
+                print(f"  {f['filename']}")
+
+
+def cmd_view_discussion(args):
+    """Read all posts in a forum discussion."""
+    disc_id = args.discussion_id
+    result = call("mod_forum_get_discussion_posts", discussionid=disc_id)
+    posts = result.get("posts", [])
+
+    if _json_mode:
+        rows = []
+        for p in posts:
+            msg_html = p.get("message", "")
+            rows.append({
+                "id": p.get("id"),
+                "author": p.get("author", {}).get("fullname", ""),
+                "date": ts(p.get("timecreated", 0)),
+                "subject": clean(p.get("subject", "")),
+                "message": html_to_text(msg_html),
+                "urls": extract_urls(msg_html),
+                "attachments": [
+                    {"filename": a["filename"], "fileurl": a.get("fileurl", ""), "filesize": a.get("filesize", 0)}
+                    for a in p.get("attachments", [])
+                ] if p.get("attachments") else [],
+            })
+        print(json.dumps({"discussion_id": disc_id, "posts": rows}, ensure_ascii=False, indent=2))
+    else:
+        for p in posts:
+            author = p.get("author", {}).get("fullname", "?")
+            date = ts(p.get("timecreated", 0))
+            subject = clean(p.get("subject", ""))
+            msg = html_to_text(p.get("message", ""))
+            urls = extract_urls(p.get("message", ""))
+
+            print(f"\n{'─'*60}")
+            print(f"  {subject}")
+            print(f"  {author}  |  {date}")
+            print(f"{'─'*60}")
+            if msg:
+                print(msg)
+            if urls:
+                print(f"\n  URLs:")
+                for u in urls:
+                    print(f"    {u}")
+            for a in p.get("attachments", []):
+                print(f"  Attachment: {a['filename']}")
+
+
+def cmd_announcements(args):
+    """Show announcements (Cac thong bao) for a course."""
+    course_id = args.course_id
+    sections = call("core_course_get_contents", courseid=course_id)
+
+    # Find the announcements forum — usually the first forum module
+    forum_id = None
+    forum_module_id = None
+    for section in sections:
+        for mod in section.get("modules", []):
+            if mod.get("modname") == "forum":
+                forum_module_id = mod["id"]
+                # Get instance ID from course module info
+                cm_info = call("core_course_get_course_module", cmid=mod["id"])
+                forum_id = cm_info.get("cm", {}).get("instance")
+                break
+        if forum_id:
+            break
+
+    if not forum_id:
+        die("No forum found in this course")
+
+    discussions = call("mod_forum_get_forum_discussions", forumid=forum_id)
+    discs = discussions.get("discussions", [])
+
+    limit = args.limit
+    if limit:
+        discs = discs[:limit]
+
+    if args.full and discs:
+        # Show full content of each discussion's first post
+        if _json_mode:
+            rows = []
+            for d in discs:
+                msg_html = d.get("message", "")
+                rows.append({
+                    "discussion_id": d["discussion"],
+                    "subject": clean(d.get("subject", "")),
+                    "author": d.get("userfullname", ""),
+                    "date": ts(d.get("timemodified", 0)),
+                    "message": html_to_text(msg_html),
+                    "urls": extract_urls(msg_html),
+                    "replies": d.get("numreplies", 0),
+                })
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+        else:
+            for d in discs:
+                subject = clean(d.get("subject", ""))
+                author = d.get("userfullname", "")
+                date = ts(d.get("timemodified", 0))
+                msg = html_to_text(d.get("message", ""))
+                urls = extract_urls(d.get("message", ""))
+                replies = d.get("numreplies", 0)
+
+                print(f"\n{'─'*60}")
+                print(f"  {subject}")
+                print(f"  {author}  |  {date}  |  {replies} replies")
+                print(f"  discussion_id: {d['discussion']}")
+                print(f"{'─'*60}")
+                if msg:
+                    print(msg)
+                if urls:
+                    print(f"\n  URLs:")
+                    for u in urls:
+                        print(f"    {u}")
+    else:
+        rows = []
+        for d in discs:
+            rows.append({
+                "id": d["discussion"],
+                "subject": clean(d.get("subject", "")),
+                "author": d.get("userfullname", ""),
+                "replies": d.get("numreplies", 0),
+                "date": ts(d.get("timemodified", 0)),
+            })
+        if _json_mode:
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+        else:
+            table(rows, [("id", "ID", 8), ("subject", "SUBJECT", 50), ("author", "AUTHOR", 20), ("replies", "RE", 4), ("date", "DATE", 18)])
+            if rows:
+                print(f"\nTip: uit announcements {course_id} --full  to read content")
+                print(f"     uit view-discussion <id>  to read a specific thread")
 
 
 def cmd_download(args):
@@ -163,8 +648,14 @@ def cmd_download(args):
     for section in sections:
         section_name = sanitize(section.get("name", "General"))
         for mod in section.get("modules", []):
+            # Filter by module if specified
+            if args.module and mod["id"] != args.module:
+                continue
             for f in mod.get("contents", []):
                 if f.get("type") != "file":
+                    continue
+                # Filter by filename if specified
+                if args.file and args.file.lower() not in f["filename"].lower():
                     continue
                 filepath = f.get("filepath", "/").strip("/")
                 dest = os.path.join(dest_root, section_name, filepath, f["filename"]) if filepath else os.path.join(dest_root, section_name, f["filename"])
@@ -327,7 +818,6 @@ def cmd_functions(args):
         print(f'(no functions matching "{query}")')
         return
 
-    # Group by module prefix
     groups: dict[str, list[str]] = {}
     for f in fns:
         parts = f["name"].split("_", 2)
@@ -356,8 +846,6 @@ def cmd_raw(args):
         result = call(args.function, **params)
     except RuntimeError as e:
         msg = str(e)
-        # Moodle returns parameter errors when you call with wrong/missing params.
-        # Surface them directly — they effectively document the function signature.
         hint = (
             "Moodle error messages reveal required parameters. "
             "Try calling with no params to see what's needed, "
@@ -371,18 +859,24 @@ def cmd_raw(args):
 
 WORKFLOW = """
 workflow:
-  uit courses --current             -> get course IDs
-  uit contents  <course_id>         -> browse modules and files
-  uit download  <course_id>         -> download all course files
-  uit deadlines                     -> get assignment IDs and due dates
-  uit grades    <course_id>         -> view grades
-  uit submit    <assign_id> <file>  -> submit to assignment
-  uit status    <assign_id>         -> check submission result
-  uit functions [keyword]           -> discover raw API functions
-  uit raw <function> key=value      -> call any Moodle API function
+  uit courses --current                -> get course IDs
+  uit contents  <course_id>            -> browse modules (shows module IDs)
+  uit view      <module_id>            -> inspect any module (type-aware)
+  uit download  <course_id>            -> download files (whole course or targeted)
+  uit announcements <course_id>        -> read course announcements
+  uit deadlines                        -> assignment IDs and due dates
+  uit grades    <course_id>            -> view grades
+  uit submit    <assign_id> <file>     -> submit to assignment
+  uit status    <assign_id>            -> check submission result
+  uit view-discussion <discussion_id>  -> read forum thread
+  uit functions [keyword]              -> discover 420+ raw API functions
+  uit raw <function> key=value         -> call any Moodle API function
 
-  ID chain: courses -> course_id -> contents/download/deadlines/grades
-            deadlines -> assign_id -> submit/status
+  ID chain: courses   -> course_id  -> contents / download / announcements / deadlines / grades
+            contents  -> module_id  -> view
+            view      -> assign_id  -> submit / status
+                      -> discussion_id -> view-discussion
+            deadlines -> assign_id  -> submit / status
 
   Use --json before any command for structured JSON output.
 """
@@ -408,13 +902,29 @@ def main():
     p.add_argument("--current", action="store_true", help="Current semester only")
 
     # contents
-    p = sub.add_parser("contents", help="Browse sections, modules, and files in a course")
+    p = sub.add_parser("contents", help="Browse course tree — sections, modules, files (outputs module IDs)")
     p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
 
+    # view
+    p = sub.add_parser("view", help="Inspect any module: assignment, forum, resource, lesson, quiz, ...")
+    p.add_argument("module_id", type=int, help="Module ID from 'uit contents'")
+
+    # view-discussion
+    p = sub.add_parser("view-discussion", help="Read all posts in a forum discussion")
+    p.add_argument("discussion_id", type=int, help="Discussion ID from 'uit view' on a forum or 'uit announcements'")
+
+    # announcements
+    p = sub.add_parser("announcements", help="Read course announcements (Cac thong bao)")
+    p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
+    p.add_argument("-n", "--limit", type=int, help="Show only the N most recent")
+    p.add_argument("--full", action="store_true", help="Show full message content, not just subjects")
+
     # download
-    p = sub.add_parser("download", help="Download all files from a course")
+    p = sub.add_parser("download", help="Download files from a course (all, or filtered)")
     p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
     p.add_argument("-o", "--output", default=".", help="Output directory (default: .)")
+    p.add_argument("--module", type=int, help="Only download from this module ID (from 'uit contents')")
+    p.add_argument("--file", help="Only download files matching this name (substring match)")
     p.add_argument("--force", action="store_true", help="Re-download existing files")
 
     # deadlines
@@ -424,12 +934,12 @@ def main():
 
     # submit
     p = sub.add_parser("submit", help="Upload and submit a file to an assignment")
-    p.add_argument("assign_id", type=int, help="Assignment ID from 'uit deadlines'")
+    p.add_argument("assign_id", type=int, help="Assignment ID from 'uit deadlines' or 'uit view'")
     p.add_argument("file", help="Path to file to submit")
 
     # status
     p = sub.add_parser("status", help="Check submission status and grade for an assignment")
-    p.add_argument("assign_id", type=int, help="Assignment ID from 'uit deadlines'")
+    p.add_argument("assign_id", type=int, help="Assignment ID from 'uit deadlines' or 'uit view'")
 
     # grades
     p = sub.add_parser("grades", help="Show grade report for a course")
@@ -456,6 +966,9 @@ def main():
         "init": cmd_init,
         "courses": cmd_courses,
         "contents": cmd_contents,
+        "view": cmd_view,
+        "view-discussion": cmd_view_discussion,
+        "announcements": cmd_announcements,
         "download": cmd_download,
         "deadlines": cmd_deadlines,
         "submit": cmd_submit,
@@ -470,7 +983,7 @@ def main():
         msg = str(e)
         hint = ""
         if "không truy cập" in msg or "not accessible" in msg.lower():
-            hint = "Check if the ID is correct. Use 'uit courses' for course IDs, 'uit deadlines' for assignment IDs."
+            hint = "Check if the ID is correct. Use 'uit courses' for course IDs, 'uit contents' for module IDs, 'uit deadlines' for assignment IDs."
         die(msg, hint)
     except KeyboardInterrupt:
         sys.exit(130)
