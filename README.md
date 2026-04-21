@@ -3,9 +3,12 @@
 </p>
 
 <p align="center">
-  A CLI for <a href="https://courses.uit.edu.vn">courses.uit.edu.vn</a> — the Moodle LMS at UIT (University of Information Technology, VNU-HCM).<br>
-  Navigate courses, read announcements, download materials, inspect assignments, submit work, and check grades — all from your terminal.<br>
-  Designed to be used by both humans and AI agents.
+  Access your UIT course materials faster — from your terminal or through AI agents.<br>
+  Download lectures, check deadlines, read announcements, submit assignments, and more.
+</p>
+
+<p align="center">
+  <code>pip install -e .</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>uit init &lt;token&gt;</code>&nbsp;&nbsp;and you're ready.
 </p>
 
 ## Setup
