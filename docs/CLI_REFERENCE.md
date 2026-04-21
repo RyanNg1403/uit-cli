@@ -128,7 +128,24 @@ Read all posts in a forum discussion thread. Shows author, date, message content
 uit view-discussion 77900
 ```
 
-Works on any forum discussion — announcements, course forums, or any discussion ID from a Moodle URL (`discuss.php?d=XXXXX`).
+Works on any forum discussion — announcements, course forums, or any discussion ID from a Moodle URL (`discuss.php?d=XXXXX`). Each post includes a **post ID** for use with `uit reply`.
+
+---
+
+## `uit reply <post_id> <message>`
+
+Reply to a forum post. The subject line defaults to `Re: <original subject>`.
+
+```bash
+uit reply 149187 "Thanks for sharing!"
+uit reply 149187 "See attached notes" -s "Custom subject line"
+```
+
+The `post_id` comes from `uit view-discussion`.
+
+| Flag | Description |
+|---|---|
+| `-s`, `--subject` | Custom subject line (default: `Re: <original subject>`) |
 
 ---
 

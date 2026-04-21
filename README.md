@@ -61,6 +61,7 @@ Works on macOS, Linux, and Windows.
 | Check submission status | `uit status <assign_id>` |
 | View grades | `uit grades <course_id>` |
 | Read a forum thread | `uit view-discussion <discussion_id>` |
+| Reply to a forum post | `uit reply <post_id> <message>` |
 | Discover raw API functions | `uit functions [keyword]` |
 | Call any Moodle API | `uit raw <function> key=value` |
 
@@ -71,6 +72,7 @@ courses   -> course_id  -> contents / download / announcements / deadlines / gra
 contents  -> module_id  -> view
 view      -> assign_id  -> submit / status
           -> discussion_id -> view-discussion
+view-discussion -> post_id -> reply
 deadlines -> assign_id  -> view / submit / status
 ```
 
@@ -123,6 +125,18 @@ uit view-discussion 77900            # read a specific forum thread
 | `UIT_TOKEN` | Moodle API token |
 | `UIT_BASE_URL` | Moodle instance URL (default: `https://courses.uit.edu.vn`) |
 | `UIT_USER_ID` | Your Moodle user ID (auto-detected by `uit init`) |
+
+---
+
+## Security and ethics
+
+This tool uses Moodle's official [Web Services API](https://moodledev.io/docs/apis/subsystems/external) — the same interface the Moodle Mobile app uses. It does not scrape, bypass authentication, or exploit any vulnerability. All data accessed is scoped to what your account already has permission to see through the web interface.
+
+**Your responsibilities:**
+
+- Keep your API token private — treat it like a password. Never commit `.env` files or share your token.
+- Rotate your token if you suspect it has been compromised (re-run the token URL to generate a new one).
+- This tool does not escalate privileges — it cannot access anything your account cannot access on the website.
 
 ---
 

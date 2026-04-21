@@ -565,9 +565,10 @@ def cmd_view_discussion(args):
             msg = html_to_text(p.get("message", ""))
             urls = extract_urls(p.get("message", ""))
 
+            post_id = p.get("id", "")
             print(f"\n{'─'*60}")
             print(f"  {subject}")
-            print(f"  {author}  |  {date}")
+            print(f"  {author}  |  {date}  |  post_id: {post_id}")
             print(f"{'─'*60}")
             if msg:
                 print(msg)
@@ -862,6 +863,34 @@ def cmd_functions(args):
     print("Tip: uit raw <function_name> key=value ... to call any function")
 
 
+def cmd_reply(args):
+    """Reply to a forum post."""
+    post_id = args.post_id
+    message = args.message
+    subject = args.subject
+
+    # Get the parent post to auto-fill subject if not provided
+    if not subject:
+        parent = call("mod_forum_get_discussion_post", postid=post_id)
+        parent_subject = parent.get("post", {}).get("subject", "")
+        subject = f"Re: {parent_subject}" if parent_subject else "Re:"
+
+    result = call(
+        "mod_forum_add_discussion_post",
+        postid=post_id,
+        subject=subject,
+        message=message,
+    )
+
+    data = {
+        "status": "posted",
+        "post_id": result.get("postid", ""),
+        "parent_post_id": post_id,
+        "subject": subject,
+    }
+    out(data)
+
+
 def cmd_raw(args):
     """Call any Moodle API function directly."""
     params = {}
@@ -911,7 +940,8 @@ workflow:
   uit grades    <course_id>            -> view grades
   uit submit    <assign_id> <file>     -> submit to assignment
   uit status    <assign_id>            -> check submission result
-  uit view-discussion <discussion_id>  -> read forum thread
+  uit view-discussion <discussion_id>  -> read forum thread (shows post IDs)
+  uit reply     <post_id> <message>    -> reply to a forum post
   uit functions [keyword]              -> discover 420+ raw API functions
   uit raw <function> key=value         -> call any Moodle API function
 
@@ -919,6 +949,7 @@ workflow:
             contents  -> module_id  -> view
             view      -> assign_id  -> submit / status
                       -> discussion_id -> view-discussion
+            view-discussion -> post_id -> reply
             deadlines -> assign_id  -> view / submit / status
 
   Use --json before any command for structured JSON output.
@@ -984,6 +1015,12 @@ def main():
     p = sub.add_parser("status", help="Check submission status and grade for an assignment")
     p.add_argument("assign_id", type=int, help="Assignment ID from 'uit deadlines' or 'uit view'")
 
+    # reply
+    p = sub.add_parser("reply", help="Reply to a forum post")
+    p.add_argument("post_id", type=int, help="Post ID from 'uit view-discussion'")
+    p.add_argument("message", help="Reply message text")
+    p.add_argument("-s", "--subject", help="Subject line (default: Re: <original subject>)")
+
     # grades
     p = sub.add_parser("grades", help="Show grade report for a course")
     p.add_argument("course_id", type=int, help="Course ID from 'uit courses'")
@@ -1030,6 +1067,7 @@ def main():
         "deadlines": cmd_deadlines,
         "submit": cmd_submit,
         "status": cmd_status,
+        "reply": cmd_reply,
         "grades": cmd_grades,
         "functions": cmd_functions,
         "raw": cmd_raw,
