@@ -60,8 +60,11 @@ def table(rows: list[dict], columns: list[tuple[str, str, int]]):
     print("-" * len(header))
     for row in rows:
         parts = []
-        for key, _, w in columns:
+        for i, (key, _, w) in enumerate(columns):
             val = str(row.get(key, ""))
+            is_last = i == len(columns) - 1
+            if not is_last and len(val) > w:
+                val = val[:w - 1] + "…"
             parts.append(val.ljust(w))
         print("  ".join(parts))
 
@@ -181,11 +184,34 @@ def cmd_contents(args):
                 print(f"                          -> {f['filename']}  ({size_str})")
 
 
+def _resolve_assign_to_module(assign_id):
+    """Try to find the module ID (cmid) for an assign_id."""
+    courses = call("core_enrol_get_users_courses", userid=get("user_id"))
+    course_ids = [c["id"] for c in courses]
+    params = {f"courseids[{i}]": cid for i, cid in enumerate(course_ids)}
+    result = call("mod_assign_get_assignments", **params)
+    for course in result.get("courses", []):
+        for a in course.get("assignments", []):
+            if a["id"] == assign_id:
+                return a["cmid"]
+    return None
+
+
 def cmd_view(args):
-    """Inspect any module by its ID. Type-aware: shows the right details."""
+    """Inspect any module by its ID. Also accepts assign_id from 'uit deadlines'."""
     module_id = args.module_id
     # Resolve module type and instance
-    info = call("core_course_get_course_module", cmid=module_id)
+    try:
+        info = call("core_course_get_course_module", cmid=module_id)
+    except RuntimeError:
+        # Maybe it's an assign_id — try to resolve to module_id
+        cmid = _resolve_assign_to_module(module_id)
+        if cmid:
+            module_id = cmid
+            info = call("core_course_get_course_module", cmid=module_id)
+        else:
+            die(f"ID {args.module_id} is not a valid module ID or assignment ID.",
+                "Use 'uit contents <course_id>' for module IDs, 'uit deadlines' for assignment IDs.")
     cm = info.get("cm", {})
     modname = cm.get("modname", "")
     instance = cm.get("instance")
@@ -878,7 +904,7 @@ WORKFLOW = """
 workflow:
   uit courses --current                -> get course IDs
   uit contents  <course_id>            -> browse modules (shows module IDs)
-  uit view      <module_id>            -> inspect any module (type-aware)
+  uit view      <id>                   -> inspect any module (accepts module_id or assign_id)
   uit download  <course_id>            -> download files (whole course or targeted)
   uit announcements <course_id>        -> read course announcements
   uit deadlines                        -> assignment IDs and due dates
@@ -893,7 +919,7 @@ workflow:
             contents  -> module_id  -> view
             view      -> assign_id  -> submit / status
                       -> discussion_id -> view-discussion
-            deadlines -> assign_id  -> submit / status
+            deadlines -> assign_id  -> view / submit / status
 
   Use --json before any command for structured JSON output.
 """
@@ -924,7 +950,7 @@ def main():
 
     # view
     p = sub.add_parser("view", help="Inspect any module: assignment, forum, resource, lesson, quiz, ...")
-    p.add_argument("module_id", type=int, help="Module ID from 'uit contents'")
+    p.add_argument("module_id", type=int, help="Module ID from 'uit contents', or assignment ID from 'uit deadlines'")
 
     # view-discussion
     p = sub.add_parser("view-discussion", help="Read all posts in a forum discussion")

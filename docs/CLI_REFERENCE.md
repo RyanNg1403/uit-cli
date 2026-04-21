@@ -73,12 +73,13 @@ The left column is the **module ID** — pass it to `uit view`.
 
 ---
 
-## `uit view <module_id>`
+## `uit view <id>`
 
-Inspect any module. Type-aware — shows different details based on the module type.
+Inspect any module. Type-aware — shows different details based on the module type. Accepts a **module ID** (from `uit contents`) or an **assignment ID** (from `uit deadlines`).
 
 ```bash
-uit view 428837    # assignment
+uit view 428837    # module_id from 'uit contents'
+uit view 50664     # assign_id from 'uit deadlines' — also works
 uit view 432640    # lesson
 uit view 423056    # forum
 uit view 427868    # folder

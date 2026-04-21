@@ -53,7 +53,7 @@ Works on macOS, Linux, and Windows.
 |---|---|
 | List your courses | `uit courses --current` |
 | Browse course contents | `uit contents <course_id>` |
-| Inspect any module | `uit view <module_id>` |
+| Inspect any module | `uit view <id>` |
 | Read announcements | `uit announcements <course_id>` |
 | Download materials | `uit download <course_id>` |
 | Check deadlines | `uit deadlines` |
@@ -67,10 +67,11 @@ Works on macOS, Linux, and Windows.
 IDs flow between commands:
 
 ```
-courses  -> course_id  -> contents / download / announcements / deadlines / grades
-contents -> module_id  -> view
-view     -> assign_id  -> submit / status
-         -> discussion_id -> view-discussion
+courses   -> course_id  -> contents / download / announcements / deadlines / grades
+contents  -> module_id  -> view
+view      -> assign_id  -> submit / status
+          -> discussion_id -> view-discussion
+deadlines -> assign_id  -> view / submit / status
 ```
 
 For flags, output formats, and detailed behavior of each command, see the [CLI Reference](docs/CLI_REFERENCE.md).
