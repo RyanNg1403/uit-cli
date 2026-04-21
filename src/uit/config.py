@@ -81,5 +81,6 @@ def save(token: str, user_id: int, base_url: str):
         f.write(f'UIT_TOKEN="{token}"\n')
         f.write(f'UIT_BASE_URL="{base_url}"\n')
         f.write(f"UIT_USER_ID={user_id}\n")
-    os.chmod(path, 0o600)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
     print(f"Saved to {path}", file=sys.stderr)

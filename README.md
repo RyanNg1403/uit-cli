@@ -15,6 +15,17 @@ git clone <repo-url> && cd uit-cli
 pip install -e .
 ```
 
+If `uit` isn't found after install, Python's script directory isn't on your PATH:
+
+```bash
+# macOS / Linux — add to ~/.zshrc or ~/.bashrc
+export PATH="$(python3 -m site --user-base)/bin:$PATH"
+
+# Windows (PowerShell)
+# pip usually installs to %APPDATA%\Python\PythonXX\Scripts, which may already be on PATH.
+# If not, run: pip install -e . --user  and add the Scripts directory to PATH.
+```
+
 Get your API token by visiting (in a browser, while logged in):
 
 ```
@@ -27,7 +38,9 @@ Initialize:
 uit init <your-token>
 ```
 
-Credentials are saved to `~/.uit/.env` (chmod 600). You can also place a `.env` file in your project directory — it takes precedence. See `.env.example` for the format.
+Credentials are saved to `~/.uit/.env`. You can also place a `.env` file in your project directory — it takes precedence. See `.env.example` for the format.
+
+Works on macOS, Linux, and Windows.
 
 ## Workflow
 
