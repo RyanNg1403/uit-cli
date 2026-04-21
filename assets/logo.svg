@@ -4,7 +4,6 @@
       .bg { fill: #1a1b26; }
       .crest { fill: #5b9cf5; font-family: monospace; font-size: 14px; letter-spacing: 0.05em; }
       .uit { fill: #56d6d6; font-family: monospace; font-size: 19px; font-weight: bold; letter-spacing: 0.05em; }
-      .ver { fill: #565a6e; font-family: monospace; font-size: 16px; }
     </style>
   </defs>
   <rect class="bg" width="750" height="210" rx="10"/>
@@ -27,6 +26,4 @@
   <text class="uit" xml:space="preserve" x="290" y="118">██║   ██║██║   ██║</text>
   <text class="uit" xml:space="preserve" x="290" y="140">╚██████╔╝██║   ██║</text>
   <text class="uit" xml:space="preserve" x="290" y="162"> ╚═════╝ ╚═╝   ╚═╝</text>
-  <!-- Version -->
-  <text class="ver" xml:space="preserve" x="530" y="185">v0.1.0</text>
 </svg>
