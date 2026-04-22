@@ -214,6 +214,52 @@ Assignments with no due date show an empty DUE column but are still listed.
 
 ---
 
+## `uit events`
+
+List upcoming events across all courses — assignments, quizzes, calendar events, and more. A superset of `uit deadlines` that includes non-assignment events.
+
+```bash
+uit events                           # next 20 upcoming events
+uit events -n 50                     # next 50
+uit events --course-id 19207         # filter to one course
+```
+
+| Flag | Description |
+|---|---|
+| `-n`, `--limit` | Max events to show (default: 20) |
+| `--course-id` | Filter to a specific course ID or URL |
+
+**Output columns:** DUE, TYPE, COURSE, EVENT
+
+Uses Moodle's calendar API (`core_calendar_get_action_events_by_timesort`) under the hood.
+
+**JSON mode** includes additional fields: `url`, `instance`.
+
+---
+
+## `uit open <id>`
+
+Open a Moodle page in the default browser. Accepts module IDs, assignment IDs, or Moodle URLs.
+
+```bash
+uit open 428837                      # module ID — resolves type automatically
+uit open 101617                      # assign ID — also works (falls back)
+uit open --course 19207              # course page
+uit open --discussion 77900          # discussion thread
+uit open 'https://courses.uit.edu.vn/mod/assign/view.php?id=428837'   # URL — opens directly
+```
+
+| Flag | Description |
+|---|---|
+| `--course` | Treat the ID as a course ID |
+| `--discussion` | Treat the ID as a discussion ID |
+
+By default, the ID is treated as a module ID (cmid). If that fails, the CLI tries to resolve it as an assignment ID. Use flags to specify other ID types.
+
+**JSON mode** returns `{"url": "...", "id": ...}` without opening the browser.
+
+---
+
 ## `uit submit <assign_id> <file>`
 
 Upload a file and submit it to an assignment. Shows confirmation with submission status.

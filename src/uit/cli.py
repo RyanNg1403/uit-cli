@@ -880,6 +880,90 @@ def cmd_grades(args):
         table(rows, [("item", "ITEM", 50), ("grade", "GRADE", 10), ("max", "MAX", 6), ("percentage", "%", 10)])
 
 
+def cmd_events(args):
+    """List upcoming events across all courses — assignments, quizzes, and more."""
+    loading("Loading events...")
+    now = int(datetime.now().timestamp())
+    result = call("core_calendar_get_action_events_by_timesort",
+                  timesortfrom=now, limitnum=args.limit)
+    events = result.get("events", [])
+
+    if args.course_id:
+        events = [e for e in events
+                  if isinstance(e.get("course"), dict)
+                  and e["course"].get("id") == args.course_id]
+
+    rows = []
+    for e in events:
+        course = e.get("course") or {}
+        rows.append({
+            "time": ts(e.get("timesort", 0)),
+            "type": e.get("modulename", e.get("eventtype", "?")),
+            "course": course.get("shortname", "") if isinstance(course, dict) else "",
+            "name": clean(e.get("name", "")),
+            "url": e.get("url", ""),
+            "instance": e.get("instance", ""),
+        })
+
+    if _json_mode:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    else:
+        table(rows, [("time", "DUE", 18), ("type", "TYPE", 10),
+                      ("course", "COURSE", 16), ("name", "EVENT", 40)])
+
+
+def cmd_open(args):
+    """Open a Moodle page in the default browser."""
+    import webbrowser
+    base = get("base_url")
+    raw = args.id
+
+    # If it's a URL, open directly
+    parsed = urlparse(raw.strip())
+    if parsed.scheme and parsed.netloc:
+        url = raw.strip()
+        if _json_mode:
+            print(json.dumps({"url": url}, ensure_ascii=False, indent=2))
+        else:
+            print(url)
+            webbrowser.open(url)
+        return
+
+    try:
+        id_val = int(raw)
+    except ValueError:
+        die(f"Expected an integer ID or Moodle URL, got: {raw}")
+        return
+
+    if args.course:
+        url = f"{base}/course/view.php?id={id_val}"
+    elif args.discussion:
+        url = f"{base}/mod/forum/discuss.php?d={id_val}"
+    else:
+        # Default: try as module ID (cmid), fall back to assign_id
+        try:
+            loading("Resolving module...")
+            info = call("core_course_get_course_module", cmid=id_val)
+            modname = info.get("cm", {}).get("modname", "")
+            url = f"{base}/mod/{modname}/view.php?id={id_val}"
+        except RuntimeError:
+            cmid = _resolve_assign_to_module(id_val)
+            if cmid:
+                info = call("core_course_get_course_module", cmid=cmid)
+                modname = info.get("cm", {}).get("modname", "assign")
+                url = f"{base}/mod/{modname}/view.php?id={cmid}"
+            else:
+                die(f"Could not resolve ID {id_val}.",
+                    "Use --course for course IDs, --discussion for discussion IDs.")
+                return
+
+    if _json_mode:
+        print(json.dumps({"url": url, "id": id_val}, ensure_ascii=False, indent=2))
+    else:
+        print(url)
+        webbrowser.open(url)
+
+
 def cmd_functions(args):
     """List and search available Moodle API functions."""
     loading("Loading functions...")
@@ -991,11 +1075,13 @@ workflow:
   uit download  <course_id>            -> download files (whole course or targeted)
   uit announcements <course_id>        -> read course announcements
   uit deadlines                        -> assignment IDs and due dates
+  uit events                           -> upcoming events: assignments, quizzes, more
   uit grades    <course_id>            -> view grades
   uit submit    <assign_id> <file>     -> submit to assignment
   uit status    <assign_id>            -> check submission result
   uit view-discussion <discussion_id>  -> read forum thread (shows post IDs)
   uit reply     <post_id> <message>    -> reply to a forum post
+  uit open      <id>                   -> open in browser (module, course, or URL)
   uit functions [keyword]              -> discover 420+ raw API functions
   uit raw <function> key=value         -> call any Moodle API function
 
@@ -1079,6 +1165,17 @@ def main():
     p = sub.add_parser("grades", help="Show grade report for a course")
     p.add_argument("course_id", type=_id_or_url, help="Course ID or course URL")
 
+    # events
+    p = sub.add_parser("events", help="Upcoming events — assignments, quizzes, calendar (superset of deadlines)")
+    p.add_argument("-n", "--limit", type=int, default=20, help="Max events to show (default: 20)")
+    p.add_argument("--course-id", type=_id_or_url, help="Filter to one course")
+
+    # open
+    p = sub.add_parser("open", help="Open a Moodle page in the default browser")
+    p.add_argument("id", help="Module ID, assignment ID, or Moodle URL")
+    p.add_argument("--course", action="store_true", help="Treat ID as a course ID")
+    p.add_argument("--discussion", action="store_true", help="Treat ID as a discussion ID")
+
     # functions
     p = sub.add_parser("functions", help="List/search available Moodle API functions (420+)")
     p.add_argument("query", nargs="?", default="", help="Filter by keyword, e.g. 'assign', 'quiz', 'forum'")
@@ -1102,6 +1199,8 @@ def main():
             print("  \033[1mAnnouncements:\033[0m  uit announcements <course_id>")
             print("  \033[1mDownload:\033[0m       uit download <course_id>")
             print("  \033[1mDeadlines:\033[0m      uit deadlines")
+            print("  \033[1mUpcoming:\033[0m       uit events")
+            print("  \033[1mOpen:\033[0m           uit open <id>")
             print()
             print("  \033[2muit --help for all commands and the full workflow diagram\033[0m")
             print()
@@ -1123,6 +1222,8 @@ def main():
         "status": cmd_status,
         "reply": cmd_reply,
         "grades": cmd_grades,
+        "events": cmd_events,
+        "open": cmd_open,
         "functions": cmd_functions,
         "raw": cmd_raw,
     }[args.command]

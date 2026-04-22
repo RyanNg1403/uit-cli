@@ -58,11 +58,13 @@ Works on macOS, Linux, and Windows.
 | Read announcements | `uit announcements <course_id>` |
 | Download materials | `uit download <course_id>` |
 | Check deadlines | `uit deadlines` |
+| See upcoming events | `uit events` |
 | Submit an assignment | `uit submit <assign_id> <file>` |
 | Check submission status | `uit status <assign_id>` |
 | View grades | `uit grades <course_id>` |
 | Read a forum thread | `uit view-discussion <discussion_id>` |
 | Reply to a forum post | `uit reply <post_id> <message>` |
+| Open in browser | `uit open <id>` |
 | Discover raw API functions | `uit functions [keyword]` |
 | Call any Moodle API | `uit raw <function> key=value` |
 
@@ -83,23 +85,38 @@ For flags, output formats, and detailed behavior of each command, see the [CLI R
 
 ## Examples
 
-**Browse and drill down into a course:**
+<details>
+<summary>Browse and drill down into a course</summary>
 
 ```bash
 uit contents 19207                   # see sections, modules, files
 uit view 428837                      # inspect an assignment — shows description, due date, status
 uit view 432640                      # inspect a lesson — shows instructions, URLs
 ```
+</details>
 
-**Download materials:**
+<details>
+<summary>Download materials</summary>
 
 ```bash
 uit download 19207                   # everything in the course
 uit download 19207 --module 428955   # one specific module
 uit download 19207 --file "Crypto"   # files matching a name
 ```
+</details>
 
-**Assignment workflow:**
+<details>
+<summary>See everything that's coming up</summary>
+
+```bash
+uit events                           # assignments, quizzes, calendar events
+uit events -n 50                     # more events
+uit events --course-id 19207         # filter to one course
+```
+</details>
+
+<details>
+<summary>Assignment workflow</summary>
 
 ```bash
 uit deadlines                        # what's due?
@@ -107,21 +124,36 @@ uit view 428837                      # read the assignment description
 uit submit 101617 ./report.pdf       # submit
 uit status 101617                    # check result
 ```
+</details>
 
-**Stay updated:**
+<details>
+<summary>Stay updated</summary>
 
 ```bash
 uit announcements 19438 --full       # read announcements with full content
 uit view-discussion 77900            # read a specific forum thread
 ```
+</details>
 
-**Paste Moodle URLs directly — no need to extract IDs:**
+<details>
+<summary>Jump to browser from any ID</summary>
+
+```bash
+uit open 428837                      # opens the module page
+uit open --course 19207              # opens the course page
+uit open --discussion 77900          # opens the discussion thread
+```
+</details>
+
+<details>
+<summary>Paste Moodle URLs directly — no need to extract IDs</summary>
 
 ```bash
 uit view 'https://courses.uit.edu.vn/mod/assign/view.php?id=428837'
 uit contents 'https://courses.uit.edu.vn/course/view.php?id=19207'
 uit view-discussion 'https://courses.uit.edu.vn/mod/forum/discuss.php?d=77900'
 ```
+</details>
 
 ---
 
