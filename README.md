@@ -12,6 +12,10 @@
   <code>pip install -e .</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>uit init &lt;token&gt;</code>&nbsp;&nbsp;and you're ready.
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="uit-cli demo" width="780">
+</p>
+
 ---
 
 ## Quick start
