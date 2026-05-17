@@ -3,12 +3,12 @@ import { basename, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 import { defaultApiClient } from "./api.js";
 import { get, save } from "./config.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 import {
   clean,
-  CliError,
   die,
   extractUrls,
   htmlToText,
@@ -75,50 +75,26 @@ async function promptText(label: string): Promise<string> {
 
 async function promptPassword(label: string): Promise<string> {
   if (!process.stdin.isTTY) die("Cannot prompt for credentials without an interactive terminal.");
-  const input = process.stdin;
-  const wasRaw = input.isRaw;
+  process.stderr.write(label);
+  const mutedOutput = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    }
+  }) as Writable & { isTTY?: boolean; columns?: number };
+  mutedOutput.isTTY = true;
+  mutedOutput.columns = process.stderr.columns || 80;
 
-  return new Promise((resolve, reject) => {
-    let value = "";
-
-    const cleanup = (): void => {
-      input.off("data", onData);
-      if (input.isTTY) input.setRawMode(wasRaw);
-      input.pause();
-    };
-
-    const finish = (): void => {
-      cleanup();
-      process.stderr.write("\n");
-      resolve(value);
-    };
-
-    const onData = (chunk: Buffer): void => {
-      const text = chunk.toString("utf8");
-      for (const char of text) {
-        if (char === "\u0003") {
-          cleanup();
-          process.stderr.write("\n");
-          reject(new CliError("Interrupted", "", 130));
-          return;
-        }
-        if (char === "\r" || char === "\n") {
-          finish();
-          return;
-        }
-        if (char === "\u007f" || char === "\b") {
-          value = value.slice(0, -1);
-          continue;
-        }
-        value += char;
-      }
-    };
-
-    process.stderr.write(label);
-    input.setRawMode(true);
-    input.resume();
-    input.on("data", onData);
+  const rl = createInterface({
+    input: process.stdin,
+    output: mutedOutput,
+    terminal: true
   });
+  try {
+    return await rl.question("");
+  } finally {
+    rl.close();
+    process.stderr.write("\n");
+  }
 }
 
 async function resolveInitToken(args: { token?: string; username?: string; password?: string }, baseUrl: string): Promise<string> {
