@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <code>npm install</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>npm link</code>&nbsp;&nbsp;and&nbsp;&nbsp;<code>uit init &lt;token&gt;</code>.
+  <code>npm install</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>npm link</code>&nbsp;&nbsp;and&nbsp;&nbsp;<code>uit init</code>.
 </p>
 
 <p align="center">
@@ -27,11 +27,7 @@ npm run build
 npm link
 ```
 
-Get your token by visiting (in a browser, while logged in):
-
-```
-https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
-```
+Initialize the CLI and sign in when prompted:
 
 ```bash
 uit init                    # prompts for student ID/password and stores a Moodle token
@@ -40,6 +36,12 @@ uit courses --current       # verify it works
 
 <details>
 <summary>Prefer pasting a token manually?</summary>
+
+Get your token by visiting this URL in a browser while logged in:
+
+```
+https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
+```
 
 ```bash
 uit init --token <your-token>
