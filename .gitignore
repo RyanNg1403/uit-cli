@@ -5,5 +5,7 @@ dist/
 build/
 .eggs/
 *.pyc
+node_modules/
+coverage/
 .env
 .uit.json

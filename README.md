@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <code>pip install -e .</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>uit init &lt;token&gt;</code>&nbsp;&nbsp;and you're ready.
+  <code>npm install</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>npm link</code>&nbsp;&nbsp;and&nbsp;&nbsp;<code>uit init &lt;token&gt;</code>.
 </p>
 
 <p align="center">
@@ -22,7 +22,9 @@
 
 ```bash
 git clone <repo-url> && cd uit-cli
-pip install -e .
+npm install
+npm run build
+npm link
 ```
 
 Get your token by visiting (in a browser, while logged in):
@@ -32,23 +34,33 @@ https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOU
 ```
 
 ```bash
-uit init <your-token>
+uit init                    # prompts for student ID/password and stores a Moodle token
 uit courses --current       # verify it works
 ```
+
+<details>
+<summary>Prefer pasting a token manually?</summary>
+
+```bash
+uit init --token <your-token>
+# Positional token form is still supported:
+# uit init <your-token>
+```
+</details>
 
 <details>
 <summary><code>uit</code> not found? Fix your PATH</summary>
 
 ```bash
-# macOS / Linux — add to ~/.zshrc or ~/.bashrc
-export PATH="$(python3 -m site --user-base)/bin:$PATH"
+# For local development, link the package globally:
+npm link
 
-# Windows — pip usually handles this. If not:
-# pip install -e . --user  and add %APPDATA%\Python\PythonXX\Scripts to PATH.
+# Or run without linking:
+npm run dev -- courses --current
 ```
 </details>
 
-Works on macOS, Linux, and Windows.
+Requires Node.js 20 or newer. Works on macOS, Linux, and Windows.
 
 ---
 
@@ -165,11 +177,23 @@ uit view-discussion 'https://courses.uit.edu.vn/mod/forum/discuss.php?d=77900'
 
 `uit init` saves credentials to `~/.uit/.env`. You can also place a `.env` file in your project directory (takes precedence). See `.env.example`.
 
+By default, `uit init` prompts for your student ID and password, requests a Moodle Mobile web-service token from `/login/token.php`, and stores only the returned token. If you already have a token, use `uit init --token <token>`. The older positional form, `uit init <token>`, still works.
+
 | Variable | Description |
 |---|---|
 | `UIT_TOKEN` | Moodle API token |
 | `UIT_BASE_URL` | Moodle instance URL (default: `https://courses.uit.edu.vn`) |
 | `UIT_USER_ID` | Your Moodle user ID (auto-detected by `uit init`) |
+
+## Development
+
+```bash
+npm run build       # compile TypeScript into dist/
+npm test            # run the regression suite
+npm run typecheck   # type-check without emitting files
+```
+
+The npm package exposes the `uit` binary from `dist/cli.js`.
 
 ---
 
