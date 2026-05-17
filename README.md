@@ -34,6 +34,8 @@ uit init                    # prompts for student ID/password and stores a Moodl
 uit courses --current       # verify it works
 ```
 
+`uit init` uses your password once to request a Moodle Mobile web-service token. The password is not saved; only the returned token is written to `~/.uit/.env`.
+
 <details>
 <summary>Prefer pasting a token manually?</summary>
 
@@ -206,7 +208,8 @@ This tool uses Moodle's official [Web Services API](https://moodledev.io/docs/ap
 **Your responsibilities:**
 
 - Keep your API token private — treat it like a password. Never commit `.env` files or share your token.
-- Rotate your token if you suspect it has been compromised (re-run the token URL to generate a new one).
+- Rotate your token if you suspect it has been compromised by running `uit init` again.
+- Prefer the interactive `uit init` prompt over `uit init --password ...`; command-line passwords can be saved in shell history.
 - This tool does not escalate privileges — it cannot access anything your account cannot access on the website.
 
 ---

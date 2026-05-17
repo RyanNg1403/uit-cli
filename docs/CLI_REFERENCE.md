@@ -47,12 +47,14 @@ For non-interactive setup:
 uit init --username YOUR_STUDENT_ID --password YOUR_PASSWORD
 ```
 
+Prefer the interactive prompt for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the returned Moodle token.
+
 Get your token:
 ```
 https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
 ```
 
-Saves to `~/.uit/.env` (chmod 600 on Unix). A `.env` file in the working directory takes precedence.
+Saves to `~/.uit/.env` (chmod 600 on Unix). A `.env` file in the working directory takes precedence. Re-run `uit init` to refresh or rotate the stored token.
 
 ---
 
