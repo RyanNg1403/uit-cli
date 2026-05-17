@@ -176,6 +176,19 @@ npm run typecheck   # type-check without emitting files
 
 The npm package exposes the `uit` binary from `dist/cli.js`.
 
+## Releasing
+
+Releases are tag-driven. After changes are merged to `main`:
+
+```bash
+git switch main
+git pull origin main
+npm version patch   # or minor / major
+git push origin main --follow-tags
+```
+
+Pushing the `v*` tag runs GitHub Actions, publishes to npm, and creates a GitHub Release. The repository must have an npm automation token saved as the `NPM_TOKEN` GitHub secret.
+
 ---
 
 ## Security and ethics
