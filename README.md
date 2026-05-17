@@ -21,7 +21,7 @@
 ## Quick start
 
 ```bash
-git clone <repo-url> && cd uit-cli
+git clone https://github.com/RyanNg1403/uit-cli.git && cd uit-cli
 npm install
 npm run build
 npm link
