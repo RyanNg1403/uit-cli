@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <code>pip install -e .</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>uit init &lt;token&gt;</code>&nbsp;&nbsp;and you're ready.
+  <code>npm install -g uit-cli</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>uit init</code>.
 </p>
 
 <p align="center">
@@ -21,58 +21,50 @@
 ## Quick start
 
 ```bash
-git clone <repo-url> && cd uit-cli
-pip install -e .
+npm install -g uit-cli
+uit init                    # prompts for student ID/password and stores a Moodle token locally
+uit courses --current       # verify it works
 ```
 
-Get your token by visiting (in a browser, while logged in):
+`uit init` uses your password once to request a Moodle Mobile web-service token. The password is not saved; only the returned token is written to `~/.uit/.env` on your machine.
+
+Nothing is sent to any third-party server. Credentials and tokens stay local; the CLI talks directly from your machine to the Moodle server configured by `UIT_BASE_URL`.
+
+<details>
+<summary>Prefer pasting a token manually?</summary>
+
+Get your token by visiting this URL in a browser while logged in:
 
 ```
 https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
 ```
 
 ```bash
-uit init <your-token>
-uit courses --current       # verify it works
-```
-
-<details>
-<summary><code>uit</code> not found? Fix your PATH</summary>
-
-```bash
-# macOS / Linux — add to ~/.zshrc or ~/.bashrc
-export PATH="$(python3 -m site --user-base)/bin:$PATH"
-
-# Windows — pip usually handles this. If not:
-# pip install -e . --user  and add %APPDATA%\Python\PythonXX\Scripts to PATH.
+uit init --token <your-token>
+# Positional token form is still supported:
+# uit init <your-token>
 ```
 </details>
 
-Works on macOS, Linux, and Windows.
+<details>
+<summary>Build from source</summary>
+
+```bash
+git clone https://github.com/RyanNg1403/uit-cli.git && cd uit-cli
+npm install
+npm run build
+npm link
+
+# Or run without linking globally:
+npm run dev -- courses --current
+```
+</details>
+
+Requires Node.js 20 or newer. Works on macOS, Linux, and Windows.
 
 ---
 
-## What can it do?
-
-| Task | Command |
-|---|---|
-| List your courses | `uit courses --current` |
-| Browse course contents | `uit contents <course_id>` |
-| Inspect any module | `uit view <id>` |
-| Read announcements | `uit announcements <course_id>` |
-| Download materials | `uit download <course_id>` |
-| Check deadlines | `uit deadlines` |
-| See upcoming events | `uit events` |
-| Submit an assignment | `uit submit <assign_id> <file>` |
-| Check submission status | `uit status <assign_id>` |
-| View grades | `uit grades <course_id>` |
-| Read a forum thread | `uit view-discussion <discussion_id>` |
-| Reply to a forum post | `uit reply <post_id> <message>` |
-| Open in browser | `uit open <id>` |
-| Discover raw API functions | `uit functions [keyword]` |
-| Call any Moodle API | `uit raw <function> key=value` |
-
-IDs flow between commands:
+## How IDs Flow
 
 ```
 courses   -> course_id  -> contents / download / announcements / deadlines / grades
@@ -89,6 +81,13 @@ For flags, output formats, and detailed behavior of each command, see the [CLI R
 
 ## Examples
 
+For every command, add `--json` before the command name to get structured output:
+
+```bash
+uit --json courses --current
+uit --json view 428837
+```
+
 <details>
 <summary>Browse and drill down into a course</summary>
 
@@ -100,7 +99,7 @@ uit view 432640                      # inspect a lesson — shows instructions, 
 </details>
 
 <details>
-<summary>Download materials</summary>
+<summary>Download course materials</summary>
 
 ```bash
 uit download 19207                   # everything in the course
@@ -110,7 +109,7 @@ uit download 19207 --file "Crypto"   # files matching a name
 </details>
 
 <details>
-<summary>See everything that's coming up</summary>
+<summary>See upcoming work</summary>
 
 ```bash
 uit events                           # assignments, quizzes, calendar events
@@ -131,7 +130,7 @@ uit status 101617                    # check result
 </details>
 
 <details>
-<summary>Stay updated</summary>
+<summary>Read announcements and forum threads</summary>
 
 ```bash
 uit announcements 19438 --full       # read announcements with full content
@@ -165,11 +164,30 @@ uit view-discussion 'https://courses.uit.edu.vn/mod/forum/discuss.php?d=77900'
 
 `uit init` saves credentials to `~/.uit/.env`. You can also place a `.env` file in your project directory (takes precedence). See `.env.example`.
 
-| Variable | Description |
-|---|---|
-| `UIT_TOKEN` | Moodle API token |
-| `UIT_BASE_URL` | Moodle instance URL (default: `https://courses.uit.edu.vn`) |
-| `UIT_USER_ID` | Your Moodle user ID (auto-detected by `uit init`) |
+By default, `uit init` prompts for your student ID and password, requests a Moodle Mobile web-service token from `/login/token.php`, and stores only the returned token. If you already have a token, use `uit init --token <token>`. The older positional form, `uit init <token>`, still works.
+
+## Development
+
+```bash
+npm run build       # compile TypeScript into dist/
+npm test            # run the regression suite
+npm run typecheck   # type-check without emitting files
+```
+
+The npm package exposes the `uit` binary from `dist/cli.js`.
+
+## Releasing
+
+Releases are tag-driven. After changes are merged to `main`:
+
+```bash
+git switch main
+git pull origin main
+npm version patch   # or minor / major
+git push origin main --follow-tags
+```
+
+Pushing the `v*` tag runs GitHub Actions, publishes to npm, and creates a GitHub Release. The repository must have an npm automation token saved as the `NPM_TOKEN` GitHub secret.
 
 ---
 
@@ -177,10 +195,11 @@ uit view-discussion 'https://courses.uit.edu.vn/mod/forum/discuss.php?d=77900'
 
 This tool uses Moodle's official [Web Services API](https://moodledev.io/docs/apis/subsystems/external) — the same interface the Moodle Mobile app uses. It does not scrape, bypass authentication, or exploit any vulnerability. All data accessed is scoped to what your account already has permission to see through the web interface.
 
-**Your responsibilities:**
+UIT-CLI has no backend service. Your student ID, password, Moodle token, downloaded files, and submitted files stay on your local machine except for direct requests from your machine to the Moodle server.
 
 - Keep your API token private — treat it like a password. Never commit `.env` files or share your token.
-- Rotate your token if you suspect it has been compromised (re-run the token URL to generate a new one).
+- Rotate your token if you suspect it has been compromised by running `uit init` again.
+- Prefer the interactive `uit init` prompt over `uit init --password ...`; command-line passwords can be saved in shell history.
 - This tool does not escalate privileges — it cannot access anything your account cannot access on the website.
 
 ---

@@ -24,21 +24,37 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ---
 
-## `uit init <token>`
+## `uit init [token]`
 
-Set up credentials. Fetches your user ID automatically.
+Set up credentials. With no token argument, prompts for your student ID and password, requests a Moodle Mobile web-service token, and fetches your user ID automatically.
 
 ```bash
-uit init <token>
-uit init <token> --url https://your-moodle-instance.com   # non-default Moodle
+uit init
+uit init --url https://your-moodle-instance.com   # non-default Moodle
 ```
+
+If you already have a token, you can still paste it directly:
+
+```bash
+uit init --token <token>
+# Positional token form is still supported:
+# uit init <token>
+```
+
+For non-interactive setup:
+
+```bash
+uit init --username YOUR_STUDENT_ID --password YOUR_PASSWORD
+```
+
+Prefer the interactive prompt for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the returned Moodle token.
 
 Get your token:
 ```
 https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
 ```
 
-Saves to `~/.uit/.env` (chmod 600 on Unix). A `.env` file in the working directory takes precedence.
+Saves to `~/.uit/.env` (chmod 600 on Unix). A `.env` file in the working directory takes precedence. Re-run `uit init` to refresh or rotate the stored token.
 
 ---
 
@@ -379,10 +395,14 @@ Config is read from `.env` — first checking the working directory and parents,
 
 ```
 uit-cli/
-  src/uit/
-    cli.py        # commands, output formatting, arg parsing
-    api.py        # Moodle REST client (call, upload, download)
-    config.py     # .env file loader
-  pyproject.toml  # package definition and 'uit' entry point
+  src/
+    cli.ts        # command-line parser and 'uit' entry point
+    commands.ts   # command implementations and output behavior
+    api.ts        # Moodle REST client (call, upload, download)
+    config.ts     # .env file loader
+    output.ts     # output formatting and ID/URL helpers
+  test/           # regression tests with mocked Moodle responses
+  package.json    # npm package definition and 'uit' binary
+  tsconfig.json   # TypeScript compiler configuration
   .env.example    # credential template
 ```
