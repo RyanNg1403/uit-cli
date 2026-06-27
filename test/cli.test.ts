@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgram, main } from "../src/cli.js";
 import { resetConfigCache } from "../src/config.js";
 import type { ApiClient } from "../src/types.js";
+import { makeZip } from "./zip-fixture.js";
 
 const originalCwd = process.cwd();
 let tempDir: string;
@@ -175,6 +176,223 @@ describe("CLI command flows", () => {
       attachments: [{ filename: "brief.pdf", fileurl: "https://files/brief.pdf", filesize: 1024 }],
       submission_types: ["file", "onlinetext"]
     });
+  });
+
+  it("downloads h5pactivity packages via the h5p web service", async () => {
+    const api = mockApi({
+      core_enrol_get_users_courses: [{ id: 19207, shortname: "CS101" }],
+      core_course_get_contents: [
+        { name: "Week 1", modules: [{ id: 500, modname: "h5pactivity", name: "Lesson" }] }
+      ],
+      mod_h5pactivity_get_h5pactivities_by_courses: {
+        h5pactivities: [
+          {
+            coursemodule: 500,
+            package: [{ filename: "lesson.h5p", filepath: "/", fileurl: "https://files/lesson.h5p", filesize: 100 }]
+          }
+        ]
+      }
+    });
+
+    const code = await main(["node", "uit", "--json", "download", "19207"], api);
+
+    expect(code).toBe(0);
+    expect(api.downloadFile).toHaveBeenCalledWith("https://files/lesson.h5p", expect.stringContaining("lesson.h5p"));
+    expect(JSON.parse(stdout).files).toEqual([
+      expect.objectContaining({ file: "lesson.h5p", status: "ok" })
+    ]);
+  });
+
+  it("does not call the h5p web service when a course has no h5pactivity modules", async () => {
+    const api = mockApi({
+      core_enrol_get_users_courses: [{ id: 19207, shortname: "CS101" }],
+      core_course_get_contents: [
+        {
+          name: "Week 1",
+          modules: [
+            {
+              id: 600,
+              modname: "resource",
+              name: "Slides",
+              contents: [{ type: "file", filename: "a.pdf", fileurl: "https://files/a.pdf", filesize: 10 }]
+            }
+          ]
+        }
+      ]
+    });
+
+    const code = await main(["node", "uit", "--json", "download", "19207"], api);
+
+    expect(code).toBe(0);
+    expect(api.downloadFile).toHaveBeenCalledWith("https://files/a.pdf", expect.stringContaining("a.pdf"));
+    expect(api.call).not.toHaveBeenCalledWith("mod_h5pactivity_get_h5pactivities_by_courses", expect.anything());
+  });
+
+  it("keeps downloading other files when the h5p web service is unavailable", async () => {
+    const api = mockApi({
+      core_enrol_get_users_courses: [{ id: 19207, shortname: "CS101" }],
+      core_course_get_contents: [
+        {
+          name: "Week 1",
+          modules: [
+            {
+              id: 600,
+              modname: "resource",
+              name: "Slides",
+              contents: [{ type: "file", filename: "a.pdf", fileurl: "https://files/a.pdf", filesize: 10 }]
+            },
+            { id: 500, modname: "h5pactivity", name: "Lesson" }
+          ]
+        }
+      ]
+      // mod_h5pactivity_get_h5pactivities_by_courses intentionally unregistered -> the mock throws
+    });
+
+    const code = await main(["node", "uit", "--json", "download", "19207"], api);
+
+    expect(code).toBe(0);
+    expect(api.downloadFile).toHaveBeenCalledWith("https://files/a.pdf", expect.stringContaining("a.pdf"));
+    const payload = JSON.parse(stdout);
+    expect(payload.files).toEqual([expect.objectContaining({ file: "a.pdf", status: "ok" })]);
+    expect(payload.warnings.join(" ")).toContain("H5P");
+  });
+
+  it("extracts an already-downloaded .h5p package on --extract without --force", async () => {
+    const existing = join(process.cwd(), "CS101", "Week 1", "lesson.h5p");
+    mkdirSync(dirname(existing), { recursive: true });
+    writeFileSync(
+      existing,
+      makeZip([
+        { name: "content/content.json", data: Buffer.from("slides"), deflate: true },
+        { name: "content/images/p.png", data: Buffer.from("PNG") }
+      ])
+    );
+    const api = mockApi({
+      core_enrol_get_users_courses: [{ id: 19207, shortname: "CS101" }],
+      core_course_get_contents: [
+        { name: "Week 1", modules: [{ id: 500, modname: "h5pactivity", name: "Lesson" }] }
+      ],
+      mod_h5pactivity_get_h5pactivities_by_courses: {
+        h5pactivities: [
+          {
+            coursemodule: 500,
+            package: [{ filename: "lesson.h5p", filepath: "/", fileurl: "https://files/lesson.h5p", filesize: 100 }]
+          }
+        ]
+      }
+    });
+
+    const code = await main(["node", "uit", "--json", "download", "19207", "--extract"], api);
+
+    expect(code).toBe(0);
+    expect(api.downloadFile).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout).files).toEqual([
+      expect.objectContaining({ file: "lesson.h5p", status: "skipped", extracted: 2 })
+    ]);
+  });
+
+  it("rejects a module ID passed as a course ID with a hint to use --module", async () => {
+    const api = mockApi({
+      core_enrol_get_users_courses: [{ id: 19207, shortname: "CS101" }]
+    });
+
+    const code = await main(["node", "uit", "--json", "download", "428312"], api);
+
+    expect(code).not.toBe(0);
+    const payload = JSON.parse(stdout);
+    expect(payload.error).toContain("enrolled course");
+    expect(payload.hint).toContain("--module");
+    expect(api.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("extracts the content payload from a downloaded .h5p package with --extract", async () => {
+    const api = mockApi({
+      core_enrol_get_users_courses: [{ id: 19207, shortname: "CS101" }],
+      core_course_get_contents: [
+        { name: "Week 1", modules: [{ id: 500, modname: "h5pactivity", name: "Lesson" }] }
+      ],
+      mod_h5pactivity_get_h5pactivities_by_courses: {
+        h5pactivities: [
+          {
+            coursemodule: 500,
+            package: [{ filename: "lesson.h5p", filepath: "/", fileurl: "https://files/lesson.h5p", filesize: 100 }]
+          }
+        ]
+      }
+    });
+    api.downloadFile = vi.fn(async (_url: string, dest: string) => {
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(
+        dest,
+        makeZip([
+          { name: "content/content.json", data: Buffer.from("slides"), deflate: true },
+          { name: "content/images/p.png", data: Buffer.from("PNG") }
+        ])
+      );
+    });
+
+    const code = await main(["node", "uit", "--json", "download", "19207", "--extract"], api);
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout).files).toEqual([
+      expect.objectContaining({ file: "lesson.h5p", status: "ok", extracted: 2 })
+    ]);
+  });
+
+  it("shows the package and a download tip when viewing an h5pactivity module", async () => {
+    const api = mockApi({
+      core_course_get_course_module: {
+        cm: { id: 500, modname: "h5pactivity", instance: 29903, course: 18576, name: "Lesson" }
+      },
+      mod_h5pactivity_get_h5pactivities_by_courses: {
+        h5pactivities: [
+          {
+            coursemodule: 500,
+            package: [{ filename: "lesson.h5p", filepath: "/", fileurl: "https://files/lesson.h5p", filesize: 100 }]
+          }
+        ]
+      }
+    });
+
+    const code = await main(["node", "uit", "--json", "view", "500"], api);
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      module_id: 500,
+      type: "h5pactivity",
+      name: "Lesson",
+      files: [{ filename: "lesson.h5p", fileurl: "https://files/lesson.h5p", filesize: 100, filepath: "/" }]
+    });
+  });
+
+  it("explains when an h5pactivity package cannot be loaded in view", async () => {
+    const api = mockApi({
+      core_course_get_course_module: {
+        cm: { id: 500, modname: "h5pactivity", instance: 29903, course: 18576, name: "Lesson" }
+      }
+      // mod_h5pactivity_get_h5pactivities_by_courses unregistered -> the mock throws
+    });
+
+    const code = await main(["node", "uit", "--json", "view", "500"], api);
+
+    expect(code).toBe(0);
+    const payload = JSON.parse(stdout);
+    expect(payload.files).toEqual([]);
+    expect(payload.note).toContain("Could not load");
+  });
+
+  it("hints to check the ID when a course-scoped command fails with invalidrecord", async () => {
+    const api = mockApi({});
+    api.call = vi.fn(async () => {
+      const error = new Error("Không thể tìm thấy bản ghi dữ liệu trong bảng CSDL course.") as Error & { errorcode?: string };
+      error.errorcode = "invalidrecord";
+      throw error;
+    });
+
+    const code = await main(["node", "uit", "--json", "contents", "428312"], api);
+
+    expect(code).not.toBe(0);
+    expect(JSON.parse(stdout).hint).toContain("this command expects");
   });
 
   it("filters past deadlines unless --all is passed", async () => {

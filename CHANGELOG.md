@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning. For new releases, update the version with `npm version patch`, `npm version minor`, or `npm version major`, then push the generated tag.
 
+## [1.1.0] - 2026-06-27
+
+### Added
+
+- `uit download` now retrieves H5P activities (`h5pactivity` modules): their `.h5p` package is downloaded alongside regular course files. Previously these activities were silent — `core_course_get_contents` exposes no files for them ([#3](https://github.com/RyanNg1403/uit-cli/issues/3)).
+- Added `uit download --extract` to unpack a downloaded `.h5p` package's media (slides, images, video) into a folder beside it, using a dependency-free ZIP reader. Works on already-downloaded packages without `--force`.
+- `uit view` on an `h5pactivity` module now lists its package file and prints a download tip, matching how resources are shown.
+
+### Changed
+
+- `uit download` rejects a module ID passed where a course ID is expected, with a hint to use `--module`, instead of surfacing Moodle's raw "course not found" error.
+- Course-scoped commands (`contents`, `announcements`, `grades`, `download`) now detect a wrong or inaccessible course ID by Moodle error code and show a consistent "check the ID" hint, regardless of the server's language.
+- `uit download` surfaces a warning when a course's H5P packages cannot be loaded, instead of silently skipping them.
+
+### Fixed
+
+- Hardened the `.h5p` extractor against archive entries that try to escape the output directory (path traversal), including backslash separators on Windows.
+
+### Verified
+
+- Tested H5P package download, `--extract` (including re-extracting existing packages), the wrong-ID hint, and `uit view` on an H5P module against the live UIT Moodle service.
+- Confirmed regular file download and skip-existing behavior are unchanged.
+
 ## [1.0.0] - 2026-05-17
 
 ### Added

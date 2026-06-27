@@ -135,6 +135,8 @@ Description:
 
 **resource / folder** — Lists files with sizes. Shows a download tip.
 
+**h5pactivity** — Lists the interactive lesson's `.h5p` package and shows a download tip (`uit download <course_id> --module <module_id>`, add `--extract` to unpack media).
+
 **url** — Shows the target URL.
 
 **quiz** — Shows open/close times, time limit, max grade, and attempt count.
@@ -197,10 +199,15 @@ uit announcements 19438 --full     # show full message content with URLs
 
 Download course files. Preserves the Moodle folder structure (section/subfolder/file). Existing files are skipped by default.
 
+The first argument is a **course ID** (from `uit courses`), not a module ID. To grab a single module, pass its **module ID** (from `uit contents`) to `--module`. Passing a module ID as the course ID is rejected with a hint.
+
+**H5P activities** (interactive lessons — the `h5pactivity` type in `uit contents`) are included automatically: their `.h5p` package, which holds the slides, images, and lesson data, is downloaded alongside regular files. Add `--extract` to also unpack each package's media into a folder next to it.
+
 ```bash
-uit download 19207                              # everything
+uit download 19207                              # everything, including H5P packages
 uit download 19207 --module 428955              # one module only
 uit download 19207 --file "Pre-processing"      # files matching name (substring)
+uit download 19207 --extract                    # also unpack downloaded .h5p packages
 uit download 19207 -o ~/UIT                     # custom output directory
 uit download 19207 --force                      # re-download existing files
 ```
@@ -210,7 +217,10 @@ uit download 19207 --force                      # re-download existing files
 | `-o`, `--output` | Output directory (default: `.`) |
 | `--module` | Only download from this module ID (from `uit contents`) |
 | `--file` | Only download files matching this name (case-insensitive substring) |
+| `--extract` | Unpack downloaded `.h5p` packages into their media (slides, images, video) |
 | `--force` | Re-download even if the file already exists locally |
+
+A `.h5p` file is a ZIP — you can also open it directly in [H5P](https://h5p.org/) / [Lumi](https://lumi.education/), or by renaming it to `.zip`.
 
 ---
 
