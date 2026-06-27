@@ -80,6 +80,15 @@ function parseInteger(value: string): number {
   return Number.parseInt(value, 10);
 }
 
+// Moodle reports a wrong/inaccessible course (e.g. a module ID passed as a course ID)
+// with these error codes. Detect them by code so the hint works in any UI language.
+const WRONG_ID_ERRORCODES = new Set(["invalidrecord", "errorcoursecontextnotvalid"]);
+
+function isWrongIdError(error: Error & { errorcode?: string }): boolean {
+  if (error.errorcode && WRONG_ID_ERRORCODES.has(error.errorcode)) return true;
+  return error.message.includes("không truy cập") || error.message.toLowerCase().includes("not accessible");
+}
+
 function printLanding(): void {
   console.log(LOGO);
   console.log("  CLI for courses.uit.edu.vn — Moodle LMS at UIT");
@@ -156,14 +165,18 @@ export function createProgram(api: ApiClient = defaultApiClient, options: { open
 
   program
     .command("download")
-    .description("Download files from a course (all, or filtered)")
+    .description("Download files from a course (all, or filtered) — includes H5P activity packages")
     .argument("<course_id>", "Course ID or course URL", parseId)
     .option("-o, --output <dir>", "Output directory (default: .)", ".")
     .option("--module <module_id>", "Only download from this module ID or URL", parseId)
     .option("--file <name>", "Only download files matching this name (substring match)")
+    .option("--extract", "Unpack downloaded .h5p packages into their media (slides, images, video)")
     .option("--force", "Re-download existing files")
     .action((courseId, opts) =>
-      cmdDownload({ course_id: courseId, output: opts.output, module: opts.module, file: opts.file, force: opts.force }, ctx)
+      cmdDownload(
+        { course_id: courseId, output: opts.output, module: opts.module, file: opts.file, extract: opts.extract, force: opts.force },
+        ctx
+      )
     );
 
   program
@@ -257,11 +270,11 @@ export async function main(argv = process.argv, api: ApiClient = defaultApiClien
       if ((error as any).code !== "commander.helpDisplayed") return exitCode;
       return 0;
     }
-    if (error instanceof Error && (error.message.includes("không truy cập") || error.message.toLowerCase().includes("not accessible"))) {
+    if (error instanceof Error && isWrongIdError(error)) {
       return writeError(
         new CliError(
           error.message,
-          "Check if the ID is correct. Use 'uit courses' for course IDs, 'uit contents' for module IDs, 'uit deadlines' for assignment IDs."
+          "No record found for that ID — make sure it's the kind this command expects (see the ID chain in 'uit --help')."
         )
       );
     }

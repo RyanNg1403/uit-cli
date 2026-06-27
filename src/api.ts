@@ -29,7 +29,13 @@ export async function call<T = any>(name: string, params: Record<string, any> = 
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   const data = await response.json();
   if (data && typeof data === "object" && "exception" in data) {
-    throw new Error(data.message || data.error || JSON.stringify(data));
+    const error = new Error(data.message || data.error || JSON.stringify(data)) as Error & {
+      errorcode?: string;
+      moodleException?: string;
+    };
+    if (typeof data.errorcode === "string") error.errorcode = data.errorcode;
+    if (typeof data.exception === "string") error.moodleException = data.exception;
+    throw error;
   }
   return data as T;
 }

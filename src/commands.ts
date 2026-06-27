@@ -7,6 +7,7 @@ import { Writable } from "node:stream";
 import { defaultApiClient } from "./api.js";
 import { get, save } from "./config.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
+import { extractH5pPackage } from "./unzip.js";
 import {
   clean,
   die,
@@ -261,6 +262,9 @@ export async function cmdView(args: { module_id: number }, ctx = createContext()
     case "book":
       await viewBook(moduleId, instance, courseId, name, ctx);
       return;
+    case "h5pactivity":
+      await viewH5p(moduleId, courseId, name, ctx);
+      return;
     default: {
       const result: MoodleRecord = { module_id: moduleId, type: modname, name, instance, course_id: courseId };
       const sections = await ctx.api.call<MoodleRecord[]>("core_course_get_contents", { courseid: courseId });
@@ -364,6 +368,27 @@ async function viewForum(moduleId: number, instance: number, name: string, ctx: 
   console.log(`module_id: ${moduleId}\n`);
   table(rows, [["id", "ID", 8], ["subject", "SUBJECT", 50], ["author", "AUTHOR", 20], ["replies", "RE", 4], ["date", "DATE", 18]]);
   if (rows.length) console.log("\nTip: uit view-discussion <discussion_id> to read posts");
+}
+
+async function viewH5p(moduleId: number, courseId: number, name: string, ctx: CommandContext): Promise<void> {
+  let files: MoodleRecord[] = [];
+  let note: string | undefined;
+  try {
+    files = (await fetchH5pPackages(courseId, ctx)).get(moduleId) || [];
+  } catch (error) {
+    note = `Could not load H5P package: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const data: MoodleRecord = { module_id: moduleId, type: "h5pactivity", name, files };
+  if (note) data.note = note;
+  if (isJsonMode()) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+  console.log(`[h5pactivity] ${name}`);
+  console.log(`module_id: ${moduleId}\n`);
+  for (const file of files) console.log(`  ${file.filename}  (${formatSize(file.filesize || 0)})`);
+  if (note) console.log(`  ${note}`);
+  if (files.length) console.log(`\nTip: uit download ${courseId} --module ${moduleId}   (add --extract to unpack media)`);
 }
 
 async function viewResource(moduleId: number, courseId: number, name: string, ctx: CommandContext): Promise<void> {
@@ -635,24 +660,81 @@ export async function cmdAnnouncements(args: { course_id: number; limit?: number
   }
 }
 
+// H5P activities expose no files through core_course_get_contents; their .h5p
+// package lives behind a dedicated web service, keyed by module ID (coursemodule).
+async function fetchH5pPackages(courseId: number, ctx: CommandContext): Promise<Map<number, MoodleRecord[]>> {
+  const packages = new Map<number, MoodleRecord[]>();
+  const response = await ctx.api.call<MoodleRecord>("mod_h5pactivity_get_h5pactivities_by_courses", {
+    "courseids[0]": courseId
+  });
+  for (const activity of response.h5pactivities || []) {
+    const files = (activity.package || [])
+      .filter((file: MoodleRecord) => file.fileurl)
+      .map((file: MoodleRecord) => ({
+        filename: file.filename,
+        fileurl: file.fileurl,
+        filesize: file.filesize || 0,
+        filepath: file.filepath || "/"
+      }));
+    if (files.length) packages.set(activity.coursemodule, files);
+  }
+  return packages;
+}
+
 export async function cmdDownload(
-  args: { course_id: number; output?: string; module?: number; file?: string; force?: boolean },
+  args: { course_id: number; output?: string; module?: number; file?: string; force?: boolean; extract?: boolean },
   ctx = createContext()
 ): Promise<void> {
   const courseId = args.course_id;
   loading("Loading course files...");
   const courses = await ctx.api.call<MoodleRecord[]>("core_enrol_get_users_courses", { userid: get("userId") });
-  const courseName = courses.find((course) => course.id === courseId)?.shortname || String(courseId);
-  const destRoot = join(args.output || ".", sanitize(courseName));
+  const course = courses.find((entry) => entry.id === courseId);
+  if (!course) {
+    die(
+      `${courseId} is not one of your enrolled course IDs.`,
+      `If this is a module ID, target it within its course: uit download <course_id> --module ${courseId}. Run 'uit courses' for course IDs.`
+    );
+  }
+  const destRoot = join(args.output || ".", sanitize(course.shortname || String(courseId)));
   const sections = await ctx.api.call<MoodleRecord[]>("core_course_get_contents", { courseid: courseId });
   const results: MoodleRecord[] = [];
+  const warnings: string[] = [];
+
+  const inScope = (mod: MoodleRecord) => !args.module || mod.id === args.module;
+  const hasH5p = sections.some((section) =>
+    (section.modules || []).some((mod: MoodleRecord) => mod.modname === "h5pactivity" && inScope(mod))
+  );
+  let h5pPackages = new Map<number, MoodleRecord[]>();
+  if (hasH5p) {
+    try {
+      h5pPackages = await fetchH5pPackages(courseId, ctx);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`Could not load H5P activity packages: ${message}`);
+      if (!isJsonMode()) console.log(`  WARN  could not load H5P activity packages: ${message}`);
+    }
+  }
+
+  const extractPackage = (record: MoodleRecord, dest: string) => {
+    const extractDir = dest.toLowerCase().endsWith(".h5p") ? dest.slice(0, -4) : `${dest}_content`;
+    try {
+      record.extracted = extractH5pPackage(dest, extractDir).length;
+      if (!isJsonMode()) console.log(`  EXTRACT ${record.extracted} file(s) -> ${extractDir}/`);
+    } catch (error) {
+      record.extract_error = error instanceof Error ? error.message : String(error);
+      if (!isJsonMode()) console.log(`  EXTRACT FAILED: ${record.extract_error}`);
+    }
+  };
 
   for (const section of sections) {
     const sectionName = sanitize(section.name || "General");
     for (const mod of section.modules || []) {
-      if (args.module && mod.id !== args.module) continue;
-      for (const file of mod.contents || []) {
-        if (file.type !== "file") continue;
+      if (!inScope(mod)) continue;
+      const isH5p = mod.modname === "h5pactivity";
+      const files: MoodleRecord[] = isH5p
+        ? h5pPackages.get(mod.id) || []
+        : (mod.contents || []).filter((file: MoodleRecord) => file.type === "file");
+      for (const file of files) {
         if (args.file && !String(file.filename).toLowerCase().includes(args.file.toLowerCase())) continue;
         const filepath = String(file.filepath || "/").replace(/^\/+|\/+$/g, "");
         const dest = filepath
@@ -660,16 +742,20 @@ export async function cmdDownload(
           : join(destRoot, sectionName, file.filename);
 
         if (existsSync(dest) && !args.force) {
-          results.push({ file: file.filename, status: "skipped", path: dest });
+          const record: MoodleRecord = { file: file.filename, status: "skipped", path: dest };
           if (!isJsonMode()) console.log(`  SKIP  ${dest}`);
+          if (isH5p && args.extract) extractPackage(record, dest);
+          results.push(record);
           continue;
         }
 
         try {
           if (!isJsonMode()) process.stdout.write(`  GET   ${file.filename}...`);
           await ctx.api.downloadFile(file.fileurl, dest);
-          results.push({ file: file.filename, status: "ok", path: dest });
           if (!isJsonMode()) console.log("  OK");
+          const record: MoodleRecord = { file: file.filename, status: "ok", path: dest };
+          if (isH5p && args.extract) extractPackage(record, dest);
+          results.push(record);
         } catch (error) {
           let message = error instanceof Error ? error.message : String(error);
           const token = get("token");
@@ -682,7 +768,9 @@ export async function cmdDownload(
   }
 
   if (isJsonMode()) {
-    console.log(JSON.stringify({ dest: destRoot, files: results }, null, 2));
+    const payload: MoodleRecord = { dest: destRoot, files: results };
+    if (warnings.length) payload.warnings = warnings;
+    console.log(JSON.stringify(payload, null, 2));
   } else {
     const ok = results.filter((result) => result.status === "ok").length;
     console.log(`\nDownloaded ${ok} file(s) to ${destRoot}/`);

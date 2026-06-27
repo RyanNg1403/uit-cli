@@ -102,10 +102,13 @@ uit view 432640                      # inspect a lesson — shows instructions, 
 <summary>Download course materials</summary>
 
 ```bash
-uit download 19207                   # everything in the course
+uit download 19207                   # everything in the course (incl. H5P packages)
 uit download 19207 --module 428955   # one specific module
 uit download 19207 --file "Crypto"   # files matching a name
+uit download 19207 --extract         # also unpack .h5p packages into their media
 ```
+
+Interactive H5P lessons (the `h5pactivity` type) download as their `.h5p` package — a ZIP holding the slides, images, and lesson data. Add `--extract` to unpack the media too.
 </details>
 
 <details>
