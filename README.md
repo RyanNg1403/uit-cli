@@ -77,6 +77,30 @@ deadlines -> assign_id  -> view / submit / status
 
 For flags, output formats, and detailed behavior of each command, see the [CLI Reference](docs/CLI_REFERENCE.md).
 
+## UIT Studio desktop application
+
+Choose **Appearance: System, Light, or Dark** at the bottom of the sidebar. Your preference is saved on this device; System follows OS appearance changes. Document pages and images retain their original colors.
+
+In **Codex**, add a course with **New project**, then use the **+** beside its title to start a thread. Threads enter saved history only after their first prompt. Course resource clicks open previews; use their **...** menu for Download or a resource-tagged thread. Search covers every semester, including Unknown semester; the semester selector also offers All semesters. Connected portals show their individual discovered-course counts. PDF pages scroll continuously. Drag the sidebar edge to resize it, or press Cmd+B/Ctrl+B to toggle it.
+
+The `codex/uit-app` branch contains the Electron-based UIT Studio application: semester-organized Moodle courses and course-scoped Codex projects. Desktop development requires Node.js 22.12 or newer. The CLI supports Node.js 20 or newer.
+
+```bash
+npm ci
+npm run desktop:check   # build and validate the desktop foundation
+npm run desktop         # launch UIT Studio
+npm run test:desktop    # headless renderer and PDF regression tests
+npm run test:electron   # one hidden, isolated 60-second Electron stability test
+```
+
+The desktop app supports browser-backed UIT SSO for the current course site and explicit legacy Moodle token login for the old undergraduate/graduate portals at the same time. Courses are merged and labeled by their originating site. Desktop legacy sign-in keeps its token in memory and does not overwrite the CLI `.env`; the legacy token path remains more sensitive than current-site SSO. It is under active development. Do not use real assignment submission for testing until the submission workflow phase is marked complete in the implementation plan.
+
+Click resources to read them; use **Download** only when you want a local copy. PDF, image, and text previews stay in memory and are limited to 25 MiB. Other formats and Moodle activities have an **Open in Moodle** viewer; legacy browser viewing may require a separate sign-in. This is not yet a complete replacement for every Moodle feature.
+
+Right-click a material, assignment, or announcement, or use its actions button, to create a course thread with an `@resource` attachment. Threads and drafts persist per account, with rename, archive/restore, branch, stop, and approval controls. Codex receives service-resolved context and read/download course tools. Sending a message can send course content to the configured Codex model provider. External Codex-app synchronization and exact feature parity are not implemented.
+
+Workspaces use `~/UIT/<site-key>/user-<id>/course-<id>/` to separate portals and accounts. Earlier workspace files are not migrated. See [UI verification](docs/UI_VERIFICATION.md) for test scope and remaining limitations.
+
 ---
 
 ## Examples

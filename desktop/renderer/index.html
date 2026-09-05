@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; frame-src blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none';" />
+    <title>UIT Studio</title>
+    <script src="./appearance.js"></script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app" id="app">
+      <aside class="sidebar" id="sidebar" aria-label="Workspace navigation">
+        <div class="brand"><span class="brand-mark" aria-hidden="true">U</span><strong>UIT Studio</strong><button id="close-sidebar" class="icon-button mobile-only" aria-label="Close navigation">&times;</button></div>
+        <nav class="primary-nav" aria-label="Primary">
+          <button class="nav-item" data-view="courses"><span aria-hidden="true">&#9776;</span>Courses</button>
+          <button class="nav-item" data-view="agent"><span aria-hidden="true">&gt;_</span>Codex</button>
+        </nav>
+        <div class="rail-heading"><span id="rail-title">Courses</span><button id="show-archived" class="text-button" aria-pressed="false">Archived</button></div>
+        <button class="project-create" id="new-project" hidden><svg class="action-icon" aria-hidden="true" viewBox="0 0 20 20"><path d="M2 5h6l2 2h8v10H2V5ZM12 9v6M9 12h6"/></svg>New project</button>
+        <nav id="course-nav" class="course-nav" aria-label="Courses and threads"></nav>
+        <footer class="sidebar-foot">
+          <label class="appearance-field" for="appearance"><span>Appearance</span><select id="appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+          <p id="appearance-status" class="fine-print" role="status"></p>
+          <p id="codex-badge" class="muted">Checking Codex...</p>
+          <button id="account-button" class="account-button"><span aria-hidden="true">&#9675;</span><span id="account-label">Connect accounts</span></button>
+          <div id="connected-portals" class="portal-labels"></div>
+        </footer>
+      </aside>
+      <div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-label="Navigation width" aria-controls="sidebar" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="480" aria-valuenow="248"></div>
+      <button id="sidebar-scrim" class="sidebar-scrim" aria-label="Close navigation" hidden></button>
+      <main class="main" id="main" tabindex="-1">
+        <header class="topbar"><button id="menu-toggle" class="icon-button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">&#9776;</button><span id="page-title">Courses</span></header>
+        <div id="app-error" class="error-banner" role="alert" hidden></div>
+        <section id="view-courses" class="view" aria-label="Courses">
+          <div class="page-heading"><h1>Your courses</h1><div class="course-heading-actions"><button id="link-course" class="secondary-button">Add course by URL</button><button id="refresh-courses" class="secondary-button">Refresh</button></div></div>
+          <div class="course-filters"><label class="search-field"><span class="sr-only">Search courses</span><input id="course-search" type="search" placeholder="Search courses" /></label><label class="semester-field"><span class="sr-only">Semester</span><select id="semester-select" aria-label="Semester"></select></label></div>
+          <div id="course-grid" class="course-list" aria-live="polite"><p class="empty">Loading accounts...</p></div>
+        </section>
+        <section id="view-course" class="view" aria-label="Course resources" hidden>
+          <button id="back-courses" class="text-button back-button">&larr; All courses</button>
+          <div id="course-detail"></div>
+        </section>
+        <section id="view-agent" class="conversation" aria-label="Codex thread" hidden>
+          <header class="thread-header"><div class="thread-heading"><h1 id="agent-task-title">Codex</h1><p id="agent-course" class="muted" aria-label="Thread course" hidden></p></div><div class="thread-actions" hidden><button id="rename-thread" class="text-button">Rename</button><button id="fork-agent" class="text-button">Branch</button><button id="archive-thread" class="text-button">Archive</button></div></header>
+          <div id="agent-workspace" class="workspace-path" hidden></div>
+          <div id="agent-messages" class="messages" tabindex="0" aria-label="Conversation"></div>
+          <div id="agent-approvals" class="approvals" aria-live="polite"></div>
+          <footer class="composer">
+            <form id="agent-form">
+              <div id="resource-chips" class="resource-chips" aria-label="Attached resources"></div>
+              <label class="sr-only" for="agent-input">Message Codex</label>
+              <textarea id="agent-input" rows="3" placeholder="Message Codex..."></textarea>
+              <div class="composer-actions"><button id="stop-agent" class="secondary-button" type="button" hidden>Stop</button><button id="send-agent" class="primary-button" type="submit">Send</button></div>
+            </form>
+            <div class="composer-foot"><span id="agent-status" role="status">Ready</span></div>
+          </footer>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <dialog id="login-modal" aria-labelledby="login-title">
+      <header class="dialog-heading"><h2 id="login-title">Course accounts</h2><button id="close-login" class="icon-button" aria-label="Close accounts">&times;</button></header>
+      <div id="session-summary" class="session-summary"></div>
+      <details id="discovery-details"><summary>Course discovery diagnostics</summary><p class="muted">Source counts only. No tokens, cookies, or course content.</p><button id="refresh-discovery" class="secondary-button">Refresh discovery</button><pre id="discovery-report">Refresh courses to collect source counts.</pre></details>
+      <section class="login-section"><h3>Current Moodle</h3><p class="muted">courses.uit.edu.vn / UIT SSO only</p><button id="sso-login" class="primary-button" type="button">Continue with UIT SSO</button></section>
+      <section class="login-section"><h3>Legacy Moodle</h3><form id="login-form"><label class="field">Portal<select id="course-site" name="baseUrl"><option value="https://coursesold.uit.edu.vn">Legacy undergraduate</option><option value="https://coursesold.uit.edu.vn/sdh">Legacy graduate</option></select></label><label class="field">Student ID<input name="username" autocomplete="username" required /></label><label class="field">Password<input name="password" type="password" autocomplete="current-password" required /></label><button id="legacy-submit" class="secondary-button" type="submit">Connect legacy portal</button></form></section>
+      <p id="login-error" class="form-error" role="alert"></p><p id="login-status" class="muted" role="status"></p><button id="logout-button" class="text-button">Disconnect all portals</button>
+    </dialog>
+    <dialog id="resource-reader" class="resource-reader" aria-labelledby="reader-title">
+      <header class="dialog-heading"><div><p id="reader-kind" class="eyebrow"></p><h2 id="reader-title"></h2></div><button id="close-reader" class="icon-button" aria-label="Close preview">&times;</button></header>
+      <div id="reader-body" class="reader-body"></div><p id="reader-status" class="muted" role="status"></p>
+      <footer class="reader-actions"><button id="reader-moodle" class="secondary-button">Open in Moodle</button><button id="reader-download" class="secondary-button">Download</button><button id="reader-thread" class="primary-button">New Codex thread</button></footer>
+    </dialog>
+    <dialog id="resource-menu" class="resource-menu" aria-labelledby="resource-menu-title"><h2 id="resource-menu-title">Resource actions</h2><div role="menu" aria-label="Resource actions"><button id="resource-new-thread" role="menuitem">New Codex thread</button><button id="resource-menu-download" role="menuitem" hidden>Download</button></div><button id="close-resource-menu" class="text-button">Cancel</button></dialog>
+    <dialog id="project-picker" aria-labelledby="project-picker-title"><header class="dialog-heading"><h2 id="project-picker-title">Choose a project</h2><button id="close-project-picker" class="icon-button" aria-label="Cancel new thread">&times;</button></header><div class="project-filters"><label class="field">Search projects<input id="project-search" type="search" placeholder="Course name, code, or portal" /></label><label class="field" id="project-year-field">Academic year<select id="project-year"><option value="all">All years</option></select></label></div><div id="project-options" class="project-options"></div></dialog>
+    <dialog id="rename-dialog" aria-labelledby="rename-title"><form id="rename-form"><h2 id="rename-title">Rename thread</h2><label class="field">Thread name<input id="thread-name" maxlength="160" required /></label><div class="dialog-actions"><button id="cancel-rename" type="button" class="secondary-button">Cancel</button><button class="primary-button" type="submit">Save name</button></div></form></dialog>
+    <dialog id="link-course-dialog" aria-labelledby="link-course-title"><form id="link-course-form"><h2 id="link-course-title">Find a missing course</h2><p class="muted">Verify a course URL using its connected Moodle account. This does not enrol you or change Moodle.</p><label class="field">Course URL<input id="course-url" type="url" required placeholder="https://courses.uit.edu.vn/course/view.php?id=..." /></label><p id="link-course-error" class="form-error" role="alert"></p><div class="dialog-actions"><button id="cancel-link-course" class="secondary-button" type="button">Cancel</button><button id="verify-course" class="primary-button" type="submit">Verify and add course</button></div></form></dialog>
+    <script src="./sidebar.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
