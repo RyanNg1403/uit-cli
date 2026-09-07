@@ -99,6 +99,7 @@ async function harness(saved: unknown[] = []) {
     "../dist/desktop-service.js": service,
     "../dist/moodle-session-client.js": { MoodleSessionApi: class {} },
     "../dist/codex-client.js": { CodexClient: class { constructor() { return codex; } } },
+    "../dist/mcp-server.js": { installMcpServer: vi.fn() },
   };
   const clipboard = { writeText: vi.fn(), readText: vi.fn() };
   const modules: Record<string, unknown> = {

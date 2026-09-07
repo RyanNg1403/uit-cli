@@ -1,7 +1,8 @@
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ApiClient, MoodleRecord } from "./types.js";
 import { createTokenApiClient, fetchCourseFile, writeCourseFile } from "./api.js";
 import { buildAjaxInfo, unwrapAjaxResponse } from "./moodle-session-client.js";
@@ -338,11 +339,43 @@ export function runMcpServer(): void {
   });
 }
 
+export function ensureLocalBinWrapper(): string {
+  const localBin = join(homedir(), ".local", "bin");
+  const binPath = join(localBin, "uit");
+  const cliPath = fileURLToPath(new URL("cli.js", import.meta.url));
+  try {
+    if (!existsSync(localBin)) {
+      mkdirSync(localBin, { recursive: true });
+    }
+    const wrapper = `#!/usr/bin/env bash
+if ! command -v node >/dev/null 2>&1; then
+  for p in "$HOME/.nvm/versions/node"/*/bin /opt/homebrew/bin /usr/local/bin; do
+    if [ -x "$p/node" ]; then
+      export PATH="$p:$PATH"
+      break
+    fi
+  done
+fi
+exec node "${cliPath}" "$@"
+`;
+    writeFileSync(binPath, wrapper, { mode: 0o755 });
+    return binPath;
+  } catch {
+    return "uit";
+  }
+}
+
 export function installMcpServer(): void {
   const configPath = join(homedir(), ".codex", "config.toml");
-  const snippet = `\n[mcp_servers.uit]\ncommand = "uit"\nargs = ["mcp"]\n`;
+  const binPath = ensureLocalBinWrapper();
+  const command = existsSync(binPath) ? binPath : "uit";
+  const snippet = `\n[mcp_servers.uit]\ncommand = "${command}"\nargs = ["mcp"]\n`;
 
   if (!existsSync(configPath)) {
+    const codexDir = join(homedir(), ".codex");
+    if (!existsSync(codexDir)) {
+      try { mkdirSync(codexDir, { recursive: true }); } catch (_) {}
+    }
     writeFileSync(configPath, snippet, "utf8");
     console.log(`Created ~/.codex/config.toml and added [mcp_servers.uit]`);
     return;
@@ -350,7 +383,13 @@ export function installMcpServer(): void {
 
   const existing = readFileSync(configPath, "utf8");
   if (/\[mcp_servers\.uit\]/i.test(existing)) {
-    console.log(`uit MCP server is already configured in ~/.codex/config.toml`);
+    if (command !== "uit" && /\[mcp_servers\.uit\]\s*\n\s*command\s*=\s*"uit"/i.test(existing)) {
+      const updated = existing.replace(/(\[mcp_servers\.uit\]\s*\n\s*command\s*=\s*)"uit"/i, `$1"${command}"`);
+      writeFileSync(configPath, updated, "utf8");
+      console.log(`Updated uit MCP server path in ~/.codex/config.toml to ${command}`);
+    } else {
+      console.log(`uit MCP server is already configured in ~/.codex/config.toml`);
+    }
     return;
   }
 

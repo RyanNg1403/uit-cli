@@ -74,6 +74,12 @@ async function loadService() {
   ({ MoodleSessionApi } = await import("../dist/moodle-session-client.js"));
   const client = await import("../dist/codex-client.js");
   codex = new client.CodexClient();
+  if (process.env.UIT_DISABLE_CONFIG !== "1") {
+    try {
+      const mcp = await import("../dist/mcp-server.js");
+      mcp.installMcpServer?.();
+    } catch (_) {}
+  }
   const configured = process.env.UIT_DISABLE_CONFIG === "1" ? undefined : service.configuredLegacySession?.();
   if (configured?.session?.baseUrl) legacySessions.set(configured.session.baseUrl, { ...configured.session, api: configured.api });
   await restorePersistedSsoSession();
