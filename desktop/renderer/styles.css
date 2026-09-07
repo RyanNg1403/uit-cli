@@ -124,10 +124,6 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .nav-item > .nav-logo { display: inline-flex; align-items: center; justify-content: center; }
 .nav-logo svg { width: 17px; height: 17px; display: block; }
 .nav-item[aria-current="page"], .thread-link[aria-current="page"], .course-link[aria-current="page"], .project-link[aria-current="page"] { background: var(--selected); color: var(--selected-text); }
-.rail-heading { display: flex; align-items: center; justify-content: space-between; padding: 22px 10px 6px; color: var(--muted); font-size: 11px; }
-#rail-title { font-size: 18px; font-weight: 700; color: var(--text); }
-.rail-heading button { font-size: 11px; min-height: 28px; padding: 3px 5px; }
-.rail-heading button[aria-pressed="true"] { color: var(--text); background: var(--selected); }
 .course-nav { overflow: auto; flex: 1; min-height: 0; padding-bottom: 12px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .course-nav::-webkit-scrollbar { width: 6px; }
 .course-nav::-webkit-scrollbar-track { background: transparent; }

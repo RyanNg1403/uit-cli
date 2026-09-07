@@ -228,13 +228,7 @@ function renderRail() {
   nav.replaceChildren();
   const agent = state.view === "agent";
   $("#new-project").hidden = !agent;
-  $("#rail-title").textContent = agent ? "Projects / Threads" : "Courses";
-  const showArchived = $("#show-archived");
-  if (showArchived) {
-    showArchived.hidden = !agent;
-    showArchived.setAttribute("aria-pressed", String(state.archived));
-  }
-  const threads = state.threads.filter((thread) => hasPrompt(thread) && visibleThread(thread) && (agent ? !!thread.archived === !!state.archived : true));
+  const threads = state.threads.filter((thread) => hasPrompt(thread) && visibleThread(thread) && !thread.archived);
   const projects = agent ? state.projects.filter(connected).map((project) => {
     const live = state.courses.find((course) => courseKey(course) === courseKey(project));
     const merged = { ...(live || project), ...project };
@@ -2875,10 +2869,6 @@ $("#agent-input").addEventListener("click", updateMentions);
 $("#agent-input").addEventListener("keyup", (event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateMentions(); });
 $("#agent-form").addEventListener("submit", (event) => { event.preventDefault(); closeMention(); closeModelMenu(); sendMessage(); });
 $("#stop-agent").addEventListener("click", stopThread);
-$("#show-archived")?.addEventListener("click", () => {
-  state.archived = !state.archived;
-  renderRail();
-});
 $("#model-picker").addEventListener("click", () => { $("#model-menu").hidden ? openModelMenu() : closeModelMenu(); });
 $("#model-menu").addEventListener("keydown", (event) => {
   if (event.key === "Escape") { event.preventDefault(); closeModelMenu(); $("#model-picker").focus(); return; }

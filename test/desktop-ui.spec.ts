@@ -467,7 +467,8 @@ test("type scale, chevrons and nesting guides", async ({ page, boot }, info) => 
   await boot();
   await expect(page.locator("html")).toHaveCSS("font-size", "16px");
   await expect(page.locator("#course-nav .project .folder svg")).toHaveCount(0);
-  await expect(page.locator("#rail-title")).toHaveCSS("font-size", "18px");
+  await expect(page.locator("#rail-title")).toHaveCount(0);
+  await expect(page.locator("#show-archived")).toHaveCount(0);
   await expect(page.locator("#course-nav .semester-nav > h3").first()).toHaveCSS("font-size", "17px");
   await expect(page.locator("#course-nav .semester-nav").first()).toHaveCSS("border-top-width", "1px");
   await openCourse(page);
@@ -1592,7 +1593,9 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   // Verify the Open in button and menu exist in the header
   const resumeBtn = page.locator("#thread-resume-btn");
   await expect(resumeBtn).toBeVisible();
-  await expect(resumeBtn).toContainText("Open in...");
+  await expect(resumeBtn).toHaveText("Open in");
+  await expect(resumeBtn).not.toContainText("Open in...");
+  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/open_in_clean.png" });
 
   const resumeMenu = page.locator("#thread-resume-menu");
   await expect(resumeMenu).toBeHidden();
