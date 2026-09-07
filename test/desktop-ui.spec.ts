@@ -487,7 +487,7 @@ test("composer shows course context and a working model/effort picker", async ({
   await boot();
   await createThread(page);
   await expect(page.locator("#composer-context")).toContainText("CS01");
-  await expect(page.locator("#composer-context")).toContainText("Workspace write");
+  await expect(page.locator("#composer-context")).not.toContainText("Workspace write");
   await expect(page.locator("#model-picker")).toContainText("Auto");
   await page.locator("#model-picker").click();
   await expect(page.locator("#model-menu")).toContainText("GPT-5.6-Sol");

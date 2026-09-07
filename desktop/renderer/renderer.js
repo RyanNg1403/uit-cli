@@ -1514,9 +1514,7 @@ function renderComposerContext() {
   const project = node("span", "context-pill");
   project.append(inlineSvg('<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 2h5A1.5 1.5 0 0 1 14.5 6.5v5a1.5 1.5 0 0 1-1.5 1.5h-9.5a1.5 1.5 0 0 1-1.5-1.5z"/>'), node("span", "", thread.course.shortname || thread.course.fullname));
   project.title = thread.course.fullname;
-  const mode = node("span", "context-pill");
-  mode.append(inlineSvg('<path d="M2 3h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm2 3h8M4 9h4"/>'), node("span", "", "Workspace write"));
-  bar.append(project, mode);
+  bar.append(project);
 }
 let codexModels = null;
 let codexModelsFailed = false;
