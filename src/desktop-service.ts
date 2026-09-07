@@ -40,7 +40,7 @@ export interface CourseSummary {
   siteLabel?: string;
   discoveredVia?: "url";
   category?: { id?: number; name?: string };
-  semester: { id: string; label: string; sortOrder: number; source: "metadata" | "category" | "name" | "startdate" | "unknown" };
+  semester: { id: string; label: string; sortOrder: number; source: "metadata" | "category" | "name" | "startdate" | "current" | "unknown" };
 }
 
 export interface CourseFile { filename: string; fileurl: string; filesize: number; timemodified?: number; mimetype?: string }
@@ -90,10 +90,28 @@ export interface AnnouncementSummary {
   replies: number;
   courseId: number;
   moduleId?: number;
-  forumId: number;
+  forumId?: number;
   url?: string;
   files: CourseFile[];
   unavailable?: Record<string, string>;
+}
+
+export interface CourseParticipant {
+  id: number;
+  fullname: string;
+  roles: string[];
+  email?: string;
+  groups?: string[];
+  lastAccess?: string;
+  avatar?: string;
+}
+
+export interface CourseGradeItem {
+  item: string;
+  grade?: string;
+  max?: string;
+  percentage?: string;
+  feedback?: string;
 }
 
 const CACHE_TTL_MS = 30_000;
@@ -153,13 +171,29 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[\u2010-\u2015\u2212]/g, "-");
   const termPattern = /(?:^|[^a-z0-9])(?:hk|hoc\s*k[iy]|semester|sem|term)[\s_.:-]*(iii|ii|iv|i|0?[1-4]|he|summer)(?![a-z0-9])/gi;
+  const terms: Record<string, number> = { i: 1, ii: 2, iii: 3, iv: 4, he: 3, summer: 3 };
+  const yearPattern = /(?<![0-9])((?:19|20)\d{2})(?:\s*[-/_]\s*((?:19|20)?\d{2}))?(?![0-9])/g;
+  const academicYears = (text: string) => [...text.matchAll(yearPattern)].filter((year) => year[2] || !/(?:^|[^a-z])(?:khoa|cohort)\s*[:_-]?\s*$/i.test(text.slice(0, year.index)));
+  const toYear = (year: RegExpMatchArray): string => {
+    const start = Number(year[1]);
+    const end = year[2] ? (year[2].length === 2 ? `${year[1].slice(0, 2)}${year[2]}` : year[2]) : undefined;
+    return end === undefined ? String(start) : `${start}-${end}`;
+  };
+  // A year or academic range without any term is an honest year group, never a
+  // semester guess. This keeps year-named categories (e.g. thesis categories)
+  // findable instead of dropping them into Unknown semester.
+  const yearGroup = (value: unknown, source: CourseSummary["semester"]["source"]): CourseSummary["semester"] | undefined => {
+    const text = normalize(value);
+    if (!text || text.match(termPattern)) return undefined;
+    const years = [...new Set(academicYears(text).map(toYear))];
+    if (years.length !== 1) return undefined;
+    const year = years[0];
+    return { id: year, label: year, sortOrder: Number(year.slice(0, 4)) * 10 + 9, source };
+  };
   const parse = (value: unknown, source: CourseSummary["semester"]["source"], yearContext: unknown = ""): CourseSummary["semester"] | undefined => {
     const text = normalize(value);
-    const terms: Record<string, number> = { i: 1, ii: 2, iii: 3, iv: 4, he: 3, summer: 3 };
     const semesters = [...new Set([...text.matchAll(termPattern)].map((term) => terms[term[1].toLowerCase()] || Number(term[1])))];
     if (semesters.length !== 1) return undefined;
-    const yearPattern = /(?<![0-9])((?:19|20)\d{2})(?:\s*[-/_]\s*((?:19|20)?\d{2}))?(?![0-9])/g;
-    const academicYears = (text: string) => [...text.matchAll(yearPattern)].filter((year) => year[2] || !/(?:^|[^a-z])(?:khoa|cohort)\s*[:_-]?\s*$/i.test(text.slice(0, year.index)));
     let yearsFound = academicYears(text);
     if (!yearsFound.length) {
       yearsFound = academicYears(normalize(yearContext));
@@ -167,11 +201,7 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
     // Prefer academic ranges over standalone cohort years, never the first of several ranges.
     const ranges = yearsFound.filter((year) => year[2]);
     const candidates = ranges.length ? ranges : yearsFound;
-    const years = [...new Set(candidates.map((year) => {
-      const start = Number(year[1]);
-      const end = year[2] ? (year[2].length === 2 ? `${year[1].slice(0, 2)}${year[2]}` : year[2]) : undefined;
-      return end === undefined ? String(start) : `${start}-${end}`;
-    }))];
+    const years = [...new Set(candidates.map(toYear))];
     if (years.length !== 1) return undefined;
     const year = years[0];
     const semester = semesters[0];
@@ -192,10 +222,14 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
     const normalized = parse(term, "metadata", academicYear || categoryText);
     if (normalized) return normalized;
     if (normalize(term).match(termPattern)) continue;
+    const yearOnly = yearGroup(text, "metadata");
+    if (yearOnly) return yearOnly;
     if (String(text).trim()) return { id: `metadata-${String(text).trim().toLowerCase()}`, label: cleanHtml(text), sortOrder: 0, source: "metadata" };
   }
   const category = parse(categoryText, "category", academicYear);
   if (category) return category;
+  const categoryYear = yearGroup(categoryText, "category");
+  if (categoryYear) return categoryYear;
   const name = parse(`${course.fullname || ""} ${course.shortname || ""}`, "name");
   if (name) return name;
   const startdate = Number(course.startdate);
@@ -203,10 +237,41 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
     const date = new Date(startdate * 1000);
     if (Number.isFinite(date.getTime())) {
       const year = date.getUTCFullYear();
-      return { id: `startdate-${year}`, label: `${year} (inferred from course start date)`, sortOrder: year * 10, source: "startdate" };
+      // Plain year ID on purpose: year-only groups from any source must merge
+      // into a single section instead of rendering duplicate year headers.
+      return { id: `${year}`, label: `${year}`, sortOrder: year * 10 + 9, source: "startdate" };
     }
   }
-  return { id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" };
+  // A yearless term or conflicting term/year hints stay unknown; a complete
+  // absence of time hints files under the current year. Real evidence always
+  // wins when present, so the default self-corrects on refresh.
+  const seen = new Set<string>();
+  let conflict = false;
+  let hasTerm = false;
+  const scan = (value: unknown): void => {
+    if (conflict) return;
+    const raw = typeof value === "object" && value !== null ? (value as MoodleRecord).label ?? (value as MoodleRecord).name ?? (value as MoodleRecord).id : value;
+    if (raw === undefined || raw === null || String(raw).trim() === "") return;
+    const clean = cleanHtml(raw);
+    const text = /^0?[1-4]$/.test(clean) ? `HK${clean}` : normalize(raw);
+    if (seen.has(text)) return;
+    seen.add(text);
+    const foundTerms = new Set([...text.matchAll(termPattern)].map((term) => terms[term[1].toLowerCase()] || Number(term[1])));
+    const foundYears = new Set(academicYears(text).map(toYear));
+    if (foundTerms.size > 1 || foundYears.size > 1) conflict = true;
+    else if (foundTerms.size > 0) hasTerm = true;
+  };
+  scan(explicit);
+  scan(course.semestername);
+  scan(course.term);
+  for (const field of fields) scan(field.value);
+  scan(categoryText);
+  scan(course.fullname);
+  scan(course.shortname);
+  scan(course.summary);
+  if (conflict || hasTerm) return { id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" };
+  const now = new Date().getUTCFullYear();
+  return { id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" };
 }
 
 function cleanHtml(value: unknown): string {
@@ -299,8 +364,25 @@ function mapCourse(course: MoodleRecord): CourseSummary {
 export async function listCourses(api: ApiClient = defaultApiClient, userId = Number(get("userId") || 0)): Promise<CourseSummary[]> {
   const records = await metadata<MoodleRecord[]>(api, "core_enrol_get_users_courses", { userid: userId });
   if (!Array.isArray(records)) throw new Error("Invalid course list response: expected an array.");
-  return records.map(mapCourse)
-    .sort((a, b) => b.semester.sortOrder - a.semester.sortOrder || b.id - a.id);
+  return records.map((raw) => {
+    const course = mapCourse(raw);
+    if (course.semester.source === "unknown") {
+      // Local diagnostics only: values are the user's own course metadata.
+      const scanYears = (value: unknown): string[] => {
+        const years = new Set<string>();
+        for (const match of String(value ?? "").matchAll(/(?:19|20)\d{2}/g)) years.add(match[0]);
+        return [...years];
+      };
+      console.error(`[listCourses] unknown semester id=${course.id} evidence=${JSON.stringify({
+        category: String(raw.categoryname || raw.coursecategory || raw.category?.name || raw.category || "").slice(0, 120) || null,
+        summaryYears: scanYears(raw.summary),
+        summaryLength: String(raw.summary ?? "").length,
+        customFields: Array.isArray(raw.customfields) ? raw.customfields.map((field: MoodleRecord) => field?.shortname || field?.name) : null,
+        keys: Object.keys(raw)
+      })}`);
+    }
+    return course;
+  }).sort((a, b) => b.semester.sortOrder - a.semester.sortOrder || b.id - a.id);
 }
 
 export async function lookupCourse(courseId: number, api: ApiClient, userId: number): Promise<CourseSummary> {
@@ -313,8 +395,9 @@ export async function lookupCourse(courseId: number, api: ApiClient, userId: num
       !["number", "string"].includes(typeof records[0]?.id) || Number(records[0].id) !== courseId) {
     throw new Error("Moodle did not return the requested course.");
   }
-  const course = mapCourse(records[0]);
-  if (typeof records[0].fullname !== "string" || !course.fullname || /(?:\.{3}|\u2026)$/.test(course.fullname)) {
+  const raw = records[0];
+  const course = mapCourse(raw);
+  if (typeof raw.fullname !== "string" || !course.fullname || /(?:\.{3}|\u2026)$/.test(course.fullname)) {
     throw new Error("Moodle did not return a complete course title.");
   }
   // Metadata can describe courses outside enrolments; contents enforce actual access.
@@ -343,6 +426,28 @@ export async function getCourseContents(courseId: number, api: ApiClient = defau
           return url ? [{ name: cleanHtml(item.filename || item.name || url), url }] : [];
         })
       });
+    }
+  }
+  if (modules.some((module) => module.modname === "assign")) {
+    // Assignment intros and attachments live in mod_assign_get_assignments, not
+    // the course contents. The desktop reader shows list data directly, so merge
+    // them here; anything unresolved keeps its module metadata.
+    try {
+      const byModule = new Map((await listAssignments(courseId, api)).map((assignment) => [assignment.moduleId, assignment]));
+      for (const module of modules) {
+        if (module.modname !== "assign") continue;
+        const assignment = byModule.get(module.id);
+        if (!assignment) continue;
+        if (assignment.description) module.description = assignment.description;
+        module.files = filesFrom(module.files, assignment.files);
+        module.unavailable = unavailableFrom({ ...module.unavailable, ...assignment.unavailable });
+        if (assignment.url && !module.url) module.url = assignment.url;
+      }
+    } catch (error) {
+      const code = (error as { errorcode?: string })?.errorcode;
+      // Only missing supplemental functionality is optional, never access or transport failures.
+      if (!/^(?:invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/.test(code || "") &&
+          (code !== undefined || !/^This UIT site does not expose mod_assign_get_assignments to the SSO session\./.test(String((error as Error)?.message)))) throw error;
     }
   }
   return modules;
@@ -376,38 +481,178 @@ export async function listAssignments(courseId: number, api: ApiClient = default
   }).sort((a: AssignmentSummary, b: AssignmentSummary) => (a.dueDate || Number.POSITIVE_INFINITY) - (b.dueDate || Number.POSITIVE_INFINITY));
 }
 
+export interface AssignmentSubmission {
+  assignId: number;
+  moduleId?: number;
+  status: string;
+  grade?: string;
+  files: CourseFile[];
+  unavailable?: Record<string, string>;
+}
+
+export async function getAssignmentSubmission(courseId: number, reference: { assignId?: number; moduleId?: number }, api: ApiClient = defaultApiClient): Promise<AssignmentSubmission> {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid course reference.");
+  let { assignId, moduleId } = reference;
+  if ((assignId === undefined || !Number.isSafeInteger(assignId) || assignId <= 0) && moduleId !== undefined) {
+    const match = (await listAssignments(courseId, api)).find((item) => item.moduleId === moduleId);
+    assignId = match?.id;
+    moduleId = match?.moduleId ?? moduleId;
+  }
+  if (assignId === undefined || !Number.isSafeInteger(assignId) || assignId <= 0) {
+    throw new Error("Assignment instance unavailable. Open the assignment on the course site for submission details.");
+  }
+  if (moduleId === undefined) {
+    moduleId = (await listAssignments(courseId, api)).find((item) => item.id === assignId)?.moduleId;
+  }
+  // SSO sessions without this WS function fall back to the assignment page read.
+  const result = await metadata<MoodleRecord>(api, "mod_assign_get_submission_status", { assignid: assignId });
+  const submission = result?.lastattempt?.submission;
+  const plugins = Array.isArray(submission?.plugins) ? submission.plugins : [];
+  const files = filesFrom(...plugins.filter((plugin: MoodleRecord) => plugin?.type === "file").flatMap((plugin: MoodleRecord) => (plugin.fileareas || []).map((area: MoodleRecord) => area.files)));
+  return {
+    assignId, moduleId,
+    status: cleanHtml(submission?.status) || "unknown",
+    grade: cleanHtml(result?.feedback?.gradefordisplay) || undefined,
+    files,
+    unavailable: unavailableFrom({ ...result?.unavailable, ...submission?.unavailable })
+  };
+}
+
 export async function listAnnouncements(courseId: number, api: ApiClient = defaultApiClient): Promise<AnnouncementSummary[]> {
   const forums = await metadata<MoodleRecord[]>(api, "mod_forum_get_forums_by_courses", { "courseids[0]": courseId });
   const selectedForums = forums.filter((forum) => (!forum.course || Number(forum.course) === courseId) && (forum.type === "news" || (!forum.type && forum.unavailable)));
-  for (const forum of selectedForums) {
+  // News forums often hide their instance ID from students, but the module ID
+  // still opens the same discussion list, so resolve the read key per forum.
+  const readers = selectedForums.map((forum) => {
     const forumId = Number(forum.id);
+    const cmid = Number(forum.cmid);
     const open = `Open ${credentialFreeUrl(forum.url) || "the forum on the course site"} to read announcements.`;
-    if (!Number.isSafeInteger(forumId) || forumId <= 0) throw new Error(`Announcement forum instance unavailable. ${open}`);
-    if (!forum.type) throw new Error(`Announcement forum type unavailable. ${open}`);
-  }
-  const groups = await Promise.all(selectedForums.map(async (forum) => {
+    if (Number.isSafeInteger(forumId) && forumId > 0) {
+      if (!forum.type) throw new Error(`Announcement forum type unavailable. ${open}`);
+      return { forum, key: { forumid: forumId }, forumId };
+    }
+    if (forum.type === "news" && Number.isSafeInteger(cmid) && cmid > 0) return { forum, key: { cmid }, forumId: undefined };
+    throw new Error(`Announcement forum instance unavailable. ${open}`);
+  });
+  const groups = await Promise.all(readers.map(async ({ forum, key, forumId }) => {
     const discussions: AnnouncementSummary[] = [];
+    const seen = new Set<number>();
     for (let page = 0; ; page++) {
-      const result = await metadata<MoodleRecord>(api, "mod_forum_get_forum_discussions", { forumid: Number(forum.id), page, perpage: 100 });
+      const result = await metadata<MoodleRecord>(api, "mod_forum_get_forum_discussions", { ...key, page, perpage: 100 });
       const entries = result.discussions || [];
-      for (const discussion of entries) discussions.push({
-        id: Number(discussion.discussion ?? discussion.id), courseId,
-        moduleId: Number(forum.cmid) || undefined, forumId: Number(forum.id),
-        subject: cleanHtml(discussion.subject || discussion.name),
-        author: cleanHtml(discussion.userfullname),
-        message: cleanHtml(discussion.message),
-        timestamp: Number(discussion.timemodified || discussion.created || 0) || undefined,
-        replies: Number(discussion.numreplies || 0),
-        files: filesFrom(discussion.attachments, discussion.messageinlinefiles),
-        url: credentialFreeUrl(discussion.url),
-        unavailable: unavailableFrom({ ...forum.unavailable, ...discussion.unavailable })
-      });
-      if (entries.length < 100) break;
+      let added = 0;
+      for (const discussion of entries) {
+        const id = Number(discussion.discussion ?? discussion.id);
+        if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id)) continue;
+        seen.add(id);
+        added++;
+        discussions.push({
+          id, courseId,
+          moduleId: Number(forum.cmid) || undefined, forumId,
+          subject: cleanHtml(discussion.subject || discussion.name),
+          author: cleanHtml(discussion.userfullname),
+          message: cleanHtml(discussion.message),
+          timestamp: Number(discussion.timemodified || discussion.created || 0) || undefined,
+          replies: Number(discussion.numreplies || 0),
+          files: filesFrom(discussion.attachments, discussion.messageinlinefiles),
+          url: credentialFreeUrl(discussion.url),
+          unavailable: unavailableFrom({ ...forum.unavailable, ...discussion.unavailable })
+        });
+      }
+      // A module-page read may repeat the first page; only new discussions advance.
+      if (entries.length < 100 || added === 0) break;
       if (page >= 999) throw new Error("Announcement pagination exceeded the safety limit.");
     }
     return discussions;
   }));
   return groups.flat().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
+
+export async function listForumDiscussions(courseId: number, moduleId: number, api: ApiClient = defaultApiClient): Promise<AnnouncementSummary[]> {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(moduleId) || moduleId <= 0) throw new Error("Invalid forum reference.");
+  const module = (await getCourseContents(courseId, api)).find((item) => item.id === moduleId);
+  if (!module || module.modname !== "forum") throw new Error("This activity is not a forum. Open it on the course site instead.");
+  const forumId = Number(module.instance);
+  const read = async (key: Record<string, number>): Promise<AnnouncementSummary[]> => {
+    const discussions: AnnouncementSummary[] = [];
+    const seen = new Set<number>();
+    for (let page = 0; ; page++) {
+      const result = await metadata<MoodleRecord>(api, "mod_forum_get_forum_discussions", { ...key, page, perpage: 100 });
+      const entries = result.discussions || [];
+      let added = 0;
+      for (const discussion of entries) {
+        const id = Number(discussion.discussion ?? discussion.id);
+        if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id)) continue;
+        seen.add(id);
+        added++;
+        discussions.push({
+          id, courseId,
+          moduleId, forumId: Number.isSafeInteger(forumId) && forumId > 0 ? forumId : undefined,
+          subject: cleanHtml(discussion.subject || discussion.name),
+          author: cleanHtml(discussion.userfullname),
+          message: cleanHtml(discussion.message),
+          timestamp: Number(discussion.timemodified || discussion.created || 0) || undefined,
+          replies: Number(discussion.numreplies || 0),
+          files: filesFrom(discussion.attachments, discussion.messageinlinefiles),
+          url: credentialFreeUrl(discussion.url),
+          unavailable: unavailableFrom({ ...module.unavailable, ...discussion.unavailable })
+        });
+      }
+      // A module-page read may repeat the first page; only new discussions advance.
+      if (entries.length < 100 || added === 0) break;
+      if (page >= 999) throw new Error("Forum pagination exceeded the safety limit.");
+    }
+    return discussions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  };
+  try {
+    return await read({ cmid: moduleId });
+  } catch (error) {
+    // Older Moodle releases only accept a forum instance ID, never a cmid.
+    if (!Number.isSafeInteger(forumId) || forumId <= 0) throw error;
+    return await read({ forumid: forumId });
+  }
+}
+
+export async function listCourseParticipants(courseId: number, api: ApiClient = defaultApiClient): Promise<CourseParticipant[]> {
+  const users = await metadata<MoodleRecord[]>(api, "core_enrol_get_enrolled_users", { courseid: courseId });
+  if (!Array.isArray(users)) return [];
+  return users
+    .map((user) => {
+      const participant: CourseParticipant = {
+        id: Number(user.id),
+        fullname: String(user.fullname || "").trim(),
+        roles: Array.isArray(user.roles)
+          ? user.roles.map((r: any) => String(r.shortname || r.name || r).trim()).filter(Boolean)
+          : []
+      };
+      if (user.email) participant.email = String(user.email).trim();
+      if (user.profileimageurl || user.profileimageurlsmall) {
+        participant.avatar = String(user.profileimageurl || user.profileimageurlsmall).trim();
+      }
+      if (user.lastaccess) participant.lastAccess = String(user.lastaccess).trim();
+      if (Array.isArray(user.groups) && user.groups.length) {
+        participant.groups = user.groups.map((g: any) => String(g.name || g)).filter(Boolean);
+      }
+      return participant;
+    })
+    .filter((u) => u.fullname);
+}
+
+export async function getCourseGrades(courseId: number, api: ApiClient = defaultApiClient, userId = Number(get("userId") || 0)): Promise<CourseGradeItem[]> {
+  const params: Record<string, any> = { courseid: courseId };
+  if (userId > 0) params.userid = userId;
+  const result = await metadata<MoodleRecord>(api, "gradereport_user_get_grade_items", params);
+  const items = result?.usergrades?.[0]?.gradeitems || [];
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((item) => item && (item.itemname || item.itemtype === "course"))
+    .map((item) => ({
+      item: String(item.itemname || "Course total").trim(),
+      grade: item.gradeformatted != null && item.gradeformatted !== "-" ? String(item.gradeformatted).trim() : undefined,
+      max: item.grademax != null ? String(item.grademax).trim() : undefined,
+      percentage: item.percentageformatted != null && item.percentageformatted !== "-" ? String(item.percentageformatted).trim() : undefined,
+      feedback: item.feedback ? cleanHtml(item.feedback) : undefined
+    }));
 }
 
 export interface CourseResourceReference {
@@ -471,6 +716,32 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
         if (file) resource = { kind: "file", id: reference.id, moduleId: module.id, name: file.filename, description, url: file.fileurl, files: [file], unavailable };
       } else resource = { kind: "module", id: module.id, moduleId: module.id, name: module.name, description, url: module.url, files, unavailable };
     }
+    if (!resource && reference.kind === "file" && fileUrl) {
+      try {
+        const assignments = await listAssignments(courseId, api);
+        const match = assignments.find((a) => (a.moduleId === moduleId || a.id === reference.id || (reference.moduleId !== undefined && a.moduleId === reference.moduleId)) && a.files.some((f) => f.fileurl === fileUrl));
+        if (match) {
+          const file = match.files.find((f) => f.fileurl === fileUrl);
+          if (file) {
+            const resModuleId = match.moduleId ?? reference.moduleId ?? reference.id;
+            resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.description || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
+          }
+        }
+      } catch {}
+      if (!resource) {
+        try {
+          const announcements = await listAnnouncements(courseId, api);
+          const match = announcements.find((a) => (a.moduleId === moduleId || a.id === reference.id || (reference.moduleId !== undefined && a.moduleId === reference.moduleId)) && a.files.some((f) => f.fileurl === fileUrl));
+          if (match) {
+            const file = match.files.find((f) => f.fileurl === fileUrl);
+            if (file) {
+              const resModuleId = match.moduleId ?? reference.moduleId ?? reference.id;
+              resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.message || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
+            }
+          }
+        } catch {}
+      }
+    }
   }
   if (!resource || (reference.moduleId !== undefined && reference.moduleId !== resource.moduleId) ||
       (fileUrl !== undefined && !resource.files?.some((file) => file.fileurl === fileUrl))) {
@@ -490,6 +761,16 @@ async function courseFile(courseId: number, fileUrl: string, api: ApiClient): Pr
   if (modules.some((module) => module.modname === "assign")) {
     const attachment = (await listAssignments(courseId, api)).flatMap((assignment) => assignment.files).find((item) => item.fileurl === fileUrl);
     if (attachment) return attachment;
+    // Submitted files are only listed by the submission status, never by contents.
+    if (/assignsubmission|mod_assign\/submission/.test(fileUrl)) {
+      for (const assignment of await listAssignments(courseId, api)) {
+        if (assignment.id === undefined) continue;
+        try {
+          const match = (await getAssignmentSubmission(courseId, { assignId: assignment.id }, api)).files.find((item) => item.fileurl === fileUrl);
+          if (match) return match;
+        } catch { /* This assignment exposes no readable submission; keep looking. */ }
+      }
+    }
   }
   if (modules.some((module) => module.modname === "forum")) {
     const attachment = (await listAnnouncements(courseId, api)).flatMap((announcement) => announcement.files).find((item) => item.fileurl === fileUrl);
@@ -498,22 +779,47 @@ async function courseFile(courseId: number, fileUrl: string, api: ApiClient): Pr
   throw new Error("This file does not belong to the selected course. Refresh the course and try again.");
 }
 
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PREVIEW_IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif"]);
+// Only these formats preview in UIT Studio. Everything else is download-only,
+// so binary formats never reach the reader and its error panel.
+function previewMimeFor(filename: string, reported?: string): string {
+  const ext = extname(filename).toLowerCase();
+  const types: Record<string, string> = {
+    ".pdf": "application/pdf", ".docx": DOCX_MIME,
+    ".md": "text/markdown", ".markdown": "text/markdown", ".py": "text/x-python",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".avif": "image/avif",
+  };
+  return reported || types[ext] || "";
+}
+export function previewableMime(mimeType: string, filename: string): boolean {
+  const ext = extname(filename).toLowerCase();
+  return mimeType === "application/pdf" || mimeType === DOCX_MIME || PREVIEW_IMAGE_MIME.has(mimeType) ||
+    mimeType === "text/markdown" || mimeType === "text/x-markdown" ||
+    mimeType === "text/x-python" || mimeType === "application/x-python" ||
+    // Converted documents arrive as plain text; only trust them by extension.
+    (mimeType === "text/plain" && (ext === ".md" || ext === ".markdown" || ext === ".py" || ext === ".docx"));
+}
 export async function previewFile(courseId: number, fileUrl: string, _filename: string, api: ApiClient = defaultApiClient): Promise<{ mimeType: string; data: string; filename: string }> {
   const file = await courseFile(courseId, fileUrl, api);
   if (file.filesize > MAX_PREVIEW_BYTES) throw new Error("Preview is limited to 25 MB. Download this file explicitly instead.");
   if (!api.readFile) throw new Error("This session does not support authenticated previews. Sign in again or download the file explicitly.");
   const result = await api.readFile(file.fileurl);
   if (result.data.byteLength > MAX_PREVIEW_BYTES) throw new Error("Preview is limited to 25 MB. Download this file explicitly instead.");
-  let mimeType = result.mimeType.split(";")[0].trim().toLowerCase();
-  if (!mimeType || mimeType === "application/octet-stream") {
-    const types: Record<string, string> = { ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".txt": "text/plain", ".md": "text/plain", ".csv": "text/csv", ".json": "application/json" };
-    mimeType = file.mimetype?.toLowerCase() || types[extname(file.filename).toLowerCase()] || mimeType;
+  const reported = result.mimeType.split(";")[0].trim().toLowerCase();
+  let mimeType = reported && reported !== "application/octet-stream"
+    ? reported
+    : previewMimeFor(file.filename, file.mimetype?.toLowerCase());
+  if (!previewableMime(mimeType, file.filename)) {
+    throw new Error(`Preview is not supported for ${mimeType || extname(file.filename) || "this format"}. Download the file explicitly to open it in another application.`);
   }
-  if (!(mimeType === "application/pdf" || /^image\/(?:png|jpeg|gif|webp|bmp|avif|svg\+xml)$/.test(mimeType) || mimeType.startsWith("text/") || ["application/json", "application/xml"].includes(mimeType))) {
-    throw new Error(`Preview is not supported for ${mimeType || "this format"}. Download the file explicitly to open it in another application.`);
+  // Word documents preview as extracted plain text, never executed content.
+  if (mimeType === DOCX_MIME) {
+    const { default: mammoth } = await import("mammoth");
+    const { value } = await mammoth.extractRawText({ buffer: Buffer.from(result.data) });
+    return { mimeType: "text/plain", data: Buffer.from(value).toString("base64"), filename: file.filename };
   }
-  // Active HTML/XML/SVG is shown as source text, never executed in the desktop origin.
-  if (["text/html", "application/xhtml+xml", "image/svg+xml", "application/xml", "text/xml"].includes(mimeType)) mimeType = "text/plain";
   return { mimeType, data: Buffer.from(result.data).toString("base64"), filename: file.filename };
 }
 

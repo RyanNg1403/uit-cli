@@ -23,41 +23,20 @@ export function createPdfPreview(container, bytes) {
   jump.setAttribute("aria-label", "Page number");
   const count = document.createElement("span");
   count.className = "pdf-page-count";
-  const zoomLabel = document.createElement("span");
-  zoomLabel.className = "pdf-zoom";
   const slots = [];
   const residents = new Map();
   const maxPages = 5, pixelsPerPage = Math.floor(4_194_304 / maxPages);
   let disposed = false, pageNumber = 1, zoom = 1, wanted = [];
   let worker, pdfWorker, loadingTask, pdf, running, destruction;
 
-  function control(label, action) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "secondary-button";
-    button.textContent = label;
-    button.addEventListener("click", action);
-    return button;
-  }
-  const zoomOut = control("Zoom out", () => changeZoom(-0.25));
-  const zoomIn = control("Zoom in", () => changeZoom(0.25));
-  const toggle = control("Show page text", () => {
-    const shown = root.classList.toggle("pdf-show-text");
-    toggle.textContent = shown ? "Hide page text" : "Show page text";
-    toggle.setAttribute("aria-expanded", String(shown));
-  });
-  toggle.setAttribute("aria-expanded", "false");
-  toolbar.append(jump, count, zoomOut, zoomLabel, zoomIn, toggle);
+  toolbar.append(jump, count);
   root.append(toolbar, status, surface);
   container.append(root);
 
   function updateControls() {
-    jump.disabled = zoomOut.disabled = zoomIn.disabled = toggle.disabled = disposed || !pdf;
-    zoomOut.disabled ||= zoom <= 0.5;
-    zoomIn.disabled ||= zoom >= 3;
+    jump.disabled = disposed || !pdf;
     if (document.activeElement !== jump) jump.value = String(pageNumber);
     count.textContent = pdf ? `Page ${pageNumber} of ${pdf.numPages}` : "";
-    zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
     const current = residents.get(pageNumber);
     root.setAttribute("aria-busy", String(!current?.done));
     if (!pdf) return;
@@ -167,17 +146,6 @@ export function createPdfPreview(container, bytes) {
       }
     })().finally(() => { running = null; });
     return running;
-  }
-
-  function changeZoom(delta) {
-    if (disposed || !pdf) return;
-    const slot = slots[pageNumber - 1];
-    const fraction = (surface.scrollTop + 8 - slot.element.offsetTop) / (slot.height * zoom);
-    for (const [number, job] of residents) evict(number, job);
-    zoom = Math.max(0.5, Math.min(3, zoom + delta));
-    slots.forEach(sizeSlot);
-    surface.scrollTop = slot.element.offsetTop - 8 + fraction * slot.height * zoom;
-    refresh();
   }
 
   function jumpToPage() {

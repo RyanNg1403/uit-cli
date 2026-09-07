@@ -175,7 +175,7 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
         "codex:status": { installed: false, message: "Offline fixture; no Codex process" },
       };
       const forbidden = ["session:login", "session:sso-login", "session:logout", "course:materialize", "course:open", "workspace:create", "shell:open",
-        "agent:start", "agent:send", "agent:fork", "agent:stop", "agent:approve", "agent:disconnect"];
+        "agent:start", "agent:send", "agent:fork", "agent:delete", "agent:stop", "agent:approve", "agent:disconnect"];
       for (const channel of [...Object.keys(responses), "course:contents", "course:preview", ...forbidden]) {
         ipcMain.removeHandler(channel);
         ipcMain.handle(channel, (_event, input) => {
@@ -224,7 +224,7 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
       sessionStorage.setItem("stability-seeded", "true");
     }, { STORE, threads, projects: [courses[0], courses[14]] });
     await window.reload();
-    await expect(window.locator(".course-row")).toHaveCount(15);
+    await expect(window.locator(".course-row")).toHaveCount(19);
     const cdp = await window.context().newCDPSession(window);
     await cdp.send("Performance.enable");
     const sampleMemory = async (phase: string) => {
@@ -278,7 +278,6 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
     await window.getByRole("button", { name: "New project", exact: true }).click();
     await window.locator(".project-option").filter({ hasText: courses[1].fullname }).click();
     await expect(window.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(1));
-    await expect(window.getByRole("button", { name: "Rename", exact: true })).toBeDisabled();
     await window.getByLabel("Message Codex").fill("Temporary project draft: never send or retain this thread.");
     await navigation();
     await window.locator('.nav-item[data-view="courses"]').click();
@@ -322,8 +321,8 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
         await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(390, 844));
         await expect.poll(() => window.evaluate(() => innerWidth)).toBe(390);
       }
-      await window.locator("#contents-panel .resource-open").filter({ hasText: "lecture.txt" }).click();
-      await expect(window.locator("#reader-body pre")).toHaveText("Lecture content in memory");
+      await window.locator("#contents-panel .resource-open").filter({ hasText: "script.py" }).click();
+      await expect(window.locator("#reader-body pre")).toHaveText("print('hello from memory')");
       await window.getByRole("button", { name: "Close preview" }).click();
       await expect(window.locator("#reader-body")).toBeEmpty();
       await window.locator("#contents-panel .resource-open").filter({ hasText: "slide.pdf" }).click();
@@ -353,7 +352,6 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
           expect(pixels.colored).toBeGreaterThan(1000);
           expect(pixels.black).toBeGreaterThan(100);
         }
-        await window.getByRole("button", { name: "Show page text" }).click();
         await expect(window.getByLabel("PDF page 1 text", { exact: true })).toContainText("UIT OFFLINE PDF PAGE 1");
         await expect(window.locator("#reader-body iframe")).toHaveCount(0);
         if (log.cycles < 2) await screenshot(mobile ? "stability-mobile-pdf" : "stability-pdf");
@@ -376,7 +374,6 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
       await navigation();
       await window.getByRole("button", { name: `New thread in ${courses[index].shortname}`, exact: true }).click();
       await expect(window.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(index));
-      await expect(window.getByRole("button", { name: "Rename", exact: true })).toBeDisabled();
       await window.getByLabel("Message Codex").fill(`Discard this temporary draft, cycle ${log.cycles}`);
       await navigation();
       await window.locator(".thread-link").filter({ hasText: `Offline draft ${index}` }).click();
@@ -416,7 +413,7 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
     expect(log.soakDurationMs).toBeGreaterThanOrEqual(60_000);
     expect(log.heartbeats.length).toBeGreaterThanOrEqual(15);
     await window.reload();
-    await expect(window.locator(".course-row")).toHaveCount(15);
+    await expect(window.locator(".course-row")).toHaveCount(19);
     await navigation();
     await window.locator('.nav-item[data-view="agent"]').click();
     for (const index of [0, 14]) {

@@ -30,10 +30,13 @@ export const fileTypes = [
   { filename: "slide.pdf", mimetype: "application/pdf", text: pdfFixture() },
   { filename: "pixel.png", mimetype: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=" },
   { filename: "fake.pdf", mimetype: "application/pdf", text: "<html>Not a PDF</html>" },
+  { filename: "script.py", mimetype: "text/x-python", text: "print('hello from memory')" },
+  { filename: "readme.md", mimetype: "text/markdown", text: "# Lesson notes in memory" },
+  { filename: "essay.docx", mimetype: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", text: "Docx content in memory" },
 ];
 const sessions = [
   { baseUrl: CURRENT, userId: 101, authMode: "sso", label: "Current Moodle" },
-  { baseUrl: LEGACY, userId: 202, authMode: "token", label: "Legacy undergraduate" },
+  { baseUrl: LEGACY, userId: 202, authMode: "token", label: "Legacy Moodle" },
 ];
 
 type BootOptions = { authenticated?: boolean; storage?: string; fail?: Record<string, string> };
@@ -70,6 +73,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
       return save();
     }
     if (method === "codex.status") return { installed: true, version: "fixture (offline)" };
+    if (method === "codex.models") return [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Fixture workhorse", efforts: ["low", "high"] }];
     if (method === "courses.list" || method === "courses.refresh") {
       return [...seed.courses, { ...seed.courses[14], userId: 303, shortname: "OTHER-ACCOUNT", fullname: "Other account algorithms" }];
     }
@@ -77,16 +81,28 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (method === "courses.contents") return [
       { id: 501, name: "Week 1 materials", section: "Week 1", description: "Read the module introduction", files: files.slice(0, 4) },
       { id: 502, name: "Week 2 materials", section: "Week 2", description: "Second module introduction", files: files.slice(4) },
-      { id: 503, name: "Reading activity", section: "Week 2", description: "Activity without attachments", files: [] },
+      { id: 503, name: "Class announcements", section: "Week 2", modname: "forum", description: "", files: [] },
     ];
     if (method === "courses.assignments") return Array.from({ length: 7 }, (_, i) => ({ id: 601 + i, moduleId: 701 + i, name: `Assignment ${i + 1}`, description: `Full assignment ${i + 1}: solve all exercises. <script>unsafe()</script>`, dueDate: i ? 1800000000 + i * 86400 : undefined }));
-    if (method === "courses.announcements") return Array.from({ length: 6 }, (_, i) => ({ id: 801 + i, subject: `Announcement ${i + 1}`, message: `Full announcement ${i + 1}: classroom schedule and reading.`, author: `Lecturer ${i + 1}`, timestamp: 1780000000 + i * 86400 }));
+    if (method === "courses.announcements") return Array.from({ length: 6 }, (_, i) => ({ id: 801 + i, moduleId: 503, subject: `Announcement ${i + 1}`, message: `Full announcement ${i + 1}: classroom schedule and reading.`, author: `Lecturer ${i + 1}`, timestamp: 1780000000 + i * 86400 }));
+    if (method === "courses.participants") return [
+      { id: 101, fullname: "Alice Student", roles: ["student"], email: "alice@uit.edu.vn" },
+      { id: 102, fullname: "Dr. Bob", roles: ["editingteacher"], email: "bob@uit.edu.vn" }
+    ];
+    if (method === "courses.grades") return [
+      { item: "Course total", grade: "9.5", max: "10", percentage: "95 %", feedback: "Well done!" },
+      { item: "Lab 1", grade: "10", max: "10", percentage: "100 %" }
+    ];
     if (method === "courses.preview") {
       const file = seed.files.find((file) => file.filename === input.filename)!;
-      return { mimeType: file.mimetype, filename: file.filename, data: file.data || btoa(file.text || "") };
+      // The real backend converts Word documents to plain text before preview.
+      const mimeType = file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "text/plain" : file.mimetype;
+      return { mimeType, filename: file.filename, data: file.data || btoa(file.text || "") };
     }
+    if (method === "courses.submission") return { assignId: input.assignId, moduleId: input.moduleId, status: "Submitted for grading", grade: "9.0", files: [] };
+    if (method === "courses.forum") return [];
     if (method === "courses.materialize") return `/fixture/downloads/${input.filename}`;
-    if (method === "courses.open" || method === "agent.approve" || method === "agent.disconnect") return;
+    if (method === "courses.open" || method === "agent.approve" || method === "agent.delete" || method === "agent.disconnect") return;
     if (method === "agent.start" || method === "agent.send") return { threadId: input.threadId || `thread-${input.taskId}`, turnId: `turn-${input.taskId}`, workspace: `/fixture/UIT/${input.shortname}` };
     if (method === "agent.fork") return { id: `branch-${input.threadId}` };
     if (method === "agent.stop") { emit({ method: "turn/completed", params: { threadId: input.threadId, turn: { id: input.turnId, status: "interrupted" } } }); return; }
@@ -105,8 +121,8 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
   };
   window.uit = Object.fromEntries(Object.entries({
     session: ["status", "login", "ssoLogin", "logout"],
-    courses: ["list", "refresh", "contents", "assignments", "announcements", "preview", "materialize", "open"],
-    codex: ["status"], agent: ["start", "send", "fork", "stop", "approve", "disconnect"],
+    courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
+    codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect"],
     workspace: ["create"], shell: ["open"],
   }).map(([namespace, methods]) => [namespace, Object.fromEntries(methods.map((method) => [method, (input: any) => invoke(`${namespace}.${method}`, input)]))]));
   window.uit.agent.onEvent = (listener: (event: any) => void) => { listeners.push(listener); return () => listeners.splice(listeners.indexOf(listener), 1); };
@@ -115,7 +131,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
 export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>; diagnostics: void }, { rendererURL: string }>({
   rendererURL: [async ({}, use) => {
     const root = new URL("../../desktop/renderer/", import.meta.url);
-    const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js" };
+    const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png" };
     const server = createServer(async (request, response) => {
       const pathname = new URL(request.url!, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204).end(); return; }
@@ -170,7 +186,7 @@ export async function emit(page: Page, method: string, params: any) {
 }
 export async function openCourse(page: Page, index = 0) {
   await page.locator('.nav-item[data-view="courses"]').click();
-  await page.locator("#course-nav").getByRole("button", { name: `> ${courses[index].shortname}`, exact: true }).click();
+  await page.locator("#course-nav").getByRole("button", { name: courses[index].shortname, exact: true }).click();
   await expect(page.locator("#course-detail h1")).toHaveText(courses[index].fullname);
-  await expect(page.locator('#contents-panel [data-resource-kind="file"]')).toHaveCount(8);
+  await expect(page.locator('#contents-panel [data-resource-kind="file"]')).toHaveCount(fileTypes.length);
 }

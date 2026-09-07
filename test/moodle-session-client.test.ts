@@ -117,10 +117,11 @@ describe("Moodle session API", () => {
     expect(execute).toHaveBeenCalledTimes(8);
   });
 
-  it("does not fabricate an instance ID for an invalid forum request", async () => {
+  it.each([{}, { cmid: 0 }, { cmid: -1 }, { forumid: 0, cmid: 9 }])("rejects forum discussion reads without a usable identity: %j", async (params) => {
     const execute = vi.fn().mockResolvedValue([{ error: true, exception: "invalid_parameter_exception" }]);
     const api = new MoodleSessionApi("https://courses.uit.edu.vn", "key", { execute, cookieHeader: vi.fn() });
-    await expect(api.call("mod_forum_get_forum_discussions", { cmid: 9 })).rejects.toThrow("Invalid forum");
+    await expect(api.call("mod_forum_get_forum_discussions", params)).rejects.toThrow("Invalid forum");
+    // Only the AJAX probe runs; no page is fetched without an identity.
     expect(execute).toHaveBeenCalledOnce();
   });
 
@@ -588,6 +589,15 @@ describe("Moodle HTML fallbacks with real DOM parsing", () => {
     expect(requests).toHaveLength(4);
   });
 
+  it("reads discussions through the module page and rejects a different module", async () => {
+    pages["/mod/forum/view.php?id=9059&forceview=1&p=0&s=100"] = '<body id="page-mod-forum-view" class="forumtype-news"><script>M.cfg = {"courseId":807,"contextInstanceId":9059};</script><table class="discussion-list"><tr class="discussion" data-discussionid="801"><td class="topic"><a href="discuss.php?d=801">Thesis notice</a></td></tr></table></body>';
+    pages["/mod/forum/discuss.php?d=801"] = '<article class="forumpost firstpost"><h3 class="subject">Thesis notice</h3><div class="posting"><p>Defend in June.</p></div></article>';
+    const result = await api.call("mod_forum_get_forum_discussions", { cmid: 9059 });
+    expect(result.discussions).toMatchObject([{ discussion: 801, name: "Thesis notice", subject: "Thesis notice", message: "<p>Defend in June.</p>" }]);
+    pages["/mod/forum/view.php?id=9059&forceview=1&p=0&s=100"] = '<body id="page-mod-forum-view"><script>M.cfg = {"courseId":807,"contextInstanceId":9999};</script><table class="discussion-list"><tr class="discussion" data-discussionid="801"><td class="topic"><a href="discuss.php?d=801">Thesis notice</a></td></tr></table></body>';
+    await expect(api.call("mod_forum_get_forum_discussions", { cmid: 9059 })).rejects.toThrow("different course module");
+  });
+
   it("reads paginated modern discussions, opening messages and attachments, not reply content", async () => {
     pages["/mod/forum/view.php?f=702&p=2&s=2"] = `<div id="discussion-list-fixture"><table class="discussion-list"><tr class="discussion" data-region="discussion-list-item" data-discussionid="801" data-forumid="702"><th class="topic"><a href="discuss.php?d=801" title="Exam &amp; notes">Exam...</a></th><td class="author"><div class="author-info"><div>Teacher</div><time data-timestamp="1700000000"></time></div></td><td><time data-timestamp="1700000100"></time></td><td class="text-center"><span>3</span></td></tr></table></div>`;
     // Moodle 4.5 forum_discussion_post.mustache, including a nested reply.
@@ -691,5 +701,64 @@ describe("Moodle HTML fallbacks with real DOM parsing", () => {
       };
     });
     await expect(api.call("core_course_get_contents", { courseid: 42 })).rejects.toThrow("not a download");
+  });
+
+  it("falls back to the participants page when core_enrol_get_enrolled_users is unavailable via AJAX", async () => {
+    pages["/user/index.php?id=42&perpage=5000"] = `
+      <body>
+        <table id="participants" class="generaltable">
+          <tbody>
+            <tr>
+              <td class="cell c0"><input id="user101" type="checkbox" /></td>
+              <td class="cell c1"><span class="userinitials">AS</span><a href="/user/view.php?id=101&course=42">Alice Student</a></td>
+              <td class="cell c2">Học viên</td>
+            </tr>
+            <tr>
+              <td class="cell c0"><input id="user102" type="checkbox" /></td>
+              <td class="cell c1"><a href="/user/view.php?id=102&course=42">Dr. Bob</a></td>
+              <td class="cell c2">Giảng viên</td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+    `;
+    const users = await api.call("core_enrol_get_enrolled_users", { courseid: 42 });
+    expect(users).toEqual([
+      { id: 101, fullname: "Alice Student", roles: [{ shortname: "học viên", name: "Học viên" }] },
+      { id: 102, fullname: "Dr. Bob", roles: [{ shortname: "giảng viên", name: "Giảng viên" }] }
+    ]);
+  });
+
+  it("falls back to the user grade report page when gradereport_user_get_grade_items is unavailable via AJAX", async () => {
+    pages["/grade/report/user/index.php?id=42"] = `
+      <body>
+        <table class="user-grade generaltable">
+          <tbody>
+            <tr>
+              <th class="column-itemname"><span class="sr-only">Course</span>Course total</th>
+              <td class="column-grade">9.5</td>
+              <td class="column-range">0–10</td>
+              <td class="column-percentage">95 %</td>
+              <td class="column-feedback">Well done!</td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+    `;
+    const result = await api.call("gradereport_user_get_grade_items", { courseid: 42 });
+    expect(result).toEqual({
+      usergrades: [{
+        courseid: 42,
+        gradeitems: [
+          {
+            itemname: "Course total",
+            gradeformatted: "9.5",
+            grademax: "0–10",
+            percentageformatted: "95 %",
+            feedback: "Well done!"
+          }
+        ]
+      }]
+    });
   });
 });

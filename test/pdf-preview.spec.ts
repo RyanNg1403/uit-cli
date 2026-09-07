@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("12-page PDF scrolls forward, back and last with bounded canvases, text, zoom and no side effects", async ({ page, boot }) => {
+test("12-page PDF scrolls forward, back and last with bounded canvases, text and no side effects", async ({ page, boot }) => {
   const downloads: string[] = [];
   page.on("download", (download) => downloads.push(download.suggestedFilename()));
   page.on("dialog", (dialog) => { throw new Error(`PDF script executed: ${dialog.message()}`); });
@@ -56,12 +56,7 @@ test("12-page PDF scrolls forward, back and last with bounded canvases, text, zo
   expect(pixels.red).toBeGreaterThan(1000);
   await expect(page.getByRole("button", { name: /Previous page|Next page/ })).toHaveCount(0);
   await expect(page.getByLabel("PDF page 1 text", { exact: true })).toContainText("UIT OFFLINE PDF PAGE 1");
-  await page.getByRole("button", { name: "Show page text" }).click();
-  await expect(page.getByLabel("PDF page 1 text", { exact: true })).toContainText("UIT OFFLINE PDF PAGE 1");
-  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-  await expect(status).toContainText("Page 1 of 12 rendered");
-  await expect(page.locator(".pdf-zoom")).toHaveText("125%");
-  expect(await canvas.evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBeGreaterThan(pixels.width);
+  await expect(page.locator(".pdf-toolbar button")).toHaveCount(0);
   const toolbarTop = (await page.locator(".pdf-toolbar").boundingBox())!.y;
   await page.locator(".pdf-surface").hover();
   await page.mouse.wheel(0, 1020);
@@ -78,11 +73,6 @@ test("12-page PDF scrolls forward, back and last with bounded canvases, text, zo
   await page.getByRole("spinbutton", { name: "Page number" }).fill("1");
   await page.getByRole("spinbutton", { name: "Page number" }).press("Enter");
   await expect(status).toContainText("Page 1 of 12 rendered");
-  await page.getByRole("button", { name: "Zoom out", exact: true }).click();
-  await expect(page.locator(".pdf-zoom")).toHaveText("100%");
-  await expect(status).toContainText("Page 1 of 12 rendered");
-  await page.getByRole("button", { name: "Hide page text" }).click();
-  await expect(page.getByRole("button", { name: "Show page text" })).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("#reader-body iframe, #reader-body a, #reader-body form, #reader-body script")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__pdfStats.urls)).toEqual([new URL("/node_modules/pdfjs-dist/build/pdf.worker.mjs", page.url()).href]);
   for (const method of ["courses.materialize", "courses.open", "shell.open", "workspace.create", "agent.start"]) expect(await calls(page, method)).toHaveLength(0);
@@ -196,11 +186,7 @@ test("large pages on high DPR stay within canvas limits and mobile viewport", as
   await page.locator(".course-row").first().click();
   await page.locator("#contents-panel .resource-open").filter({ hasText: "slide.pdf" }).click();
   await expect(page.locator(".pdf-status")).toContainText("Page 1 of 12 rendered");
-  for (let index = 0; index < 8; index++) {
-    await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-    await expect(page.locator(".pdf-status")).toContainText("Page 1 of 12 rendered");
-  }
-  await expect(page.getByRole("button", { name: "Zoom in", exact: true })).toBeDisabled();
+  await expect(page.locator(".pdf-toolbar button")).toHaveCount(0);
   for (const number of [6, 12, 1]) {
     await page.getByRole("spinbutton", { name: "Page number" }).fill(String(number));
     await page.getByRole("spinbutton", { name: "Page number" }).press("Enter");
@@ -218,7 +204,7 @@ test("large pages on high DPR stay within canvas limits and mobile viewport", as
 });
 
 for (const close of [false, true]) {
-  test(`stale scroll and zoom renders are cancelled before ${close ? "close" : "resuming on the last page"}`, async ({ page, boot }) => {
+  test(`stale scroll renders are cancelled before ${close ? "close" : "resuming on the last page"}`, async ({ page, boot }) => {
     await boot();
     await page.evaluate((data) => {
       window.uit.courses.preview = async () => ({ mimeType: "application/pdf", data: btoa(data) });
@@ -230,20 +216,16 @@ for (const close of [false, true]) {
       (window as any).__nativeAnimationFrame = window.requestAnimationFrame;
       (window as any).__frames = [];
       window.requestAnimationFrame = (callback) => { (window as any).__frames.push(callback); return 0; };
-      [...document.querySelectorAll<HTMLButtonElement>(".pdf-toolbar button")].find((button) => button.textContent === "Zoom in")!.click();
     });
-    await expect.poll(() => page.evaluate(() => (window as any).__pdfStats.canvases.length)).toBe(6);
     await page.locator(".pdf-surface").evaluate((surface) => {
       surface.scrollTop = surface.scrollHeight;
       surface.dispatchEvent(new Event("scroll"));
     });
-    await expect.poll(() => page.evaluate(() => (window as any).__pdfStats.canvases.length)).toBe(7);
-    expect(await page.evaluate(() => (window as any).__pdfStats.canvases[5].width)).toBe(0);
-    await page.evaluate(() => {
-      [...document.querySelectorAll<HTMLButtonElement>(".pdf-toolbar button")].find((button) => button.textContent === "Zoom in")!.click();
-    });
-    await expect.poll(() => page.evaluate(() => (window as any).__pdfStats.canvases.length)).toBe(8);
-    expect(await page.evaluate(() => (window as any).__pdfStats.canvases[6].width)).toBe(0);
+    // PDF.js render tasks schedule via requestAnimationFrame, so the stubbed frame
+    // queue stalls the pump on the first new page: exactly one new canvas appears
+    // for the jumped-to page while stale residents are evicted synchronously.
+    await expect.poll(() => page.evaluate(() => (window as any).__pdfStats.canvases.length)).toBe(6);
+    expect(await page.evaluate(() => (window as any).__pdfStats.canvases[0].width)).toBe(0);
     if (close) await page.evaluate(() => { (document.querySelector("#resource-reader") as HTMLDialogElement).close(); });
     await page.evaluate(() => {
       window.requestAnimationFrame = (window as any).__nativeAnimationFrame;
@@ -251,7 +233,6 @@ for (const close of [false, true]) {
     });
     if (!close) {
       await expect(page.locator(".pdf-status")).toContainText("Page 12 of 12 rendered");
-      await expect(page.locator(".pdf-zoom")).toHaveText("150%");
       await expect(page.getByLabel("PDF page 12 text", { exact: true })).toContainText("UIT OFFLINE PDF PAGE 12");
       await expect(page.locator('.pdf-page[data-page="1"] .pdf-canvas')).toHaveCount(0);
       await page.getByRole("button", { name: "Close preview" }).click();
@@ -271,7 +252,7 @@ test("dark mode preserves white PDF pages and original image colors", async ({ p
   const light = await canvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.locator(".pdf-toolbar")).toHaveCSS("background-color", "rgb(38, 38, 36)");
+  await expect(page.locator(".pdf-toolbar")).toHaveCSS("background-color", "rgb(21, 25, 35)");
   await expect(canvas).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(canvas).toHaveCSS("filter", "none");
   expect(await canvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())).toBe(light);
@@ -282,7 +263,7 @@ test("dark mode preserves white PDF pages and original image colors", async ({ p
   await page.getByRole("button", { name: "Close preview" }).click();
 });
 
-test("mixed-size page estimates settle without losing the jumped page or zoom anchor", async ({ page, boot }) => {
+test("mixed-size page estimates settle without losing the jumped page", async ({ page, boot }) => {
   await boot();
   await page.evaluate((data) => {
     window.uit.courses.preview = async () => ({ mimeType: "application/pdf", data: btoa(data) });
@@ -296,8 +277,6 @@ test("mixed-size page estimates settle without losing the jumped page or zoom an
     await expect(page.locator(".pdf-status")).toContainText(`Page ${number} of 12 rendered`);
     await expect(page.locator(".pdf-canvas:not([hidden])")).toHaveCount(5);
     await expect(page.locator(".pdf-page-count")).toHaveText(`Page ${number} of 12`);
-    await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-    await expect(page.locator(".pdf-status")).toContainText(`Page ${number} of 12 rendered`);
   }
   await page.getByRole("button", { name: "Close preview" }).click();
 });

@@ -64,11 +64,11 @@ describe("CodexClient", () => {
 
     const init = await client.connect();
     const thread = await client.startThread("/tmp/uit-studio-test");
-    const turn = await client.startTurn(thread.id, "Say hello");
+    const turn = await client.startTurn(thread.thread.id, "Say hello");
     await new Promise((resolve) => setTimeout(resolve, 25));
 
     expect(init.userAgent).toBe("fake-codex");
-    expect(thread.id).toBe("thr_fake");
+    expect(thread.thread.id).toBe("thr_fake");
     expect(turn.id).toBe("turn_fake");
     expect(notifications).toEqual(["item/agentMessage/delta", "turn/completed"]);
     await client.disconnect();
@@ -103,7 +103,7 @@ describe("CodexClient", () => {
     expect(server.client.isConnected).toBe(false);
     server.send({ id: 1, result: { userAgent: "mock" } });
     expect(await Promise.all([first, second])).toEqual([{ userAgent: "mock" }, { userAgent: "mock" }]);
-    expect(await thread).toEqual({ id: "thread" });
+    expect(await thread).toEqual({ thread: { id: "thread" } });
     expect(await turn).toEqual({ id: "turn" });
     expect(server.messages.map((message) => message.method)).toEqual(["initialize", "initialized", "thread/start", "turn/start"]);
     expect(server.client.isConnected).toBe(true);
@@ -120,6 +120,8 @@ describe("CodexClient", () => {
     await server.client.forkThread("thread", "last");
     await server.client.forkThread("thread");
     await server.client.startTurn("thread", "hello");
+    await server.client.deleteThread("thread");
+    await server.client.setThreadName("thread", "renamed");
     await server.client.interruptTurn("thread", "turn");
     expect(server.messages.slice(2).map(({ method, params }) => ({ method, params }))).toEqual([
       { method: "thread/start", params: { cwd: "/workspace", serviceName: "uit_studio", sandbox: "workspace-write", approvalPolicy: "on-request" } },
@@ -127,6 +129,8 @@ describe("CodexClient", () => {
       { method: "thread/fork", params: { threadId: "thread", lastTurnId: "last" } },
       { method: "thread/fork", params: { threadId: "thread" } },
       { method: "turn/start", params: { threadId: "thread", input: [{ type: "text", text: "hello" }] } },
+      { method: "thread/delete", params: { threadId: "thread" } },
+      { method: "thread/name/set", params: { threadId: "thread", name: "renamed" } },
       { method: "turn/interrupt", params: { threadId: "thread", turnId: "turn" } }
     ]);
   });
@@ -145,6 +149,26 @@ describe("CodexClient", () => {
     await server.client.startThread("/workspace", { dynamicTools: [] });
     expect(server.messages[2]?.params).toMatchObject({ dynamicTools, sandbox: "workspace-write", approvalPolicy: "on-request" });
     expect(server.messages[3]?.params?.dynamicTools).toEqual([]);
+  });
+
+  it("passes model and effort through thread and turn start, and lists models", async () => {
+    const server = mockServer((message) => {
+      if (message.method === "initialize") server.send({ id: message.id, result: {} });
+      if (message.method === "thread/start") server.send({ id: message.id, result: { thread: { id: "thread" }, model: "gpt-5.6-sol" } });
+      if (message.method === "turn/start") server.send({ id: message.id, result: { turn: { id: "turn" } } });
+      if (message.method === "model/list") server.send({ id: message.id, result: { data: [
+        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Workhorse", supportedReasoningEfforts: ["low", { reasoningEffort: "high" }] },
+        { id: "hidden-model", displayName: "Hidden", hidden: true },
+        { id: 42 },
+      ] } });
+    });
+    await expect(server.client.startThread("/workspace", { model: "gpt-5.6-sol" })).resolves.toEqual({ thread: { id: "thread" }, model: "gpt-5.6-sol" });
+    await server.client.startTurn("thread", "hello", "/workspace", { model: "gpt-5.6-sol", effort: "high" });
+    await expect(server.client.listModels()).resolves.toEqual([{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Workhorse", efforts: ["low", "high"] }]);
+    const started = server.messages.find((message) => message.method === "thread/start");
+    expect(started?.params).toMatchObject({ model: "gpt-5.6-sol" });
+    const turn = server.messages.find((message) => message.method === "turn/start");
+    expect(turn?.params).toMatchObject({ model: "gpt-5.6-sol", effort: "high" });
   });
 
   it.each([0, 1, "1", "approval-id"])("routes server request ID %s independently from pending responses", async (id) => {
@@ -296,7 +320,7 @@ describe("CodexClient", () => {
     server.child.emit("error", new Error("stale error"));
     server.send({ id: 5, result: { thread: { id: "wrong" } } });
     replacement.send({ id: 5, result: { thread: { id: "new" } } });
-    await expect(pending).resolves.toEqual({ id: "new" });
+    await expect(pending).resolves.toEqual({ thread: { id: "new" } });
     expect(server.client.isConnected).toBe(true);
   });
 

@@ -45,6 +45,19 @@ export type CodexDynamicToolSpec = CodexDynamicToolFunction | {
 
 export interface CodexThreadStartOptions {
   dynamicTools?: CodexDynamicToolSpec[];
+  model?: string;
+}
+
+export interface CodexTurnStartOptions {
+  model?: string;
+  effort?: string;
+}
+
+export interface CodexModelOption {
+  id: string;
+  displayName: string;
+  description?: string;
+  efforts: string[];
 }
 
 export interface CodexThread {
@@ -133,16 +146,33 @@ export class CodexClient extends EventEmitter {
     return connection;
   }
 
-  async startThread(cwd: string, options: CodexThreadStartOptions = {}): Promise<CodexThread> {
+  async startThread(cwd: string, options: CodexThreadStartOptions = {}): Promise<{ thread: CodexThread; model?: string }> {
     await this.connect();
     const result = await this.request("thread/start", {
       cwd,
       serviceName: "uit_studio",
       sandbox: "workspace-write",
       approvalPolicy: "on-request",
+      ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.dynamicTools !== undefined ? { dynamicTools: options.dynamicTools } : {})
     });
-    return result.thread as CodexThread;
+    return { thread: result.thread as CodexThread, model: typeof result.model === "string" ? result.model : undefined };
+  }
+
+  async listModels(): Promise<CodexModelOption[]> {
+    await this.connect();
+    const result = await this.request("model/list", {});
+    const entries = Array.isArray(result?.data) ? result.data : [];
+    return entries
+      .filter((entry: any) => entry && typeof entry.id === "string" && !entry.hidden)
+      .map((entry: any) => ({
+        id: entry.id,
+        displayName: typeof entry.displayName === "string" && entry.displayName ? entry.displayName : entry.id,
+        description: typeof entry.description === "string" ? entry.description : undefined,
+        efforts: Array.isArray(entry.supportedReasoningEfforts)
+          ? entry.supportedReasoningEfforts.map((item: any) => typeof item === "string" ? item : item?.reasoningEffort).filter((effort: unknown): effort is string => typeof effort === "string" && Boolean(effort))
+          : []
+      }));
   }
 
   async resumeThread(threadId: string): Promise<CodexThread> {
@@ -151,12 +181,14 @@ export class CodexClient extends EventEmitter {
     return result.thread as CodexThread;
   }
 
-  async startTurn(threadId: string, text: string, cwd?: string): Promise<CodexTurn> {
+  async startTurn(threadId: string, text: string, cwd?: string, options: CodexTurnStartOptions = {}): Promise<CodexTurn> {
     await this.connect();
     const result = await this.request("turn/start", {
       threadId,
       input: [{ type: "text", text }],
-      ...(cwd ? { cwd } : {})
+      ...(cwd ? { cwd } : {}),
+      ...(options.model !== undefined ? { model: options.model } : {}),
+      ...(options.effort !== undefined ? { effort: options.effort } : {})
     });
     return result.turn as CodexTurn;
   }
@@ -165,6 +197,16 @@ export class CodexClient extends EventEmitter {
     await this.connect();
     const result = await this.request("thread/fork", { threadId, ...(lastTurnId ? { lastTurnId } : {}) });
     return result.thread as CodexThread;
+  }
+
+  async deleteThread(threadId: string): Promise<void> {
+    await this.connect();
+    await this.request("thread/delete", { threadId });
+  }
+
+  async setThreadName(threadId: string, name: string): Promise<void> {
+    await this.connect();
+    await this.request("thread/name/set", { threadId, name });
   }
 
   async interruptTurn(threadId: string, turnId: string): Promise<void> {

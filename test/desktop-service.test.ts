@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFile } from "node:child_process";
 import { defaultApiClient } from "../src/api.js";
-import { clearCourseCache, codexStatus, getCourseContents, listAnnouncements, listAssignments, listCourses, login, lookupCourse, sessionStatus } from "../src/desktop-service.js";
+import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, login, lookupCourse, sessionStatus } from "../src/desktop-service.js";
 import type { ApiClient } from "../src/types.js";
 
 vi.mock("node:child_process", () => ({ execFile: vi.fn() }));
@@ -47,7 +47,8 @@ describe("desktop service", () => {
       uploadFile: vi.fn(),
       downloadFile: vi.fn()
     } as unknown as ApiClient;
-    await expect(listCourses(api, 77)).resolves.toMatchObject([{ id: 42, shortname: "CS101", fullname: "Programming", semester: { id: "unknown", source: "unknown" } }]);
+    const now = new Date().getUTCFullYear();
+    await expect(listCourses(api, 77)).resolves.toMatchObject([{ id: 42, shortname: "CS101", fullname: "Programming", semester: { id: `${now}`, source: "current" } }]);
     expect(api.call).toHaveBeenCalledWith("core_enrol_get_users_courses", { userid: 77 });
   });
 
@@ -108,6 +109,17 @@ describe("desktop service", () => {
     expect(api.call).toHaveBeenCalledTimes(3);
   });
 
+  it("files a looked-up course without time evidence under the current year", async () => {
+    const now = new Date().getUTCFullYear();
+    const api = { call: vi.fn(async (name: string) => {
+      if (name === "core_course_get_courses_by_field") return { courses: [{ id: 807, fullname: "Khoá luận tốt nghiệp - AI505.R11", shortname: "AI505.R11", categoryid: 7, categoryname: "Khoa học Máy tính" }] };
+      return [];
+    }) } as unknown as ApiClient;
+    const course = await lookupCourse(807, api, 77);
+    expect(course.semester).toEqual({ id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" });
+    expect(course.category).toMatchObject({ id: 7 });
+  });
+
   it.each([null, {}, { warnings: [] }])("rejects malformed successful contents responses: %j", async (contents) => {
     const api = { call: vi.fn().mockResolvedValueOnce({ courses: [{ id: 807, fullname: "Title" }] }).mockResolvedValueOnce(contents) } as unknown as ApiClient;
     await expect(lookupCourse(807, api, 77)).rejects.toThrow("Invalid course contents");
@@ -146,10 +158,13 @@ describe("desktop service", () => {
     await expect(listAssignments(42, api)).rejects.toThrow("Assignment identity unavailable. Open");
   });
 
-  it.each([undefined, null, "invalid", 0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1])("reports an actionable error without requesting discussions for missing forum identity: %s", async (id) => {
-    const api = { call: vi.fn().mockResolvedValue([{ id, cmid: 9, type: "news", url: "https://courses.uit.edu.vn/mod/forum/view.php?id=9&sesskey=secret", unavailable: { instance: "Instance not exposed" } }]) } as unknown as ApiClient;
-    await expect(listAnnouncements(42, api)).rejects.toThrow("Announcement forum instance unavailable. Open https://courses.uit.edu.vn/mod/forum/view.php?id=9 to read announcements.");
-    expect(api.call).toHaveBeenCalledOnce();
+  it.each([undefined, null, "invalid", 0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1])("reads news discussions through the module when the instance ID is hidden: %s", async (id) => {
+    const api = { call: vi.fn()
+      .mockResolvedValueOnce([{ id, cmid: 9, type: "news", url: "https://courses.uit.edu.vn/mod/forum/view.php?id=9&sesskey=secret", unavailable: { instance: "Instance not exposed" } }])
+      .mockResolvedValue({ discussions: [{ discussion: 4, subject: "Welcome", userfullname: "Lecturer", message: "<p>Hello</p>", numreplies: 2 }] }) } as unknown as ApiClient;
+    await expect(listAnnouncements(42, api)).resolves.toMatchObject([{ id: 4, subject: "Welcome", moduleId: 9, forumId: undefined, replies: 2 }]);
+    expect(api.call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { cmid: 9, page: 0, perpage: 100 });
+    expect(JSON.stringify(await listAnnouncements(42, api))).not.toContain("sesskey");
   });
 
   it("does not silently discard forums whose HTML details and type are unavailable", async () => {
@@ -178,5 +193,40 @@ describe("desktop service", () => {
     await expect(listAnnouncements(42)).resolves.toMatchObject([{ id: 4, subject: "Welcome", author: "Lecturer", message: "Hello", timestamp: undefined, replies: 2, moduleId: 9, forumId: 12, files: [] }]);
     expect(call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { forumid: 12, page: 0, perpage: 100 });
     call.mockRestore();
+  });
+
+  it("lists course participants and maps roles cleanly", async () => {
+    const api = {
+      call: vi.fn().mockResolvedValue([
+        { id: 101, fullname: "Alice Student", roles: [{ shortname: "student", name: "Student" }] },
+        { id: 102, fullname: "Dr. Bob", roles: [{ shortname: "editingteacher", name: "Teacher" }] }
+      ])
+    } as unknown as ApiClient;
+    const participants = await listCourseParticipants(42, api);
+    expect(participants).toEqual([
+      { id: 101, fullname: "Alice Student", roles: ["student"] },
+      { id: 102, fullname: "Dr. Bob", roles: ["editingteacher"] }
+    ]);
+    expect(api.call).toHaveBeenCalledWith("core_enrol_get_enrolled_users", { courseid: 42 });
+  });
+
+  it("retrieves grade items and cleans up feedback HTML", async () => {
+    const api = {
+      call: vi.fn().mockResolvedValue({
+        usergrades: [{
+          courseid: 42,
+          gradeitems: [
+            { itemname: "Lab 1", gradeformatted: "9.5", grademax: 10, percentageformatted: "95 %", feedback: "<p>Great work!</p>" },
+            { itemname: null, itemtype: "course", gradeformatted: "-", grademax: 100 }
+          ]
+        }]
+      })
+    } as unknown as ApiClient;
+    const grades = await getCourseGrades(42, api, 101);
+    expect(grades).toEqual([
+      { item: "Lab 1", grade: "9.5", max: "10", percentage: "95 %", feedback: "Great work!" },
+      { item: "Course total", grade: undefined, max: "100", percentage: undefined, feedback: undefined }
+    ]);
+    expect(api.call).toHaveBeenCalledWith("gradereport_user_get_grade_items", { courseid: 42, userid: 101 });
   });
 });

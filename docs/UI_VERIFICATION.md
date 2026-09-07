@@ -16,10 +16,19 @@ Regression coverage includes legacy-first then SSO with an undated thesis, both 
 - Unsent threads are temporary and excluded from persisted history. Leaving for another thread/project or Courses discards them. Existing sent-thread follow-up drafts still persist. Branch creation is deferred until its first prompt.
 - PDF pages scroll continuously with lazy rendering, bounded canvas memory, page jump/zoom, and cleanup. Sidebar width is draggable and collapse toggles with Cmd+B/Ctrl+B.
 - Repeated onboarding/instructional text and sample prompts were removed. Error, approval, and data-loss warnings remain. New project has distinct academic-year sections and a year filter.
-- Verified course URL lookup can recover courses absent from enrolment discovery, using the connected portal account and actual access checks. Linked references are account-separated; no enrolment or Moodle write occurs. Course 807 has offline lookup coverage, not a verified live-account result.
+- Verified course URL lookup can recover courses absent from enrolment discovery, using the connected portal account and actual access checks. Linked references are account-separated; no enrolment or Moodle write occurs.
+- Courses with no time evidence anywhere group under the current calendar year by default instead of hiding in Unknown; only conflicting or yearless-term evidence stays unknown. Year-only category/metadata text groups by that year.
 - Fixed the reported SSO pagination error: an empty final timeline page with `nextoffset` equal to the requested offset is terminal, not an error. Offset 3 and course 807 are covered by regressions; malformed/backward/non-empty stalled cursors remain guarded.
 
 Latest checks: 453 unit/integration tests passed; 100 headless UI/PDF/sidebar tests passed twice (200 runs); desktop build/syntax and whitespace checks passed. The earlier hidden 60-second Electron soak passed with continuous PDF scrolling and resizable sidebar; later UI changes are covered by the headless suite. No real SSO account was accessed by the tests. Backend changes require a full app restart.
+
+## Follow-Up Fixes (verified this round)
+
+- "Open in Moodle" now opens the course page in the system browser (Chrome) via validated same-origin URLs. The embedded viewer window is gone, along with the black screen on closing it.
+- Year-only course categories (e.g. a thesis category carrying just a year) group under that year instead of Unknown semester. Start-date grouping labels show the plain year.
+- URL-looked-up courses with a bare category ID resolve the full ancestor path (real endpoint first, authenticated category page as fallback) before giving up on semester evidence. Unresolvable cases stay honestly unknown.
+- Forum ("Thông báo") modules open their actual announcements in the reader instead of the "no readable text" fallback; the row shows the announcement count. Announcement discussion reads also work from the module ID when Moodle hides the forum instance ID.
+- Empty final timeline pages that echo the requested offset end pagination normally instead of failing discovery (the reported offset-3 error), with regressions for course 807.
 
 ## Course Navigation Follow-Up
 

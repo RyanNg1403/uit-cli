@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
-import { clearCourseCache, courseWorkspace, getCourseContents, listAnnouncements, listAssignments, listCourses, materializeFile, previewFile, resolveCourseResource } from "../src/desktop-service.js";
+import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeFile, previewableMime, previewFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
 
 const state = vi.hoisted(() => ({ home: "" }));
 vi.mock("node:os", () => ({ homedir: () => state.home }));
+vi.mock("mammoth", () => ({ default: { extractRawText: async () => ({ value: "Converted docx", messages: [] }) } }));
 const site = "https://courses.uit.edu.vn";
 const file = { filename: "lecture.pdf", fileurl: `${site}/pluginfile.php/1/lecture.pdf`, filesize: 8, mimetype: "application/pdf", type: "file" };
 const secondFile = { ...file, fileurl: `${site}/pluginfile.php/2/lecture.pdf` };
@@ -45,15 +46,14 @@ describe("course semesters and metadata", () => {
     [{ coursecategory: "HK2 2025-2026" }, "2025-2026-hk2", "category"],
     [{ fullname: "CS - Semester II 2023/24" }, "2023-2024-hk2", "name"],
     [{ shortname: "CS_HK1_2022-2023" }, "2022-2023-hk1", "name"],
-    [{ startdate: Date.UTC(2024, 0, 1) / 1000 }, "startdate-2024", "startdate"],
-    [{ startdate: 0 }, "unknown", "unknown"]
+    [{ startdate: Date.UTC(2024, 0, 1) / 1000 }, "2024", "startdate"]
   ])("normalizes semester without fabricating dates: %j", async (fields, id, source) => {
     const api = client({ core_enrol_get_users_courses: [{ id: 42, ...fields }] });
     const [course] = await listCourses(api, 7);
     expect(course.semester).toMatchObject({ id, source });
     expect(course.startdate).toBe((fields as MoodleRecord).startdate || undefined);
     expect(course.enddate).toBeUndefined();
-    if (source === "startdate") expect(course.semester.label).toContain("inferred");
+    if (source === "startdate") expect(course.semester.label).toBe("2024");
   });
 
   it.each([
@@ -103,17 +103,37 @@ describe("course semesters and metadata", () => {
     { categoryname: "HK1 / HK2 2026-2027" },
     { categoryname: "HK1 2024-2025 / 2026-2027" },
     { categoryname: "HK1 2024 2026" },
-    { categoryname: "Kh\u00f3a 2022 - HK1" },
-    { categoryname: "HK012 2026-2027" },
+    { categoryname: "Kh\u00f3a 2022 - HK1" }
+  ])("keeps conflicting or yearless terms unknown: %j", async (fields) => {
+    const [course] = await listCourses(client({ core_enrol_get_users_courses: [{ id: 42, ...fields }] }), 7);
+    expect(course.semester).toEqual({ id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" });
+  });
+
+  it.each([
+    { startdate: 0 },
     { fullname: "Longterm 1 2026-2027" },
     { customfields: [{ shortname: "longterm", value: "yes" }] },
     { customfields: [{ shortname: "semester_enabled", value: "yes" }] },
     { customfields: [{ shortname: "midterm", value: "HK1 2026-2027" }] },
     { fullname: "Thesis", baseUrl: site },
-    { fullname: "Thesis", baseUrl: `${site}/sdh`, academicyear: "2026-2027" }
-  ])("keeps ambiguous or missing semesters unknown: %j", async (fields) => {
+    { fullname: "Thesis", summary: "D\u00e0nh cho sinh vi\u00ean Kh\u00f3a 2022" },
+    { categoryname: "Khoa h\u1ecdc M\u00e1y t\u00ednh" }
+  ])("files courses without time evidence under the current year: %j", async (fields) => {
+    const now = new Date().getUTCFullYear();
     const [course] = await listCourses(client({ core_enrol_get_users_courses: [{ id: 42, ...fields }] }), 7);
-    expect(course.semester).toEqual({ id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" });
+    expect(course.semester).toEqual({ id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" });
+  });
+
+  it.each([
+    [{ categoryname: "2026-2027" }, "2026-2027", "category"],
+    [{ categoryname: "N\u0103m h\u1ecdc 2026" }, "2026", "category"],
+    [{ categoryname: "2026-2027 - Lu\u1eadn v\u0103n t\u1ed1t nghi\u1ec7p" }, "2026-2027", "category"],
+    [{ categoryname: "HK012 2026-2027" }, "2026-2027", "category"],
+    [{ semester: "2026" }, "2026", "metadata"],
+    [{ customfields: [{ shortname: "semester", value: "2026-2027" }] }, "2026-2027", "metadata"]
+  ])("groups year-only categories and metadata as years without inventing terms: %j", async (fields, id, source) => {
+    const [course] = await listCourses(client({ core_enrol_get_users_courses: [{ id: 42, ...fields }] }), 7);
+    expect(course.semester).toEqual({ id, label: id, sortOrder: Number(id.slice(0, 4)) * 10 + 9, source });
   });
 
   it("preserves explicit identities, labels, precedence and descending semester sort", async () => {
@@ -126,10 +146,12 @@ describe("course semesters and metadata", () => {
       { id: 5, semester: "<b>Special term</b>" },
       { id: 6, semester: { id: "label-term", label: "HK1 2026-2027" } }
     ] }), 7);
-    expect(courses.map((course) => course.id)).toEqual([1, 3, 6, 4, 2, 99, 5]);
+    expect(courses.map((course) => course.id)).toEqual([1, 99, 3, 6, 4, 2, 5]);
     expect(courses[0].semester).toEqual({ id: "custom", label: "Custom term", sortOrder: 20270, source: "metadata" });
-    expect(courses[1].semester).toEqual({ id: "2026-2027-hk2", label: "HK2 2026-2027", sortOrder: 20262, source: "metadata" });
-    expect(courses[2].semester).toEqual({ id: "label-term", label: "HK1 2026-2027", sortOrder: 20261, source: "metadata" });
+    const now = new Date().getUTCFullYear();
+    expect(courses[1].semester).toEqual({ id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" });
+    expect(courses[2].semester).toEqual({ id: "2026-2027-hk2", label: "HK2 2026-2027", sortOrder: 20262, source: "metadata" });
+    expect(courses[3].semester).toEqual({ id: "label-term", label: "HK1 2026-2027", sortOrder: 20261, source: "metadata" });
     expect(courses[6].semester).toEqual({ id: "metadata-<b>special term</b>", label: "Special term", sortOrder: 0, source: "metadata" });
   });
 
@@ -170,19 +192,19 @@ describe("course semesters and metadata", () => {
     const api = client();
     const other = client();
     await Promise.all([getCourseContents(42, api), getCourseContents(42, api), getCourseContents(42, other)]);
-    expect(api.call).toHaveBeenCalledOnce();
-    expect(other.call).toHaveBeenCalledOnce();
+    expect(api.call).toHaveBeenCalledTimes(2);
+    expect(other.call).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(30_001);
     await getCourseContents(42, api);
-    expect(api.call).toHaveBeenCalledTimes(2);
+    expect(api.call).toHaveBeenCalledTimes(4);
     clearCourseCache(api);
     await getCourseContents(42, api);
     await getCourseContents(42, other);
-    expect(api.call).toHaveBeenCalledTimes(3);
-    expect(other.call).toHaveBeenCalledTimes(2);
+    expect(api.call).toHaveBeenCalledTimes(6);
+    expect(other.call).toHaveBeenCalledTimes(4);
     clearCourseCache();
     await getCourseContents(42, api);
-    expect(api.call).toHaveBeenCalledTimes(4);
+    expect(api.call).toHaveBeenCalledTimes(8);
   });
 
   it("does not cache failures", async () => {
@@ -190,7 +212,7 @@ describe("course semesters and metadata", () => {
     vi.mocked(api.call).mockRejectedValueOnce(new Error("offline"));
     await expect(getCourseContents(42, api)).rejects.toThrow("offline");
     expect(await getCourseContents(42, api)).toHaveLength(3);
-    expect(api.call).toHaveBeenCalledTimes(2);
+    expect(api.call).toHaveBeenCalledTimes(3);
   });
 
   it("preserves assignment/announcement metadata and deduplicates attachments", async () => {
@@ -275,7 +297,7 @@ describe("trusted course resource resolution", () => {
     await expect(resolveCourseResource(42, assignment.resourceRef, api)).resolves.toMatchObject({ kind: "module", id: 20, description: "Partial intro", files: [expect.objectContaining({ fileurl: assignmentFile.fileurl })], unavailable });
     await expect(resolveCourseResource(42, { kind: "file", id: 20, fileUrl: assignmentFile.fileurl }, api)).resolves.toMatchObject({ unavailable });
     await expect(resolveCourseResource(42, { kind: "assignment", id: 20 }, api)).rejects.toThrow("does not belong");
-    await previewFile(42, assignmentFile.fileurl, "ignored", api);
+    await expect(previewFile(42, assignmentFile.fileurl, "ignored", api)).resolves.toMatchObject({ mimeType: "application/pdf", filename: "project.txt" });
     expect(api.readFile).toHaveBeenCalledWith(assignmentFile.fileurl);
   });
 
@@ -341,11 +363,39 @@ describe("in-memory preview", () => {
     expect(api.downloadFile).not.toHaveBeenCalled();
   });
 
-  it.each(["image/png", "text/plain", "application/json", "text/html", "image/svg+xml"])("supports safe display of %s", async (mimeType) => {
+  it.each(["image/png", "image/jpeg", "text/markdown", "text/x-markdown", "text/x-python"])("supports safe display of %s", async (mimeType) => {
     const api = client();
     vi.mocked(api.readFile!).mockResolvedValue({ data: Buffer.from("content"), mimeType });
     const preview = await previewFile(42, file.fileurl, file.filename, api);
-    expect(preview.mimeType).toBe(["text/html", "image/svg+xml"].includes(mimeType) ? "text/plain" : mimeType);
+    expect(preview.mimeType).toBe(mimeType);
+  });
+
+  it.each([
+    ["application/pdf", "slide.pdf", true],
+    ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "essay.docx", true],
+    ["text/plain", "essay.docx", true],
+    ["text/markdown", "notes.md", true],
+    ["text/plain", "notes.md", true],
+    ["text/x-python", "script.py", true],
+    ["text/plain", "script.py", true],
+    ["image/png", "pixel.png", true],
+    ["image/svg+xml", "diagram.svg", false],
+    ["text/html", "notes.html", false],
+    ["application/json", "data.json", false],
+    ["text/plain", "lecture.txt", false],
+    ["text/csv", "data.csv", false],
+    ["application/zip", "archive.zip", false],
+    ["application/octet-stream", "data.bin", false],
+  ])("allowlist %s / %s previews: %s", (mimeType, filename, expected) => {
+    expect(previewableMime(mimeType, filename)).toBe(expected);
+  });
+
+  it("converts word documents to plain text for preview", async () => {
+    const docx = { filename: "essay.docx", fileurl: `${site}/pluginfile.php/5/essay.docx`, filesize: 8, mimetype: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type: "file" };
+    const api = client({ core_course_get_contents: [{ name: "Week 1", modules: [{ id: 10, name: "Docs", modname: "resource", contents: [docx] }] }] });
+    vi.mocked(api.readFile!).mockResolvedValue({ data: Buffer.from("PK"), mimeType: docx.mimetype });
+    await expect(previewFile(42, docx.fileurl, "ignored", api)).resolves.toEqual({ mimeType: "text/plain", data: Buffer.from("Converted docx").toString("base64"), filename: "essay.docx" });
+    expect(api.downloadFile).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported formats, oversized payloads, and foreign files", async () => {
@@ -365,6 +415,37 @@ describe("in-memory preview", () => {
     const stream = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(MAX_PREVIEW_BYTES)); controller.enqueue(new Uint8Array(1)); }, cancel });
     await expect(readCourseFile(new Response(stream))).rejects.toThrow("25 MB");
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("merges assignment intros and attachments into course modules", async () => {
+    const [module] = (await getCourseContents(42, client())).filter((entry) => entry.modname === "assign");
+    expect(module.description).toBe("Trusted assignment intro");
+    expect(module.files).toEqual([expect.objectContaining({ filename: "project.txt" })]);
+  });
+
+  it("reads submission status, grade and files by assignment or module", async () => {
+    const submitted = { filename: "final.pdf", fileurl: `${site}/pluginfile.php/5/assignsubmission_file/submission_files/final.pdf`, filesize: 9, mimetype: "application/pdf" };
+    const api = client({ mod_assign_get_submission_status: { lastattempt: { submission: { status: "submitted", plugins: [{ type: "file", fileareas: [{ area: "submission_files", files: [submitted] }] }] } }, feedback: { gradefordisplay: "9.0" } } });
+    await expect(getAssignmentSubmission(42, { assignId: 200 }, api)).resolves.toMatchObject({ assignId: 200, moduleId: 20, status: "submitted", grade: "9.0", files: [expect.objectContaining({ filename: "final.pdf" })] });
+    await expect(getAssignmentSubmission(42, { moduleId: 20 }, api)).resolves.toMatchObject({ assignId: 200 });
+    await expect(getAssignmentSubmission(42, { moduleId: 999 }, api)).rejects.toThrow("Assignment instance unavailable");
+    await expect(getAssignmentSubmission(42, {}, api)).rejects.toThrow("Assignment instance unavailable");
+    await expect(previewFile(42, submitted.fileurl, "ignored", api)).resolves.toMatchObject({ mimeType: "application/pdf", filename: "final.pdf" });
+    expect(api.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("reads forum discussions by cmid and retries by instance on old releases", async () => {
+    await expect(listForumDiscussions(42, 30, client())).resolves.toHaveLength(1);
+    const old = client({ core_course_get_contents: [{ name: "Week 1", modules: [{ id: 30, name: "Old forum", modname: "forum", instance: 300 }] }] });
+    const original = old.call;
+    old.call = vi.fn(async (name: string, params?: Record<string, any>) => {
+      if (name === "mod_forum_get_forum_discussions" && params?.cmid !== undefined) throw new Error("Phát hiện giá trị tham số không phù hợp");
+      return (original as any)(name, params);
+    });
+    const discussions = await listForumDiscussions(42, 30, old);
+    expect(discussions).toHaveLength(1);
+    expect(discussions[0].forumId).toBe(300);
+    await expect(listForumDiscussions(42, 999, client())).rejects.toThrow("not a forum");
   });
 
   it("checks metadata size before fetching and requires a preview-capable session", async () => {
@@ -392,7 +473,7 @@ describe("authenticated token files", () => {
     const fetchMock = vi.fn(async (input: string | URL) => {
       const url = new URL(input);
       if (url.pathname.endsWith("/server.php")) return Response.json([{ modules: [{ id: 10, contents: [{ ...file, fileurl: signed }] }] }]);
-      return new Response("hello", { headers: { "content-type": "text/plain" } });
+      return new Response("hello", { headers: { "content-type": "application/pdf" } });
     });
     vi.stubGlobal("fetch", fetchMock);
     for (const token of ["first-mobile", "second-mobile"]) {
@@ -411,7 +492,7 @@ describe("authenticated token files", () => {
 
   it("preserves the graduate installation and query across relative redirects", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "?file=%2F1%2Fa.pdf&forcedownload=1" } }))
-      .mockResolvedValueOnce(new Response("hello"));
+      .mockResolvedValueOnce(new Response("hello", { headers: { "content-type": "application/pdf" } }));
     vi.stubGlobal("fetch", fetchMock);
     await createTokenApiClient(`${site}/sdh`, "mobile").readFile!("pluginfile.php?file=%2F1%2Fa.pdf");
     expect(String(fetchMock.mock.calls[1][0])).toBe(`${site}/sdh/webservice/pluginfile.php?file=%2F1%2Fa.pdf&forcedownload=1&token=mobile`);

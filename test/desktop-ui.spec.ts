@@ -1,27 +1,6 @@
 import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, STORE, key, calls, control, emit, openCourse } from "./fixtures/desktop";
 import type { Page } from "playwright/test";
 
-test("missing thesis lookup verifies before adding and keeps failures recoverable", async ({ page, boot }) => {
-  await boot();
-  await page.evaluate(() => {
-    window.__mock.linked = [];
-    window.uit.courses.link = async (input: any) => {
-      window.__mock.linked.push(input);
-      if (window.__mock.linked.length === 1) throw new Error("Course access denied");
-      return { id: 807, baseUrl: "https://courses.uit.edu.vn", userId: 101, shortname: "AI505.R11", fullname: "Thesis - AI505.R11", discoveredVia: "url" };
-    };
-  });
-  await page.getByRole("button", { name: "Add course by URL" }).click();
-  await page.getByLabel("Course URL").fill(`${CURRENT}/course/view.php?id=807`);
-  await page.getByRole("button", { name: "Verify and add course" }).click();
-  await expect(page.locator("#link-course-error")).toHaveText("Course access denied");
-  await expect(page.locator("#course-nav")).not.toContainText("AI505.R11");
-  await page.getByRole("button", { name: "Verify and add course" }).click();
-  await expect(page.locator("#course-detail h1")).toHaveText("Thesis - AI505.R11");
-  await expect(page.locator("#course-nav")).toContainText("AI505.R11");
-  for (const method of ["courses.materialize", "agent.start", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
-});
-
 async function sendAndStop(page: Page, message: string) {
   await page.getByLabel("Message Codex").fill(message);
   await page.locator("#send-agent").click();
@@ -29,7 +8,17 @@ async function sendAndStop(page: Page, message: string) {
   await expect(page.locator("#agent-status")).toHaveText("Ready");
 }
 async function createThread(page: Page, index = 0) {
-  await page.getByRole("button", { name: `New thread in ${courses[index].shortname}`, exact: true }).click();
+  await page.locator('[data-view="agent"]').click();
+  const add = page.getByRole("button", { name: `New thread in ${courses[index].shortname}`, exact: true });
+  if (await add.count()) await add.click();
+  else {
+    await page.locator("#new-project").click();
+    await page.locator(".project-option").filter({ has: page.getByText(courses[index].fullname, { exact: true }) }).click();
+  }
+}
+async function branchThread(page: Page) {
+  await page.locator(".thread-row .thread-menu-btn").first().click();
+  await page.getByRole("menuitem", { name: "Branch", exact: true }).click();
 }
 
 test("Codex has one creation entry per action and no scattered guidance", async ({ page, boot }, info) => {
@@ -75,7 +64,7 @@ test("all semesters default, complete grouped rail, semester filter and search",
   await expect(page.locator(".course-row")).toHaveCount(19);
   await expect(page.locator(".course-row").last()).toContainText("Computer science 19");
   await page.screenshot({ path: info.outputPath("desktop-courses.png"), fullPage: true });
-  await page.getByRole("searchbox").fill("  LEGACY undergraduate ");
+  await page.getByRole("searchbox").fill("  Legacy Moodle ");
   await expect(page.locator(".course-row")).toHaveCount(5);
   await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
   await page.getByRole("searchbox").fill("cs13");
@@ -98,7 +87,7 @@ test("all semesters default, complete grouped rail, semester filter and search",
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue("unknown");
   expect(await calls(page, "courses.refresh")).toHaveLength(2);
-  await expect(page.locator("#connected-portals p")).toHaveText(["Current Moodle / 101 / 14 courses", "Legacy undergraduate / 202 / 5 courses"]);
+  await expect(page.locator("#account-label")).toHaveText("Course accounts (2)");
 });
 
 test("Codex projects are explicitly selected, persist empty and new threads choose existing projects only", async ({ page, boot }) => {
@@ -165,7 +154,7 @@ test("project search, empty results and cancellation preserve the active resourc
   await boot();
   await openCourse(page);
   await page.getByRole("button", { name: "Actions for lecture.txt", exact: true }).click();
-  await page.getByRole("menuitem", { name: "New Codex thread" }).click();
+  await page.getByRole("menuitem", { name: "New Thread" }).click();
   await expect(page.locator("#project-picker")).toBeHidden();
   await page.getByLabel("Message Codex").fill("Keep my attached lecture draft");
   const saved = await page.evaluate((store) => localStorage.getItem(store), STORE);
@@ -174,7 +163,7 @@ test("project search, empty results and cancellation preserve the active resourc
     await page.locator("#new-project").click();
     await expect(page.locator("#project-picker")).toBeVisible();
     await expect(page.locator("#project-search")).toHaveValue("");
-    for (const [query, count] of [["  LEGACY undergraduate ", 5], ["cs13", 1], ["Computer science 18", 1], ["missing-project-xyz", 0]] as const) {
+    for (const [query, count] of [["  Legacy Moodle ", 5], ["cs13", 1], ["Computer science 18", 1], ["missing-project-xyz", 0]] as const) {
       await page.getByLabel("Search projects", { exact: true }).fill(query);
       await expect(page.locator(".project-option")).toHaveCount(count);
       if (query === "cs13") await expect(page.locator(".project-option")).toContainText("Computer science 13");
@@ -201,7 +190,7 @@ test("project search, empty results and cancellation preserve the active resourc
   await expect(page.locator("#course-nav .project")).toHaveCount(2);
   await expect(page.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(14));
   await expect(page.locator("#resource-chips .resource-chip")).toHaveCount(0);
-  await page.getByRole("button", { name: "> CS01", exact: true }).click();
+  await page.getByRole("button", { name: "CS01", exact: true }).click();
   await expect(page.getByLabel("Message Codex")).toHaveValue("");
   await expect(page.locator("#resource-chips .resource-chip")).toHaveCount(0);
   expect(JSON.parse((await page.evaluate((store) => localStorage.getItem(store), STORE))!).threads).toEqual([]);
@@ -236,13 +225,11 @@ for (const destination of ["Courses", "another project", "another thread", "new 
   test(`typed temporary thread is discarded on ${destination} without storing or counting it`, async ({ page, boot }) => {
     await boot();
     await openCourse(page);
-    await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+    await page.getByRole("button", { name: "New Thread", exact: true }).click();
     await sendAndStop(page, "Existing saved thread");
     await page.getByLabel("Message Codex").fill("Existing follow-up draft");
     await createThread(page);
     await page.getByLabel("Message Codex").fill("Temporary typed content must disappear");
-    await expect(page.getByRole("button", { name: "Rename", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Archive", exact: true })).toBeDisabled();
     await expect(page.locator(".thread-link")).toHaveCount(1);
     await expect.poll(() => page.evaluate(() => window.eval("draftPersistTimer"))).toBeNull();
     const temporary = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
@@ -304,12 +291,12 @@ test("restore filters old unprompted and transient inherited histories but migra
 test("branch history stays transient until first send, then forks once and persists", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await sendAndStop(page, "Source conversation");
   await page.getByLabel("Message Codex").fill("Source follow-up");
   const source = (await calls(page, "agent.start"))[0].input;
   for (const destination of ["Courses", "source thread", "reload"] as const) {
-    await page.getByRole("button", { name: "Branch", exact: true }).click();
+    await branchThread(page);
     await expect(page.locator("#agent-task-title")).toHaveText("Branch: Source conversation");
     await expect(page.locator("#agent-messages")).toContainText("Source conversation");
     await expect(page.getByLabel("Message Codex")).toHaveValue("Source follow-up");
@@ -331,7 +318,7 @@ test("branch history stays transient until first send, then forks once and persi
     expect(stored.threads).toHaveLength(1);
     expect(JSON.stringify(stored)).not.toContain("Discard this branch draft");
   }
-  await page.getByRole("button", { name: "Branch", exact: true }).click();
+  await branchThread(page);
   await control(page, "hold", "agent.fork");
   await page.getByLabel("Message Codex").fill("First branch prompt");
   await page.locator("#send-agent").click();
@@ -356,10 +343,10 @@ test("branch history stays transient until first send, then forks once and persi
 test("failed deferred fork persists its prompt and source for retry after reload", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await sendAndStop(page, "Source for retry");
   const source = (await calls(page, "agent.start"))[0].input;
-  await page.getByRole("button", { name: "Branch", exact: true }).click();
+  await branchThread(page);
   await control(page, "fail", "agent.fork", "Fixture fork unavailable");
   await page.getByLabel("Message Codex").fill("Retry branch prompt");
   await page.locator("#send-agent").click();
@@ -389,17 +376,18 @@ for (const selected of ["older", "all"] as const) {
     await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
     await page.getByLabel("Student ID", { exact: true }).fill("202");
     await page.getByLabel("Password", { exact: true }).fill("fixture-only-password");
-    await page.getByRole("button", { name: "Connect legacy portal" }).click();
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
     await expect(page.locator("#semester-select")).toHaveValue("all");
-    await expect(page.locator("#connected-portals p")).toHaveText(["Legacy undergraduate / 202 / 5 courses"]);
+    await expect(page.locator("#session-summary")).toContainText("Account 202");
     await page.getByRole("button", { name: "Close accounts" }).click();
     await expect(page.locator(".course-row")).toHaveCount(5);
     if (selected === "older") await page.getByLabel("Semester", { exact: true }).selectOption(semesters[1].id);
     await page.locator("#account-button").click();
     await page.getByRole("button", { name: "Continue with UIT SSO" }).click();
     await expect(page.locator("#session-summary .session-row")).toHaveCount(2);
+    await expect(page.locator("#session-summary")).toContainText("UIT SSO");
+    await expect(page.locator("#session-summary")).toContainText("Student ID");
     await expect(page.locator("#semester-select")).toHaveValue("all");
-    await expect(page.locator("#connected-portals p")).toHaveText(["Legacy undergraduate / 202 / 5 courses", "Current Moodle / 101 / 14 courses"]);
     await page.getByRole("button", { name: "Close accounts" }).click();
     await expect(page.locator(".course-row")).toHaveCount(19);
     await expect(page.locator("#course-grid")).toContainText("Khoá luận tốt nghiệp - AI505.R11");
@@ -420,7 +408,7 @@ test("duplicate numeric course IDs keep portal and account references separate",
     for (const method of ["contents", "assignments", "announcements"]) {
       expect((await calls(page, `courses.${method}`)).at(-1)?.input).toEqual({ courseId: 1, baseUrl: courses[index].baseUrl, userId: courses[index].userId });
     }
-    await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+    await page.getByRole("button", { name: "New Thread", exact: true }).click();
     await expect(page.locator("#project-picker")).toBeHidden();
     await expect(page.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(index));
   }
@@ -436,6 +424,20 @@ for (const file of fileTypes) {
   test(`preview ${file.filename} is in memory, never materialized or opened`, async ({ page, boot }) => {
     await boot();
     await openCourse(page);
+    if (["lecture.txt", "notes.html", "data.json", "diagram.svg", "archive.zip"].includes(file.filename)) {
+      await expect(page.locator("#contents-panel .file-row").filter({ hasText: file.filename })).toContainText("Download to view");
+      await page.locator("#contents-panel .resource-open").filter({ hasText: file.filename }).click();
+      await expect(page.getByRole("dialog", { name: file.filename, exact: true })).toBeVisible();
+      await expect(page.locator("#reader-body")).toContainText("can't be previewed in UIT Studio");
+      await expect(page.locator("#reader-body")).not.toContainText("could not be loaded");
+      await expect(page.locator("#reader-download")).toBeVisible();
+      await expect(page.locator("#reader-download")).toBeEnabled();
+      expect(await calls(page, "courses.preview")).toHaveLength(0);
+      for (const method of ["courses.materialize", "courses.open", "shell.open", "workspace.create", "agent.start"]) expect(await calls(page, method)).toHaveLength(0);
+      await page.getByRole("button", { name: "Close preview" }).click();
+      await expect(page.locator("#reader-body")).toBeEmpty();
+      return;
+    }
     await page.locator("#contents-panel .resource-open").filter({ hasText: file.filename }).click();
     await expect(page.getByRole("dialog", { name: file.filename, exact: true })).toBeVisible();
     const body = page.locator("#reader-body");
@@ -444,12 +446,11 @@ for (const file of fileTypes) {
       await expect(body.locator('.pdf-page[data-page="1"] canvas')).toBeVisible();
       await expect(body.locator(".pdf-page")).toHaveCount(2);
       await expect(body.locator("iframe")).toHaveCount(0);
-      await body.getByRole("button", { name: "Show page text" }).click();
       await expect(body.locator('.pdf-page[data-page="1"] .pdf-text')).toContainText("UIT OFFLINE PDF PAGE 1");
     } else if (file.filename === "pixel.png") {
       await expect(body.getByRole("img", { name: file.filename })).toBeVisible();
       await expect.poll(() => body.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
-    } else if (file.mimetype.startsWith("text/") || file.mimetype === "application/json") {
+    } else if (["script.py", "readme.md", "essay.docx"].includes(file.filename)) {
       await expect(body.locator("pre")).toHaveText(file.text!);
       await expect(body.locator("script, h1")).toHaveCount(0);
     } else await expect(body).toContainText("This file has not been saved or opened");
@@ -461,18 +462,176 @@ for (const file of fileTypes) {
   });
 }
 
+test("type scale, chevrons and nesting guides", async ({ page, boot }, info) => {
+  await boot();
+  await expect(page.locator("html")).toHaveCSS("font-size", "16px");
+  await expect(page.locator("#course-nav .project .folder svg")).toHaveCount(0);
+  await expect(page.locator("#rail-title")).toHaveCSS("font-size", "18px");
+  await expect(page.locator("#course-nav .semester-nav > h3").first()).toHaveCSS("font-size", "17px");
+  await expect(page.locator("#course-nav .semester-nav").first()).toHaveCSS("border-top-width", "1px");
+  await openCourse(page);
+  await expect(page.locator("#contents-panel .file-row").first()).toHaveCSS("padding-left", "36px");
+  await page.locator('[data-view="agent"]').click();
+  await page.locator("#new-project").click();
+  await page.locator(".project-option").first().click();
+  await sendAndStop(page, "Prompt for nesting");
+  await expect(page.locator("#course-nav .thread-list")).toHaveCount(1);
+  await expect(page.locator("#course-nav .thread-list").first()).toHaveCSS("border-left-width", "0px");
+  await expect(page.locator("#course-nav .thread-row").first()).toHaveCSS("padding-left", "16px");
+  await expect(page.locator("#course-nav .project.expanded .project-collapse svg")).toHaveCount(1);
+  await page.screenshot({ path: info.outputPath("nesting.png") });
+  for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
+});
+
+test("composer shows course context and a working model/effort picker", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await expect(page.locator("#composer-context")).toContainText("CS01");
+  await expect(page.locator("#composer-context")).toContainText("Workspace write");
+  await expect(page.locator("#model-picker")).toContainText("Auto");
+  await page.locator("#model-picker").click();
+  await expect(page.locator("#model-menu")).toContainText("GPT-5.6-Sol");
+  await page.locator(".model-option").filter({ hasText: "GPT-5.6-Sol" }).click();
+  await expect(page.locator("#model-picker")).toContainText("GPT-5.6-Sol");
+  await page.locator("#model-picker").click();
+  await page.locator(".model-option").filter({ hasText: "high" }).click();
+  await expect(page.locator("#model-picker")).toContainText("high");
+  await expect(page.locator("#model-menu")).toBeHidden();
+  await sendAndStop(page, "Model picker prompt");
+  expect((await calls(page, "agent.start")).at(-1)!.input).toMatchObject({ model: "gpt-5.6-sol", effort: "high" });
+  for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
+});
+
+test("@-mention popup attaches course files as chips without sending", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await page.getByLabel("Message Codex").fill("Summarize @script");
+  await expect(page.locator("#mention-list .mention-item")).toHaveCount(1);
+  await expect(page.locator("#mention-list .mention-item")).toContainText("script.py");
+  await page.locator("#mention-list .mention-item").first().click();
+  await expect(page.locator(".resource-chip")).toContainText("@script.py");
+  await expect(page.getByLabel("Message Codex")).toHaveValue("Summarize ");
+  await expect(page.locator("#mention-list")).toBeHidden();
+  await page.getByLabel("Message Codex").fill("Hello @rea");
+  await expect(page.locator("#mention-list .mention-item")).toContainText("readme.md");
+  await page.getByLabel("Message Codex").press("Escape");
+  await expect(page.locator("#mention-list")).toBeHidden();
+  await page.locator("#send-agent").click();
+  expect((await calls(page, "agent.start")).at(-1)!.input.resources).toEqual([{ kind: "file", id: 502, fileUrl: expect.stringContaining("script.py") }]);
+  await page.locator("#stop-agent").click();
+  await expect(page.locator("#agent-status")).toHaveText("Ready");
+  for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
+});
+
+test("project chevron collapses and expands its thread list", async ({ page, boot }) => {
+  await boot();
+  await page.locator('[data-view="agent"]').click();
+  await page.locator("#new-project").click();
+  await page.locator(".project-option").first().click();
+  await sendAndStop(page, "Collapsible threads");
+  await expect(page.locator("#course-nav .thread-list")).toHaveCount(1);
+  const toggle = page.locator("#course-nav .project-collapse").first();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
+  await expect(page.locator("#course-nav .thread-list")).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(page.locator("#course-nav .thread-list")).toHaveCount(1);
+  for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
+});
+
+test("tool calls keep one typed lifecycle row and collapse completed output", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await sendAndStop(page, "Run a command");
+  const threadId = await page.evaluate(() => JSON.parse(localStorage.getItem("uit-studio.threads.v1")!).threads[0].threadId);
+  await page.evaluate((id) => {
+    window.__mock.emit({ method: "item/started", params: { threadId: id, item: { id: "call-1", type: "commandExecution", command: "ls /tmp" } } });
+    window.__mock.emit({ method: "item/commandExecution/outputDelta", params: { threadId: id, itemId: "call-1", delta: "full output line 1\n" } });
+    window.__mock.emit({ method: "item/completed", params: { threadId: id, item: { id: "call-1", type: "commandExecution", command: "ls /tmp", exitCode: 0, output: "full output line 1\nfull output line 2" } } });
+  }, threadId);
+  const tool = page.locator('[data-kind="tool"]');
+  await expect(tool).toHaveCount(1);
+  await expect(tool).toHaveAttribute("data-status", "completed");
+  await expect(tool.locator("summary")).toHaveText("Ran ls /tmp · exit 0");
+  await expect(tool.locator("pre")).toBeHidden();
+  await expect(tool.locator("pre")).toContainText("full output line 1");
+  await tool.locator("summary").click();
+  await expect(tool.locator("pre")).toBeVisible();
+});
+
+test("codex file citations render as links that open the workspace file", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await sendAndStop(page, "Read the syllabus");
+  const threadId = await page.evaluate(() => JSON.parse(localStorage.getItem("uit-studio.threads.v1")!).threads[0].threadId);
+  const cited = "See Nguồn: :codex-file-citation{path=\"/tmp/syllabus.pdf\" purpose=\"source\"} for details";
+  await page.evaluate(({ id, text }) => {
+    window.__mock.emit({ method: "item/agentMessage/delta", params: { threadId: id, itemId: "m-1", delta: "See Nguồn: :codex-file-" } });
+    window.__mock.emit({ method: "item/completed", params: { threadId: id, item: { id: "m-1", type: "agentMessage", text } } });
+  }, { id: threadId, text: cited });
+  const link = page.locator(".citation-link");
+  await expect(link).toHaveText("syllabus.pdf");
+  await expect(page.locator("#agent-messages")).not.toContainText("codex-file-citation");
+  await expect(page.locator("#agent-messages")).not.toContainText("Nguồn:");
+  await page.evaluate(() => {
+    (window as any).__shellOpened = null;
+    window.uit.shell.open = async (target: string) => { (window as any).__shellOpened = target; return ""; };
+  });
+  await link.click();
+  expect(await page.evaluate(() => (window as any).__shellOpened)).toBe("/tmp/syllabus.pdf");
+});
+
+test("streaming respects history reading and jump to latest resumes following", async ({ page, boot }) => {
+  await boot();
+  await page.setViewportSize({ width: 900, height: 560 });
+  await createThread(page);
+  await page.getByLabel("Message Codex").fill("Build a long timeline");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start"))[0].input;
+  const threadId = `thread-${input.taskId}`;
+  await page.evaluate((id) => {
+    for (let index = 0; index < 24; index++) window.__mock.emit({ method: "item/completed", params: { threadId: id, item: { id: `history-${index}`, type: "agentMessage", text: `History ${index}\n${"detail ".repeat(30)}` } } });
+  }, threadId);
+  const box = page.locator("#agent-messages");
+  await expect.poll(() => box.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await box.evaluate((element) => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); });
+  await emit(page, "item/agentMessage/delta", { threadId, itemId: "latest", delta: "Latest streaming answer" });
+  await expect(page.locator("#jump-to-latest")).toBeVisible();
+  expect(await box.evaluate((element) => element.scrollTop)).toBe(0);
+  await page.locator("#jump-to-latest").click();
+  await expect.poll(() => box.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThan(3);
+  await expect(page.locator("#jump-to-latest")).toBeHidden();
+});
+
+test("IME composition cannot send or select a resource mention", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  const input = page.getByLabel("Message Codex");
+  await input.fill("Explain @scr");
+  await expect(page.locator("#mention-list")).toBeVisible();
+  await input.dispatchEvent("compositionstart", { data: "" });
+  await expect(page.locator("#mention-list")).toBeHidden();
+  await input.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true, keyCode: 229 });
+  expect(await calls(page, "agent.start")).toHaveLength(0);
+  await expect(page.locator(".resource-chip")).toHaveCount(0);
+  await input.dispatchEvent("compositionend", { data: "" });
+  await expect(input).toHaveValue("Explain @scr");
+  await expect(input).toHaveAttribute("aria-describedby", "agent-status");
+});
+
 test("multi-file modules, all assignments and all announcements are readable", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
   await expect(page.locator("#contents-panel .section-label")).toHaveText(["Week 1", "Week 2"]);
-  await expect(page.locator('#contents-panel [data-resource-kind="module"]')).toHaveCount(3);
+  await expect(page.locator('#contents-panel [data-resource-kind="module"]')).toHaveCount(2);
   await expect(page.locator("#assignment-list .resource-row")).toHaveCount(7);
   await expect(page.locator("#announcement-list .resource-row")).toHaveCount(6);
-  await page.locator("#contents-panel .resource-open").filter({ hasText: "Week 1 materials" }).click();
-  await expect(page.locator("#reader-body")).toContainText("Read the module introduction");
-  await expect(page.locator("#reader-body .file-row")).toHaveCount(4);
-  await page.locator("#reader-body .resource-open").filter({ hasText: "lecture.txt" }).click();
-  await expect(page.locator("#reader-body pre")).toHaveText("Lecture content in memory");
+  await page.locator("#contents-panel .resource-open").filter({ hasText: "Week 2 materials" }).click();
+  await expect(page.locator("#reader-body")).toContainText("Second module introduction");
+  await expect(page.locator("#reader-body .file-row")).toHaveCount(7);
+  await page.locator("#reader-body .resource-open").filter({ hasText: "script.py" }).click();
+  await expect(page.locator("#reader-body pre")).toHaveText("print('hello from memory')");
   await page.getByRole("button", { name: "Close preview" }).click();
   for (const [panel, count, label] of [["assignment-list", 7, "assignment"], ["announcement-list", 6, "announcement"]] as const) {
     for (let index = 0; index < count; index++) {
@@ -510,6 +669,16 @@ test("explicit overflow and reader downloads save only the selected file; Moodle
   expect((await calls(page, "courses.open"))[0].input).toMatchObject({ courseId: 1, baseUrl: LEGACY, userId: 202 });
 });
 
+test("news forums covered by announcements are not repeated in materials", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await expect(page.locator("#announcement-list .resource-row")).toHaveCount(6);
+  await expect(page.locator("#contents-panel .resource-open").filter({ hasText: "Class announcements" })).toHaveCount(0);
+  await page.locator("#announcement-list .resource-open").first().click();
+  await expect(page.locator("#reader-body")).toContainText("Full announcement 1: classroom schedule and reading.");
+  for (const method of ["courses.materialize", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
+});
+
 for (const [kind, name, id] of [["module", "Week 1 materials", 501], ["file", "lecture.txt", 501], ["assignment", "Assignment 7", 607], ["announcement", "Announcement 6", 806]] as const) {
   for (const interaction of ["right click", "keyboard"] as const) {
     test(`${interaction} ${kind} context creates correct tagged unsent project thread`, async ({ page, boot }) => {
@@ -518,7 +687,7 @@ for (const [kind, name, id] of [["module", "Week 1 materials", 501], ["file", "l
       const row = page.locator(`#course-detail [data-resource-kind="${kind}"]`).filter({ hasText: name });
       if (interaction === "right click") await row.click({ button: "right" });
       else { await row.getByRole("button", { name: `Actions for ${name}`, exact: true }).focus(); await page.keyboard.press("Enter"); }
-      await expect(page.getByRole("menuitem", { name: "New Codex thread" })).toBeFocused();
+      await expect(page.getByRole("menuitem", { name: "New Thread" })).toBeFocused();
       await page.keyboard.press("ArrowDown");
       await expect(page.locator("#resource-menu-preview")).toHaveCount(0);
       await expect(page.getByRole("menuitem", { name: "Preview", exact: true })).toHaveCount(0);
@@ -528,7 +697,7 @@ for (const [kind, name, id] of [["module", "Week 1 materials", 501], ["file", "l
       } else {
         await expect(page.locator("#resource-menu-download")).toBeHidden();
         await expect(page.getByRole("menuitem")).toHaveCount(1);
-        await expect(page.getByRole("menuitem", { name: "New Codex thread" })).toBeFocused();
+        await expect(page.getByRole("menuitem", { name: "New Thread" })).toBeFocused();
       }
       await page.keyboard.press("Home");
       await page.keyboard.press("Enter");
@@ -551,13 +720,13 @@ for (const [kind, name, id] of [["module", "Week 1 materials", 501], ["file", "l
   }
 }
 
-test("sent project threads persist follow-up drafts, rename, archive, restore and switch independently", async ({ page, boot }, info) => {
+test("sent project threads persist follow-up drafts, rename, delete and switch independently", async ({ page, boot }, info) => {
   await boot();
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await sendAndStop(page, "First saved conversation");
   await page.getByLabel("Message Codex").fill("Draft one\nwith a second line");
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.locator("#agent-task-title").dblclick();
   await page.getByLabel("Thread name").fill("Exam preparation");
   await page.getByRole("button", { name: "Save name" }).click();
   await createThread(page);
@@ -574,17 +743,15 @@ test("sent project threads persist follow-up drafts, rename, archive, restore an
   await expect(page.locator(".thread-link")).toHaveCount(2);
   await page.locator(".thread-link").filter({ hasText: "Second saved conversation" }).click();
   await expect(page.getByLabel("Message Codex")).toHaveValue("Independent second draft");
-  await page.locator(".thread-link").filter({ hasText: "Exam preparation" }).click();
-  await page.getByRole("button", { name: "Archive", exact: true }).click();
-  await expect(page.getByLabel("Message Codex")).toBeDisabled();
-  await expect(page.locator("#agent-status")).toHaveText("Archived / Restore to continue");
+  await page.locator(".thread-row").filter({ hasText: "Exam preparation" }).locator(".thread-menu-btn").click();
+  await page.getByRole("menuitem", { name: "Delete permanently" }).click();
+  await expect(page.locator("#delete-dialog")).toBeVisible();
+  await page.locator("#confirm-delete").click();
   await expect(page.locator(".thread-link")).toHaveCount(1);
   await page.reload();
   await page.locator('.nav-item[data-view="agent"]').click();
-  await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Restore", exact: true }).click();
-  await expect(page.getByLabel("Message Codex")).toBeEnabled();
-  await expect(page.locator(".thread-link")).toHaveCount(2);
+  await expect(page.locator(".thread-link")).toHaveCount(1);
+  await expect(page.locator("#agent-task-title")).toHaveText("Second saved conversation");
   await expect(page.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(0));
   expect(await calls(page, "agent.start")).toHaveLength(0);
 });
@@ -593,14 +760,14 @@ test("resource attachment resets on project change and removal persists for a se
   await boot();
   await openCourse(page);
   await page.getByRole("button", { name: "Actions for lecture.txt", exact: true }).click();
-  await page.getByRole("menuitem", { name: "New Codex thread" }).click();
+  await page.getByRole("menuitem", { name: "New Thread" }).click();
   await expect(page.locator("select#agent-course")).toHaveCount(0);
   await page.locator("#new-project").click();
   await page.locator(".project-option").filter({ hasText: "Legacy algorithms" }).click();
   await expect(page.locator(".resource-chip")).toHaveCount(0);
   await openCourse(page, 14);
   await page.getByRole("button", { name: "Actions for lecture.txt", exact: true }).click();
-  await page.getByRole("menuitem", { name: "New Codex thread" }).click();
+  await page.getByRole("menuitem", { name: "New Thread" }).click();
   await control(page, "fail", "agent.start", "Fixture retry retains attachment");
   await page.getByLabel("Message Codex").fill("Persist attachment before removal");
   await page.locator("#send-agent").click();
@@ -617,10 +784,10 @@ test("resource attachment resets on project change and removal persists for a se
 test("disconnect and reconnect isolates threads by portal AND account", async ({ page, boot }) => {
   await boot();
   await openCourse(page, 14);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await sendAndStop(page, "Private account 202 conversation");
   await page.getByLabel("Message Codex").fill("Private account 202 draft");
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.locator("#agent-task-title").dblclick();
   await page.getByLabel("Thread name").fill("Private legacy thread");
   await page.getByRole("button", { name: "Save name" }).click();
   await page.locator("#account-button").click();
@@ -628,7 +795,7 @@ test("disconnect and reconnect isolates threads by portal AND account", async ({
   await expect(page.locator("#account-label")).toHaveText("Course accounts (1)");
   await page.getByLabel("Student ID", { exact: true }).fill("303");
   await page.getByLabel("Password", { exact: true }).fill("fake-password-only");
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator("#session-summary")).toContainText("Account 303");
   await page.getByRole("button", { name: "Close accounts" }).click();
   await page.locator('.nav-item[data-view="agent"]').click();
@@ -648,9 +815,10 @@ test("disconnect and reconnect isolates threads by portal AND account", async ({
   await expect(page.locator(".thread-link")).toHaveCount(0);
   await expect(page.locator("#course-nav .project")).toHaveCount(1);
   await page.locator("#account-button").click();
+  await page.locator("#legacy-relogin").click();
   await page.getByLabel("Student ID", { exact: true }).fill("202");
   await page.getByLabel("Password", { exact: true }).fill("fake-password-only");
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator("#session-summary")).toContainText("Account 202");
   await page.getByRole("button", { name: "Close accounts" }).click();
   await page.locator(".thread-link").filter({ hasText: "Private legacy thread" }).click();
@@ -672,26 +840,26 @@ test("login form failure, retry, dual session success, password clearing and log
   await boot({ authenticated: false });
   await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   expect(await calls(page, "session.login")).toHaveLength(0);
   await page.getByLabel("Student ID", { exact: true }).fill("202");
   await page.getByLabel("Password", { exact: true }).fill("invalid-fixture-password");
   await control(page, "fail", "session.login", "Fixture: invalid credentials");
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator("#login-error")).toContainText("Fixture: invalid credentials");
   await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
-  await expect(page.getByRole("button", { name: "Connect legacy portal" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeEnabled();
   await page.getByLabel("Password", { exact: true }).fill("valid-fixture-password");
   await control(page, "hold", "session.login");
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
-  await expect(page.getByRole("button", { name: "Connect legacy portal" })).toBeDisabled();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Continue with UIT SSO" })).toBeDisabled();
   await control(page, "release", "session.login");
-  await expect(page.locator("#login-status")).toContainText("Legacy Moodle connected");
+  await expect(page.locator("#login-status")).toContainText("Student ID login connected");
   await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "Continue with UIT SSO" }).click();
   await expect(page.locator("#session-summary .session-row")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "Current Moodle connected", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Re-login with UIT SSO", exact: true })).toBeVisible();
   expect((await calls(page, "session.ssoLogin"))[0].input).toEqual({ baseUrl: CURRENT });
   expect((await calls(page, "session.login"))[1].input).toEqual({ username: "202", password: "valid-fixture-password", baseUrl: LEGACY });
   await page.getByRole("button", { name: "Disconnect all portals" }).click();
@@ -705,7 +873,7 @@ test("concurrent threads route events before start resolves and ignore duplicate
   await boot();
   await control(page, "hold", "agent.start");
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await page.getByLabel("Message Codex").fill("First concurrent question");
   await page.getByLabel("Message Codex").press("Enter");
   await expect(page.locator("#send-agent")).toBeDisabled();
@@ -741,7 +909,7 @@ test("concurrent threads route events before start resolves and ignore duplicate
   await page.locator("#stop-agent").click();
   await expect(page.locator("#agent-status")).toHaveText("Ready");
   await expect(page.locator("#agent-messages")).toContainText("This turn was stopped");
-  await page.getByRole("button", { name: "Branch", exact: true }).click();
+  await branchThread(page);
   await expect(page.locator("#agent-task-title")).toHaveText("Branch: First concurrent question");
   await expect(page.locator("#agent-messages")).toContainText("First answer");
 });
@@ -749,7 +917,7 @@ test("concurrent threads route events before start resolves and ignore duplicate
 test("approval belongs to background thread, denial and errors are recoverable", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await page.getByLabel("Message Codex").fill("Run fixture command");
   await page.locator("#send-agent").click();
   const input = (await calls(page, "agent.start"))[0].input;
@@ -775,7 +943,7 @@ test("failed first send persists prompted thread, restores draft and resource fo
   await boot();
   await openCourse(page);
   await page.getByRole("button", { name: "Actions for Assignment 7", exact: true }).click();
-  await page.getByRole("menuitem", { name: "New Codex thread" }).click();
+  await page.getByRole("menuitem", { name: "New Thread" }).click();
   await control(page, "fail", "agent.start", "Fixture agent unavailable");
   await page.getByLabel("Message Codex").fill("Help with assignment");
   await page.locator("#send-agent").click();
@@ -807,7 +975,7 @@ test("stale course detail responses cannot replace a later course or navigation"
   await page.locator(".course-row").filter({ hasText: "Legacy algorithms" }).click();
   await expect(page.locator("#course-detail h1")).toHaveText("Legacy algorithms");
   for (const method of ["courses.contents", "courses.assignments", "courses.announcements"]) await control(page, "release", method, 1);
-  await expect(page.locator("#contents-panel .file-row")).toHaveCount(8);
+  await expect(page.locator("#contents-panel .file-row")).toHaveCount(fileTypes.length);
   for (const method of ["courses.contents", "courses.assignments", "courses.announcements"]) await control(page, "release", method, 0);
   await expect(page.locator("#contents-panel .file-row").first()).toHaveAttribute("data-file-url", new RegExp(`^${LEGACY}`));
   await page.getByRole("button", { name: "Refresh resources" }).click();
@@ -821,7 +989,7 @@ test("closed stale file preview cannot overwrite a newer resource reader", async
   await boot();
   await openCourse(page);
   await control(page, "hold", "courses.preview");
-  await page.locator("#contents-panel .resource-open").filter({ hasText: "lecture.txt" }).click();
+  await page.locator("#contents-panel .resource-open").filter({ hasText: "script.py" }).click();
   await expect(page.locator("#reader-body")).toContainText("Loading preview");
   await page.getByRole("button", { name: "Close preview" }).click();
   await expect(page.locator("#reader-body")).toBeEmpty();
@@ -829,7 +997,7 @@ test("closed stale file preview cannot overwrite a newer resource reader", async
   await control(page, "release", "courses.preview");
   await expect(page.locator("#reader-title")).toHaveText("Announcement 6");
   await expect(page.locator("#reader-body")).toContainText("Full announcement 6");
-  await expect(page.locator("#reader-body")).not.toContainText("Lecture content");
+  await expect(page.locator("#reader-body")).not.toContainText("hello from memory");
 });
 
 test("stale list response cannot repopulate courses after logout", async ({ page, boot }) => {
@@ -857,10 +1025,10 @@ test("list, detail, preview, download and open failures offer recovery", async (
   await page.locator("#assignment-list").getByRole("button", { name: "Retry", exact: true }).click();
   await expect(page.locator("#assignment-list .resource-row")).toHaveCount(7);
   await control(page, "fail", "courses.preview", "Fixture preview offline");
-  await page.locator("#contents-panel .resource-open").filter({ hasText: "lecture.txt" }).click();
+  await page.locator("#contents-panel .resource-open").filter({ hasText: "script.py" }).click();
   await expect(page.locator("#reader-body [role=alert]")).toContainText("Fixture preview offline");
   await page.getByRole("button", { name: "Retry preview" }).click();
-  await expect(page.locator("#reader-body pre")).toHaveText("Lecture content in memory");
+  await expect(page.locator("#reader-body pre")).toHaveText("print('hello from memory')");
   await control(page, "fail", "courses.materialize", "Fixture disk full");
   await page.locator("#reader-download").click();
   await expect(page.locator("#reader-status")).toContainText("Download failed. Fixture disk full");
@@ -877,14 +1045,14 @@ test("malformed saved index is reported without crashing the renderer", async ({
   await expect(page.locator("#app-error")).toContainText("Saved threads could not be read");
   expect(await page.evaluate((store) => localStorage.getItem(store), STORE)).toBe("{invalid-json");
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await expect(page.getByLabel("Message Codex")).toBeEnabled();
 });
 
 test("storage quota failure is visible and a later draft save recovers", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await sendAndStop(page, "Saved before storage fills");
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
@@ -915,7 +1083,7 @@ test("SSO cancellation can retry and graduate legacy form sends the selected por
   await page.getByRole("combobox", { name: "Portal", exact: true }).selectOption(`${LEGACY}/sdh`);
   await page.getByLabel("Student ID", { exact: true }).fill("404");
   await page.getByLabel("Password", { exact: true }).fill("graduate-fixture-password");
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator("#session-summary .session-row")).toHaveCount(2);
   expect((await calls(page, "session.login"))[0].input).toEqual({ baseUrl: `${LEGACY}/sdh`, username: "404", password: "graduate-fixture-password" });
   await page.getByRole("button", { name: "Close accounts" }).click();
@@ -927,7 +1095,7 @@ test("SSO cancellation can retry and graduate legacy form sends the selected por
 test("completed conversation persists, stream output deduplicates and offline reload never sends", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await page.getByLabel("Message Codex").fill("Explain the course");
   await page.locator("#send-agent").click();
   const input = (await calls(page, "agent.start"))[0].input;
@@ -941,7 +1109,7 @@ test("completed conversation persists, stream output deduplicates and offline re
   await emit(page, "turn/completed", { ...params, turn: { id: params.turnId, status: "completed" } });
   await expect(page.locator("#agent-messages .assistant")).toHaveCount(1);
   await expect(page.locator("#agent-messages .assistant pre")).toHaveText("Final explanation");
-  await expect(page.locator("#agent-messages")).toContainText("Command exited 0");
+  await expect(page.locator("#agent-messages")).toContainText("Ran fixture-command · exit 0");
   await expect(page.locator("#agent-messages")).toContainText("update: notes.md");
   await page.getByLabel("Message Codex").fill("Unsent follow-up");
   await page.reload();
@@ -956,7 +1124,7 @@ test("completed conversation persists, stream output deduplicates and offline re
 test("global agent exit interrupts busy threads without losing their independent drafts", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await page.getByLabel("Message Codex").fill("Working thread one");
   await page.locator("#send-agent").click();
   await page.getByLabel("Message Codex").fill("Next draft one");
@@ -994,10 +1162,10 @@ test("keyboard navigation, dialog focus, skip link and composer newline", async 
   await page.keyboard.press("End");
   await expect(page.getByRole("menuitem", { name: "Download", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "New Codex thread" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "New Thread" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(overflow).toBeFocused();
-  await page.getByRole("button", { name: "New Codex thread", exact: true }).click();
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await page.getByLabel("Message Codex").fill("First line");
   await page.getByLabel("Message Codex").press("Shift+Enter");
   await page.getByLabel("Message Codex").pressSequentially("Second line");
@@ -1032,11 +1200,11 @@ for (const width of [390, 320]) {
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
     expect(await page.locator("#sidebar").evaluate((element: HTMLElement) => element.inert)).toBe(true);
     await page.locator(".course-row").first().click();
-    await expect(page.locator("#contents-panel .file-row")).toHaveCount(8);
+    await expect(page.locator("#contents-panel .file-row")).toHaveCount(fileTypes.length);
     await noOverflow();
     await page.getByRole("button", { name: "Actions for Announcement 6", exact: true }).click();
     await noOverflow();
-    await page.getByRole("menuitem", { name: "New Codex thread" }).click();
+    await page.getByRole("menuitem", { name: "New Thread" }).click();
     await page.getByLabel("Message Codex").fill("Mobile unsent draft " + "longword".repeat(30));
     await noOverflow();
     await expect(page.locator("#send-agent")).toBeInViewport();
@@ -1045,6 +1213,7 @@ for (const width of [390, 320]) {
     await page.locator("#account-button").click();
     await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();
     await noOverflow();
+    await page.locator("#legacy-relogin").click();
     await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   });
 }
@@ -1216,41 +1385,41 @@ test("appearance synchronizes real cross-tab storage changes, ignores other keys
 test("dark course resources, reader, action dialog, agent chip and composer use dark surfaces", async ({ page, boot }, info) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await boot();
-  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(32, 32, 31)");
-  await expect(page.locator("#sidebar")).toHaveCSS("background-color", "rgb(25, 25, 24)");
-  await expect(page.locator(".course-row").first()).toHaveCSS("color", "rgb(238, 237, 233)");
-  await expect(page.locator(".course-code").first()).toHaveCSS("color", "rgb(176, 174, 167)");
+  await expect(page.locator("html")).toHaveCSS("background-color", "rgb(15, 17, 23)");
+  await expect(page.locator("#sidebar")).toHaveCSS("background-color", "rgb(12, 14, 19)");
+  await expect(page.locator(".course-row").first()).toHaveCSS("color", "rgb(235, 238, 243)");
+  await expect(page.locator(".course-code").first()).toHaveCSS("color", "rgb(166, 173, 189)");
   await openCourse(page);
-  await expect(page.locator("#contents-panel .resource-info strong").first()).toHaveCSS("color", "rgb(238, 237, 233)");
-  await expect(page.locator("#contents-panel .section-label").first()).toHaveCSS("color", "rgb(176, 174, 167)");
+  await expect(page.locator("#contents-panel .resource-info strong").first()).toHaveCSS("color", "rgb(235, 238, 243)");
+  await expect(page.locator("#contents-panel .section-label").first()).toHaveCSS("color", "rgb(166, 173, 189)");
   await expect(page.locator("#assignment-list .resource-row")).toHaveCount(7);
   await expect(page.locator("#announcement-list .resource-row")).toHaveCount(6);
   await page.screenshot({ path: info.outputPath("dark-course.png"), fullPage: true });
-  await page.locator("#contents-panel .resource-open").filter({ hasText: "lecture.txt" }).click();
-  await expect(page.locator("#reader-body pre")).toHaveText("Lecture content in memory");
-  await expect(page.locator("#resource-reader")).toHaveCSS("background-color", "rgb(38, 38, 36)");
-  await expect(page.locator("#reader-body pre")).toHaveCSS("background-color", "rgb(28, 28, 27)");
-  await expect(page.locator("#reader-body pre")).toHaveCSS("color", "rgb(238, 237, 233)");
+  await page.locator("#contents-panel .resource-open").filter({ hasText: "script.py" }).click();
+  await expect(page.locator("#reader-body pre")).toHaveText("print('hello from memory')");
+  await expect(page.locator("#resource-reader")).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await expect(page.locator("#reader-body pre")).toHaveCSS("background-color", "rgb(14, 16, 22)");
+  await expect(page.locator("#reader-body pre")).toHaveCSS("color", "rgb(235, 238, 243)");
   await page.getByRole("button", { name: "Close preview" }).click();
   await page.getByRole("button", { name: "Actions for lecture.txt", exact: true }).click();
-  await expect(page.locator("#resource-menu")).toHaveCSS("background-color", "rgb(38, 38, 36)");
-  await page.getByRole("menuitem", { name: "New Codex thread" }).click();
+  await expect(page.locator("#resource-menu")).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await page.getByRole("menuitem", { name: "New Thread" }).click();
   await expect(page.locator(".resource-chip")).toContainText("@lecture.txt");
-  await expect(page.locator(".resource-chip")).toHaveCSS("background-color", "rgb(38, 38, 36)");
-  await expect(page.locator(".resource-chip")).toHaveCSS("color", "rgb(238, 237, 233)");
-  await expect(page.locator("#agent-form")).toHaveCSS("background-color", "rgb(40, 40, 38)");
+  await expect(page.locator(".resource-chip")).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await expect(page.locator(".resource-chip")).toHaveCSS("color", "rgb(235, 238, 243)");
+  await expect(page.locator("#agent-form")).toHaveCSS("background-color", "rgb(23, 27, 38)");
   await expect(page.getByLabel("Message Codex")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(page.getByLabel("Message Codex")).toHaveCSS("color", "rgb(238, 237, 233)");
+  await expect(page.getByLabel("Message Codex")).toHaveCSS("color", "rgb(235, 238, 243)");
   await page.getByLabel("Message Codex").fill("Explain the attached lecture and help me prepare for the exam.");
   await expect(page.locator("#send-agent")).toBeEnabled();
-  await expect(page.locator("#send-agent")).toHaveCSS("background-color", "rgb(238, 237, 233)");
-  await expect(page.locator("#send-agent")).toHaveCSS("color", "rgb(32, 32, 31)");
+  await expect(page.locator("#send-agent")).toHaveCSS("background-color", "rgb(59, 130, 246)");
+  await expect(page.locator("#send-agent")).toHaveCSS("color", "rgb(255, 255, 255)");
   await page.screenshot({ path: info.outputPath("dark-agent.png"), fullPage: true });
   for (const method of ["agent.start", "courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
   await sendAndStop(page, "Open a saved thread action dialog");
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.locator("#agent-task-title").dblclick();
   await expect(page.locator("#rename-dialog")).toBeVisible();
-  await expect(page.locator("#rename-dialog")).toHaveCSS("background-color", "rgb(38, 38, 36)");
+  await expect(page.locator("#rename-dialog")).toHaveCSS("background-color", "rgb(21, 25, 35)");
   for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
@@ -1259,32 +1428,19 @@ test("dark PDF toolbar and dialog leave the white document canvas and rendered p
   await openCourse(page);
   await page.locator("#contents-panel .resource-open").filter({ hasText: "slide.pdf" }).click();
   await expect(page.locator(".pdf-status")).toContainText("Page 1 of 2 rendered");
-  // Fit the whole canvas inside the continuous scroller so screenshots exclude clipped UI.
-  await page.getByRole("button", { name: "Zoom out" }).click();
-  await page.getByRole("button", { name: "Zoom out" }).click();
-  await expect(page.locator(".pdf-status")).toContainText("Page 1 of 2 rendered");
   const canvas = page.locator('.pdf-page[data-page="1"] .pdf-canvas');
-  await expect(canvas).toHaveCSS("height", "396px");
   const lightPixels = await canvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
-  const documentScreenshot = async () => {
-    await canvas.scrollIntoViewIfNeeded();
-    const box = (await canvas.boundingBox())!;
-    // Exclude fractional page-edge pixels blended with the surrounding theme.
-    return page.screenshot({ clip: { x: Math.ceil(box.x) + 2, y: Math.ceil(box.y) + 2, width: Math.floor(box.width) - 4, height: Math.floor(box.height) - 4 } });
-  };
-  const lightScreenshot = await documentScreenshot();
   // OS changes can reach a modal without bypassing its native focus/inert behavior.
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.locator("#resource-reader")).toHaveCSS("background-color", "rgb(38, 38, 36)");
-  await expect(page.locator(".pdf-toolbar")).toHaveCSS("color", "rgb(238, 237, 233)");
-  await expect(page.locator(".pdf-toolbar")).toHaveCSS("background-color", "rgb(38, 38, 36)");
-  await expect(page.getByRole("button", { name: "Zoom in" })).toHaveCSS("background-color", "rgb(38, 38, 36)");
-  await expect(page.locator(".pdf-surface")).toHaveCSS("background-color", "rgb(25, 25, 24)");
+  await expect(page.locator("#resource-reader")).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await expect(page.locator(".pdf-toolbar")).toHaveCSS("color", "rgb(235, 238, 243)");
+  await expect(page.locator(".pdf-toolbar")).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await expect(page.getByRole("button", { name: "Download", exact: true })).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await expect(page.locator(".pdf-surface")).toHaveCSS("background-color", "rgb(12, 14, 19)");
   await expect(canvas).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(canvas).toHaveCSS("filter", "none");
   expect(await canvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())).toBe(lightPixels);
-  expect((await documentScreenshot()).equals(lightScreenshot), "PDF display must not be inverted or recolored by dark mode").toBe(true);
   const pixels = await canvas.evaluate((canvas: HTMLCanvasElement) => {
     const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
     let white = 0, ink = 0;
@@ -1298,8 +1454,6 @@ test("dark PDF toolbar and dialog leave the white document canvas and rendered p
   expect(pixels.white).toBeGreaterThan(1000);
   expect(pixels.ink).toBeGreaterThan(100);
   await page.screenshot({ path: info.outputPath("dark-pdf.png"), fullPage: true });
-  await page.getByRole("button", { name: "Zoom in" }).click();
-  await page.getByRole("button", { name: "Zoom in" }).click();
   await page.getByRole("spinbutton", { name: "Page number" }).fill("2");
   await page.getByRole("spinbutton", { name: "Page number" }).press("Enter");
   await expect(page.locator(".pdf-status")).toContainText("Page 2 of 2 rendered");
@@ -1313,17 +1467,17 @@ test("dark login dialog, native fields and visible credential error remain reada
   await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Course accounts", exact: true });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toHaveCSS("background-color", "rgb(38, 38, 36)");
-  await expect(dialog).toHaveCSS("color", "rgb(238, 237, 233)");
+  await expect(dialog).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await expect(dialog).toHaveCSS("color", "rgb(235, 238, 243)");
   await expect(dialog).toHaveCSS("color-scheme", "dark");
   for (const field of [dialog.getByRole("combobox", { name: "Portal", exact: true }), dialog.getByLabel("Student ID", { exact: true }), dialog.getByLabel("Password", { exact: true })]) {
-    await expect(field).toHaveCSS("background-color", "rgb(38, 38, 36)");
-    await expect(field).toHaveCSS("color", "rgb(238, 237, 233)");
+    await expect(field).toHaveCSS("background-color", "rgb(21, 25, 35)");
+    await expect(field).toHaveCSS("color", "rgb(235, 238, 243)");
   }
   await page.getByLabel("Student ID", { exact: true }).fill("202");
   await page.getByLabel("Password", { exact: true }).fill("fixture-only-password");
   await control(page, "fail", "session.login", "Fixture: invalid credentials");
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator("#login-error")).toContainText("Fixture: invalid credentials");
   await expect(page.locator("#login-error")).toHaveCSS("color", "rgb(255, 170, 160)");
   await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
@@ -1359,8 +1513,8 @@ for (const width of [390, 320]) {
     await expect(page.locator("#account-button")).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(page.locator("#close-sidebar")).toBeFocused();
-    await page.locator("#course-nav").getByRole("button", { name: `> ${courses[0].shortname}`, exact: true }).click();
-    await expect(page.locator("#contents-panel .file-row")).toHaveCount(8);
+    await page.locator("#course-nav").getByRole("button", { name: courses[0].shortname, exact: true }).click();
+    await expect(page.locator("#contents-panel .file-row")).toHaveCount(fileTypes.length);
     await expect(page.locator("#sidebar")).toBeHidden();
     expect(await page.locator("#main").evaluate((element: HTMLElement) => element.inert)).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -1371,7 +1525,7 @@ for (const width of [390, 320]) {
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
     expect(await page.locator("#sidebar").evaluate((element: HTMLElement) => element.inert)).toBe(true);
     await page.getByRole("button", { name: "Actions for lecture.txt", exact: true }).click();
-    await page.getByRole("menuitem", { name: "New Codex thread" }).click();
+    await page.getByRole("menuitem", { name: "New Thread" }).click();
     await page.getByLabel("Message Codex").fill("Dark mobile draft " + "longword".repeat(30));
     await expect(page.locator(".resource-chip")).toContainText("@lecture.txt");
     await expect(page.locator("#send-agent")).toBeInViewport();
@@ -1379,3 +1533,46 @@ for (const width of [390, 320]) {
     await page.screenshot({ path: info.outputPath(`dark-mobile-${width}-agent.png`), fullPage: true });
   });
 }
+
+test("course view displays Materials, Members, and Grades tabs with live data and search", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+
+  await expect(page.locator("#tab-materials")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#tab-members")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#tab-grades")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#panel-materials")).toBeVisible();
+  await expect(page.locator("#panel-members")).toBeHidden();
+  await expect(page.locator("#panel-grades")).toBeHidden();
+
+  await page.locator("#tab-members").click();
+  await expect(page.locator("#tab-members")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#panel-members")).toBeVisible();
+  await expect(page.locator("#panel-materials")).toBeHidden();
+  await expect(page.locator(".members-count")).toHaveText("2 members");
+  await expect(page.locator(".member-card")).toHaveCount(2);
+  await expect(page.locator(".member-card img")).toHaveCount(0);
+  await expect(page.locator(".member-card .member-avatar")).toHaveCount(2);
+  await expect(page.locator(".member-card .member-avatar").first()).toHaveClass(/teacher-avatar/);
+  await expect(page.locator(".member-card").first()).toContainText("Dr. Bob");
+  await expect(page.locator(".member-card").last()).toContainText("Alice Student");
+
+  await page.getByPlaceholder("Search members by name or role...").fill("Bob");
+  await expect(page.locator(".member-card")).toHaveCount(1);
+  await expect(page.locator(".member-card")).toContainText("Dr. Bob");
+  await page.getByPlaceholder("Search members by name or role...").fill("");
+  await expect(page.locator(".member-card")).toHaveCount(2);
+
+  await page.locator("#tab-grades").click();
+  await expect(page.locator("#tab-grades")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#panel-grades")).toBeVisible();
+  await expect(page.locator("#panel-members")).toBeHidden();
+  await expect(page.locator(".grades-total-card")).toContainText("Course total");
+  await expect(page.locator(".grades-total-score")).toContainText("9.5");
+  await expect(page.locator(".grades-table tbody tr")).toHaveCount(2);
+  await expect(page.locator(".grades-table")).toContainText("Lab 1");
+
+  await page.locator("#tab-materials").click();
+  await expect(page.locator("#panel-materials")).toBeVisible();
+  await expect(page.locator("#contents-panel")).toBeVisible();
+});

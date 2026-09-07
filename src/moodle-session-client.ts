@@ -250,18 +250,29 @@ export class MoodleSessionApi implements ApiClient {
 
   private async discussionsFallback(params: Record<string, any>): Promise<MoodleRecord> {
     const forumId = Number(params.forumid);
+    const cmid = Number(params.cmid);
     const page = Number(params.page ?? 0);
     const perpage = Number(params.perpage ?? 100);
-    if (!Number.isSafeInteger(forumId) || forumId <= 0 || !Number.isSafeInteger(page) || page < 0 || !Number.isSafeInteger(perpage) || perpage <= 0 || perpage > 100) throw new Error("Invalid forum pagination or instance ID.");
-    const discussions = await this.pageQuery<MoodleRecord[]>(`/mod/forum/view.php?f=${forumId}&p=${page}&s=${perpage}`, String.raw`(doc,pageUrl)=>{
+    // News forums often expose no instance ID to students (no posting links), so
+    // the course-module page is a verified fallback: it lists the same discussions.
+    // A present-but-invalid identity never falls through to the other key.
+    const byId = params.forumid !== undefined;
+    const byModule = !byId && params.cmid !== undefined;
+    if (byId && !(Number.isSafeInteger(forumId) && forumId > 0)) throw new Error("Invalid forum pagination or instance ID.");
+    if (byModule && !(Number.isSafeInteger(cmid) && cmid > 0)) throw new Error("Invalid forum pagination or instance ID.");
+    if (!byId && !byModule) throw new Error("Invalid forum pagination or instance ID.");
+    if (!Number.isSafeInteger(page) || page < 0 || !Number.isSafeInteger(perpage) || perpage <= 0 || perpage > 100) throw new Error("Invalid forum pagination or instance ID.");
+    const path = byModule ? `/mod/forum/view.php?id=${cmid}&forceview=1&p=${page}&s=${perpage}` : `/mod/forum/view.php?f=${forumId}&p=${page}&s=${perpage}`;
+    const discussions = await this.pageQuery<MoodleRecord[]>(path, String.raw`(doc,pageUrl)=>{
       if(!doc.querySelector('[id^="discussion-list-"],.discussion-list,.forumheaderlist,.forumnodiscuss,.forumpost'))throw new Error('Unable to read forum discussions.');
+      ${byModule ? `const cfgText=Array.from(doc.scripts).map((script)=>script.textContent).join('\\n');const cfgMatch=/M\\.cfg\\s*=\\s*(\\{[^;]*?\\})\\s*;/.exec(cfgText);let cfgId=0;try{if(cfgMatch)cfgId=Number(JSON.parse(cfgMatch[1]).contextInstanceId)||0;}catch{}if(cfgId&&cfgId!==${cmid})throw new Error('Moodle returned a different course module.');` : ""}
       const seen=new Set();
       return Array.from(doc.querySelectorAll('[data-region="discussion-list-item"],tr.discussion,.forumpost')).map((row)=>{
         const link=row.querySelector('.topic a[href*="discuss.php"],a[href*="discuss.php?d="]');
         const url=link?new URL(link.getAttribute('href'),pageUrl):null;
         const discussion=Number(row.dataset.discussionid)||Number(url?.searchParams.get('d'));
         if(!discussion||seen.has(discussion))return null;seen.add(discussion);
-        if(row.dataset.forumid&&Number(row.dataset.forumid)!==${forumId})throw new Error('Moodle returned a different forum.');
+        ${byModule ? "" : `if(row.dataset.forumid&&Number(row.dataset.forumid)!==${forumId})throw new Error('Moodle returned a different forum.');`}
         const times=Array.from(row.querySelectorAll('time[data-timestamp]')).map((time)=>Number(time.dataset.timestamp));
         const replies=row.querySelector('.replies a,.replies,td.text-center span');
         const count=Number(replies?.textContent?.trim());
@@ -283,6 +294,116 @@ export class MoodleSessionApi implements ApiClient {
       }));
     }
     return { discussions, warnings: [] };
+  }
+
+  private async submissionStatusFallback(params: Record<string, any>): Promise<any> {
+    const assignId = Number(params.assignid ?? params.assignmentid);
+    if (!Number.isSafeInteger(assignId) || assignId <= 0) throw new Error("Invalid assignment submission reference.");
+    // listAssignments populates this map with cmid -> instance before any
+    // submission read, so the assignment page URL is known without guessing.
+    const cmid = [...this.modules.values()]
+      .map((module) => ({ cmid: Number(module.id), instance: Number(module.instance) }))
+      .find((module) => module.instance === assignId)?.cmid;
+    if (!cmid) throw new Error("Assignment module unknown. Open the course first so the assignment page can be found.");
+    return await this.pageQuery<MoodleRecord>(`/mod/assign/view.php?id=${cmid}&forceview=1`, String.raw`(doc,pageUrl)=>{
+      const cfgText=Array.from(doc.scripts).map((script)=>script.textContent).join('\n');
+      const cfgMatch=/M\.cfg\s*=\s*(\{[^;]*?\})\s*;/.exec(cfgText);
+      let cfgId=0;try{if(cfgMatch)cfgId=Number(JSON.parse(cfgMatch[1]).contextInstanceId)||0;}catch{}
+      if(cfgId&&cfgId!==${cmid})throw new Error('Moodle returned a different course module.');
+      const table=doc.querySelector('.submissionstatustable');
+      if(!table)throw new Error('Unable to read assignment submission.');
+      let status='',grade='';
+      for(const row of table.querySelectorAll('tr')){
+        const label=row.querySelector('.c0,th')?.textContent?.trim().toLowerCase()||'';
+        const value=row.querySelector('.c1,td:last-child')?.textContent?.trim()||'';
+        if(label.includes('submission status'))status=value;
+        else if(label==='grade'||label.startsWith('grade '))grade=value;
+      }
+      const files=Array.from(table.querySelectorAll('a[href*="pluginfile.php"],a[href*="/mod_assign/submission"]')).map((link)=>{const url=new URL(link.getAttribute('href'),pageUrl);return {filename:link.textContent?.trim()||url.pathname.split('/').pop(),fileurl:url.toString(),filesize:0};});
+      return {lastattempt:{submission:{status:status||'unknown',plugins:files.length?[{type:'file',fileareas:[{area:'submission',files}]}]:[]}},feedback:{gradefordisplay:grade}};
+    }`);
+  }
+
+  private async participantsFallback(courseId: number): Promise<MoodleRecord[]> {
+    if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid course ID.");
+    return await this.pageQuery<MoodleRecord[]>(`/user/index.php?id=${courseId}&perpage=5000`, String.raw`(doc,pageUrl)=>{
+      const rows=Array.from(doc.querySelectorAll('table#participants tbody tr,table.generaltable tbody tr'));
+      const seen=new Set();
+      const users=[];
+      for(const row of rows){
+        const link=row.querySelector('a[href*="/user/view.php"],a[href*="id="]');
+        let id=0;
+        if(link){
+          try{
+            const url=new URL(link.getAttribute('href')||'',pageUrl);
+            id=Number(url.searchParams.get('id'))||0;
+          }catch{}
+        }
+        if(!id){
+          const checkbox=row.querySelector('input[name^="user"],input[type="checkbox"][id^="user"]');
+          if(checkbox){
+            const match=/user(\d+)/.exec(checkbox.id||checkbox.name||'');
+            if(match)id=Number(match[1])||0;
+          }
+        }
+        const nameNode=link||row.querySelector('.cell.c1,[data-cell="username"]');
+        if(!nameNode)continue;
+        const clone=nameNode.cloneNode(true);
+        clone.querySelectorAll('.userinitials,.userpicture,.sr-only,.accesshide').forEach((el)=>el.remove());
+        const fullname=(clone.textContent||'').trim();
+        if(!fullname)continue;
+        if(id&&seen.has(id))continue;
+        if(id)seen.add(id);
+        const roleNode=row.querySelector('.cell.c2,[data-cell="roles"],.roles');
+        const roleText=(roleNode?.textContent||'').trim();
+        const roles=roleText?[{shortname:roleText.toLowerCase(),name:roleText}]:[{shortname:'student',name:'Học viên'}];
+        const userObj={id:id||users.length+1,fullname,roles};
+        const avatarImg=row.querySelector('img.userpicture');
+        if(avatarImg&&avatarImg.getAttribute('src')){
+          try{userObj.profileimageurl=new URL(avatarImg.getAttribute('src'),pageUrl).toString();}catch{}
+        }
+        const groupNode=row.querySelector('.cell.c3,[data-cell="groups"],.groups');
+        const groupText=(groupNode?.textContent||'').trim();
+        if(groupText&&groupText!=='Không phân nhóm'&&groupText!=='No groups'&&groupText!=='-'){
+          userObj.groups=[{name:groupText}];
+        }
+        const accessNode=row.querySelector('.cell.c4,[data-cell="lastaccess"],.lastaccess');
+        const accessText=(accessNode?.textContent||'').trim();
+        if(accessText)userObj.lastaccess=accessText;
+        users.push(userObj);
+      }
+      return users;
+    }`);
+  }
+
+  private async gradesFallback(courseId: number): Promise<MoodleRecord> {
+    if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid course ID.");
+    const items = await this.pageQuery<MoodleRecord[]>(`/grade/report/user/index.php?id=${courseId}`, String.raw`(doc)=>{
+      const table=doc.querySelector('table.user-grade,table.generaltable');
+      const rows=Array.from(table?.querySelectorAll('tbody tr')||[]);
+      const list=[];
+      for(const tr of rows){
+        const nameNode=tr.querySelector('.column-itemname,th');
+        if(!nameNode)continue;
+        const clone=nameNode.cloneNode(true);
+        clone.querySelectorAll('.sr-only,.accesshide').forEach((el)=>el.remove());
+        const itemname=(clone.textContent||'').trim();
+        if(!itemname)continue;
+        const grade=tr.querySelector('.column-grade')?.textContent?.trim()||'-';
+        const range=tr.querySelector('.column-range')?.textContent?.trim()||'';
+        const percentage=tr.querySelector('.column-percentage')?.textContent?.trim()||'-';
+        const feedback=tr.querySelector('.column-feedback')?.textContent?.trim()||'';
+        list.push({
+          itemname,
+          gradeformatted:grade!=='-'?grade:undefined,
+          grademax:range||undefined,
+          percentageformatted:percentage!=='-'?percentage:undefined,
+          feedback:feedback||undefined
+        });
+      }
+      return list;
+    }`);
+    return { usergrades: [{ courseid: courseId, gradeitems: items }] };
   }
 
   private async enrolledCourses(params: Record<string, any>): Promise<MoodleRecord[]> {
@@ -374,9 +495,12 @@ export class MoodleSessionApi implements ApiClient {
         return await this.courseFallback(Number(params.value)) as T;
       }
       if (name === "core_course_get_contents") return await this.contentsFallback(Number(params.courseid)) as T;
+      if (name === "core_enrol_get_enrolled_users") return await this.participantsFallback(Number(params.courseid)) as T;
+      if (name === "gradereport_user_get_grade_items") return await this.gradesFallback(Number(params.courseid)) as T;
       if (name === "mod_assign_get_assignments") return await this.activitiesFallback("assign", params) as T;
       if (name === "mod_forum_get_forums_by_courses") return await this.activitiesFallback("forum", params) as T;
       if (name === "mod_forum_get_forum_discussions") return await this.discussionsFallback(params) as T;
+      if (name === "mod_assign_get_submission_status") return await this.submissionStatusFallback(params) as T;
       if (name === "core_course_get_course_module") {
         const cmid = Number(params.cmid);
         if (!Number.isSafeInteger(cmid) || cmid <= 0) throw new Error("Invalid course module ID.");

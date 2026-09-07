@@ -61,7 +61,7 @@ test("real preload reports unauthenticated status, login forms and validation wi
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("type", "password");
   const portal = page.getByRole("combobox", { name: "Portal", exact: true });
   expect(await portal.locator("option").evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))).toEqual([LEGACY, `${LEGACY}/sdh`]);
-  await page.getByRole("button", { name: "Connect legacy portal" }).click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
   expect(await page.getByLabel("Student ID", { exact: true }).evaluate((input: HTMLInputElement) => input.validity.valueMissing)).toBe(true);
   await page.screenshot({ path: info.outputPath("electron-login.png") });
 
@@ -195,7 +195,6 @@ test("real Electron PDF preview uses fixture IPC bytes, never saves or starts a 
     for (let i = 0; i < pixels.length; i += 4) if (pixels[i + 1] > 100 && pixels[i] < 80 && pixels[i + 3] === 255) colored++;
     return colored;
   })).toBeGreaterThan(1000);
-  await page.getByRole("button", { name: "Show page text" }).click();
   await expect(page.getByLabel("PDF page 1 text", { exact: true })).toContainText("UIT OFFLINE PDF PAGE 1");
   await expect(page.locator("#reader-body iframe")).toHaveCount(0);
   await expect(page.locator("#reader-status")).toBeEmpty();
