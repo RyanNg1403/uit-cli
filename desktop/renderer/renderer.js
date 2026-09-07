@@ -1835,6 +1835,66 @@ function cleanToolSummaryLabel(label) {
   return label.replace(rx, (m, ran, cmd) => (ran ? "Ran " : "") + cmd.replace(/^["']|["']$/g, "").trim());
 }
 
+function createMessageCopyButton(getText) {
+  const btn = node("button", "message-copy-btn");
+  btn.type = "button";
+  btn.title = "Copy message";
+  btn.setAttribute("aria-label", "Copy message");
+
+  function copySvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.5");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1.5 1.5 0 0 0-1.5-1.5h-5A1.5 1.5 0 0 0 2.5 3.5v5a1.5 1.5 0 0 0 1.5 1.5h2"/>';
+    return svg;
+  }
+
+  function checkSvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    svg.innerHTML = '<path d="M3.5 8.5l3.5 3.5 6-7"/>';
+    return svg;
+  }
+
+  btn.append(copySvg());
+
+  let resetTimer = null;
+  btn.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const text = typeof getText === "function" ? getText() : getText;
+    if (!text) return;
+    try {
+      await copyToClipboard(text);
+      btn.classList.add("is-copied");
+      btn.title = "Copied!";
+      btn.setAttribute("aria-label", "Copied to clipboard");
+      btn.replaceChildren(checkSvg());
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        btn.classList.remove("is-copied");
+        btn.title = "Copy message";
+        btn.setAttribute("aria-label", "Copy message");
+        btn.replaceChildren(copySvg());
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to copy message:", err);
+      toast("Could not copy message.");
+    }
+  });
+  return btn;
+}
+
 function renderMessages(changes = null) {
   const thread = activeThread();
   const box = $("#agent-messages");
@@ -1885,6 +1945,9 @@ function renderMessages(changes = null) {
           } else {
             cached.content.textContent = message.text;
           }
+        }
+        if (cached.actions) {
+          cached.actions.hidden = Boolean(message.streaming) || !message.text;
         }
       } else if (cached.content) {
         cached.content.textContent = message.text;
@@ -1962,14 +2025,38 @@ function renderMessages(changes = null) {
       item.append(node("span", "state-marker"), copy);
       messageNodes.set(message, { item });
     } else {
-      const rich = message.role === "assistant" || kind === "error";
+      const isUser = message.role === "user";
+      const isAssistant = message.role === "assistant";
+      const rich = isAssistant || kind === "error";
       const content = node("pre", rich ? "md" : "");
-      if (message.role === "assistant" && !message.streaming) appendRichText(content, message.text);
+      if (isAssistant && !message.streaming) appendRichText(content, message.text);
       else content.textContent = message.text;
-      item.append(node("p", "message-role", message.role === "user" ? "You" : message.role === "assistant" ? "Codex" : message.label || "Activity"), content);
-      messageNodes.set(message, { item, content });
+
+      let actions = null;
+      let copyBtn = null;
+
+      if (isUser) {
+        const header = node("div", "message-header");
+        header.append(node("p", "message-role", "You"));
+        copyBtn = createMessageCopyButton(() => message.text);
+        header.append(copyBtn);
+        item.append(header, content);
+      } else if (isAssistant) {
+        item.append(node("p", "message-role", "Codex"), content);
+        if (message.resources?.length) item.append(node("p", "message-resources", message.resources.map((resource) => `@${resource.name}`).join("  ")));
+        actions = node("div", "message-actions");
+        copyBtn = createMessageCopyButton(() => message.text);
+        actions.append(copyBtn);
+        if (message.streaming || !message.text) actions.hidden = true;
+        item.append(actions);
+      } else {
+        item.append(node("p", "message-role", message.label || "Activity"), content);
+      }
+      messageNodes.set(message, { item, content, actions, copyBtn });
     }
-    if (message.resources?.length) item.append(node("p", "message-resources", message.resources.map((resource) => `@${resource.name}`).join("  ")));
+    if (message.role !== "assistant" && message.resources?.length) {
+      item.append(node("p", "message-resources", message.resources.map((resource) => `@${resource.name}`).join("  ")));
+    }
     inner.append(item);
   }
   box.scrollTop = follow ? box.scrollHeight : previousScroll;

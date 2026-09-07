@@ -1648,3 +1648,73 @@ test("during thread-lock, input box, rename, and delete options convert to not-a
   await expect(deleteBtn).toHaveCSS("cursor", "not-allowed");
 });
 
+test("copy buttons for user and agent messages are positioned smartly and copy text with feedback", async ({ page, boot }) => {
+  await boot({
+    storage: JSON.stringify({
+      version: 1,
+      activeId: "copy-test",
+      threads: [{
+        id: "copy-test",
+        title: "Copy Button Test",
+        course: courses[0],
+        draft: "",
+        resources: [],
+        messages: [
+          { role: "user", text: "Explain binary search in detail" },
+          { role: "assistant", text: "Binary search is an efficient algorithm with O(log n) time complexity." },
+        ],
+        prompted: true,
+        renamed: true,
+      }],
+    }),
+  });
+
+  await page.locator('.nav-item[data-view="agent"]').click();
+  await page.locator(".thread-link").filter({ hasText: "Copy Button Test" }).click();
+
+  const userMsg = page.locator(".message.user");
+  const assistantMsg = page.locator(".message.assistant");
+
+  await expect(userMsg).toBeVisible();
+  await expect(assistantMsg).toBeVisible();
+
+  // User message copy button is positioned smartly in .message-header at top right
+  const userCopyBtn = userMsg.locator(".message-header .message-copy-btn");
+  await expect(userCopyBtn).toHaveCount(1);
+  await expect(userCopyBtn).toHaveAttribute("title", "Copy message");
+
+  // Agent message copy button is positioned smartly in .message-actions at the bottom
+  const assistantCopyBtn = assistantMsg.locator(".message-actions .message-copy-btn");
+  await expect(assistantCopyBtn).toHaveCount(1);
+  await expect(assistantCopyBtn).toHaveAttribute("title", "Copy message");
+
+  // Initial screenshot before clicks
+  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_initial.png" });
+
+  // Hover user message to test visibility
+  await userMsg.hover();
+  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_user_hover.png" });
+
+  // Click user copy button
+  await userCopyBtn.click();
+  await expect(userCopyBtn).toHaveClass(/is-copied/);
+  await expect(userCopyBtn).toHaveAttribute("title", "Copied!");
+  const userCopyCalls = (await calls(page, "agent.writeClipboard")).filter((c: any) => (c.input?.text || c.input) === "Explain binary search in detail");
+  expect(userCopyCalls.length).toBeGreaterThanOrEqual(1);
+
+  // Click assistant copy button
+  await assistantCopyBtn.click();
+  await expect(assistantCopyBtn).toHaveClass(/is-copied/);
+  await expect(assistantCopyBtn).toHaveAttribute("title", "Copied!");
+  const assistantCopyCalls = (await calls(page, "agent.writeClipboard")).filter((c: any) => (c.input?.text || c.input) === "Binary search is an efficient algorithm with O(log n) time complexity.");
+  expect(assistantCopyCalls.length).toBeGreaterThanOrEqual(1);
+
+  // Take screenshot for visual verification of copied state
+  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_copied.png" });
+
+  // Dark mode appearance
+  await page.locator("#appearance").selectOption("dark");
+  await userMsg.hover();
+  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_dark.png" });
+});
+

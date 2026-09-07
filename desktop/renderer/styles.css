@@ -403,9 +403,78 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .messages { flex: 1; min-height: 0; overflow: auto; padding: 28px 28px 72px; scroll-padding-block: 24px; position: relative; }
 .messages-inner { max-width: 800px; margin: 0 auto; padding-bottom: 24px; }
 .message { margin-bottom: 28px; overflow-wrap: anywhere; }
+.message-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; min-height: 24px; }
 .message-role { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+.message-header .message-role { margin-bottom: 0; }
 .message pre { font-family: inherit; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
-.message.user { background: var(--message); border: 1px solid var(--line); border-radius: 14px; padding: 14px 17px; margin-left: clamp(24px, 12%, 96px); }
+.message.user { position: relative; background: var(--message); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px 14px; margin-left: clamp(24px, 12%, 96px); }
+
+.message-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.message-actions[hidden] { display: none !important; }
+
+.message-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: opacity .15s ease, color .15s ease, background-color .15s ease, border-color .15s ease, transform .1s ease;
+  user-select: none;
+  flex: 0 0 auto;
+}
+.message-copy-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  pointer-events: none;
+}
+.message-copy-btn:hover {
+  color: var(--text);
+  background: var(--subtle);
+  border-color: var(--line);
+}
+.message-copy-btn:active {
+  transform: scale(0.92);
+}
+.message-copy-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.message-copy-btn.is-copied {
+  color: #10b981 !important;
+  background: color-mix(in srgb, #10b981 12%, transparent) !important;
+  border-color: color-mix(in srgb, #10b981 32%, transparent) !important;
+}
+.message-copy-btn.is-copied svg {
+  stroke: #10b981 !important;
+}
+
+.message.user .message-copy-btn {
+  opacity: 0;
+}
+.message.user:hover .message-copy-btn,
+.message.user:focus-within .message-copy-btn,
+.message.user .message-copy-btn:focus-visible,
+.message.user .message-copy-btn.is-copied {
+  opacity: 1;
+}
+
+.message.assistant .message-copy-btn {
+  opacity: 0.65;
+}
+.message.assistant:hover .message-copy-btn,
+.message.assistant:focus-within .message-copy-btn,
+.message.assistant .message-copy-btn:hover,
+.message.assistant .message-copy-btn:focus-visible,
+.message.assistant .message-copy-btn.is-copied {
+  opacity: 1;
+}
 .message.event { margin-block: 14px; }
 .message.event pre { font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .message.error { border: 1px solid color-mix(in srgb, var(--error) 42%, transparent); border-radius: 10px; background: var(--error-background); padding: 12px 14px; }
