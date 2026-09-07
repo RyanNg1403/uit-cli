@@ -1333,7 +1333,9 @@ function selectThread(id) {
 function closeThreadResumeMenu() {
   const menu = $("#thread-resume-menu");
   const btn = $("#thread-resume-btn");
+  const cliRow = $("#cli-command-row");
   if (menu) menu.hidden = true;
+  if (cliRow) cliRow.hidden = true;
   if (btn) btn.setAttribute("aria-expanded", "false");
 }
 async function checkThreadLock(thread = activeThread()) {
@@ -2617,28 +2619,95 @@ document.addEventListener("click", (event) => {
   if (railMenu && !event.target.closest(".rail-menu") && !event.target.closest("[data-rail-menu]")) closeRailMenu();
   if (!$("#thread-resume-menu")?.hidden && !event.target.closest("#thread-resume-wrap")) closeThreadResumeMenu();
 });
+async function copyToClipboard(text) {
+  if (window.uit?.agent?.writeClipboard) {
+    try {
+      const res = await window.uit.agent.writeClipboard(text);
+      if (res?.success) return true;
+    } catch (_) {}
+  }
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {}
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    const success = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (success) return true;
+  } catch (_) {
+    document.body.removeChild(ta);
+  }
+  throw new Error("Failed to copy text to clipboard.");
+}
 $("#thread-resume-btn")?.addEventListener("click", () => {
   const menu = $("#thread-resume-menu");
   if (!menu) return;
   menu.hidden = !menu.hidden;
   $("#thread-resume-btn")?.setAttribute("aria-expanded", String(!menu.hidden));
+  if (menu.hidden) {
+    const cliRow = $("#cli-command-row");
+    if (cliRow) cliRow.hidden = true;
+  }
 });
-$("#resume-codex-cli")?.addEventListener("click", async () => {
-  closeThreadResumeMenu();
+$("#resume-codex-cli")?.addEventListener("click", () => {
+  const thread = activeThread();
+  if (!thread?.threadId) {
+    toast("No active Codex thread to resume.");
+    return;
+  }
+  const row = $("#cli-command-row");
+  const textEl = $("#cli-cmd-text");
+  if (!row || !textEl) return;
+  const cmd = `codex resume ${thread.threadId}`;
+  textEl.textContent = cmd;
+  textEl.setAttribute("title", cmd);
+  row.hidden = !row.hidden;
+});
+async function handleCopyCliCommand() {
   const thread = activeThread();
   if (!thread?.threadId) {
     toast("No active Codex thread to resume.");
     return;
   }
   const cmd = `codex resume ${thread.threadId}`;
+  const btn = $("#copy-cli-cmd-btn");
+  const copyIcon = btn?.querySelector(".copy-icon");
+  const checkIcon = btn?.querySelector(".check-icon");
   try {
-    await navigator.clipboard.writeText(cmd);
-    await window.uit.agent.releaseLock(thread.threadId);
+    await copyToClipboard(cmd);
+    await window.uit?.agent?.releaseLock?.(thread.threadId);
+    if (copyIcon && checkIcon && btn) {
+      copyIcon.setAttribute("hidden", "");
+      checkIcon.removeAttribute("hidden");
+      btn.classList.add("copied");
+      setTimeout(() => {
+        copyIcon.removeAttribute("hidden");
+        checkIcon.setAttribute("hidden", "");
+        btn.classList.remove("copied");
+      }, 1500);
+    }
     toast(`Copied: ${cmd} (Lock released)`);
     await checkThreadLock(thread);
   } catch (err) {
     toast(`Could not copy command. ${errorText(err)}`);
   }
+}
+$("#copy-cli-cmd-btn")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  handleCopyCliCommand();
+});
+$("#cli-cmd-text")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  handleCopyCliCommand();
 });
 $("#resume-codex-app")?.addEventListener("click", async () => {
   closeThreadResumeMenu();
@@ -2648,8 +2717,12 @@ $("#resume-codex-app")?.addEventListener("click", async () => {
     return;
   }
   try {
-    await window.uit.agent.openDesktop({ threadId: thread.threadId, cwd: thread.cwd });
-    toast("Opening project in Desktop App (Lock released)...");
+    await window.uit.agent.openDesktop({
+      threadId: thread.threadId,
+      cwd: thread.cwd,
+      title: thread.title || ""
+    });
+    toast("Opening thread in ChatGPT Desktop (Lock released)...");
     await checkThreadLock(thread);
   } catch (err) {
     toast(`Could not open Desktop App. ${errorText(err)}`);

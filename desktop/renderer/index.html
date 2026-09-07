@@ -58,17 +58,31 @@
                 </button>
                 <div id="thread-resume-menu" class="thread-resume-menu" role="menu" hidden>
                   <button id="resume-codex-cli" class="thread-menu-item" type="button" role="menuitem">
-                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4 6 3 3-3 3M9 12h3"/></svg>
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" fill-rule="evenodd" aria-hidden="true"><path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"/></svg>
                     <div class="menu-item-text">
                       <strong>Codex CLI</strong>
-                      <span>Copy command to resume in terminal</span>
+                      <span>Show command to resume in terminal</span>
                     </div>
                   </button>
+                  <div id="cli-command-row" class="cli-command-row" hidden>
+                    <div class="cli-cmd-box">
+                      <code id="cli-cmd-text" class="cli-cmd-text" title="Click to copy">codex resume ...</code>
+                      <button id="copy-cli-cmd-btn" class="cli-copy-btn" type="button" title="Copy command" aria-label="Copy command">
+                        <svg class="copy-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect>
+                          <path d="M10.5 5.5V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h2.5"></path>
+                        </svg>
+                        <svg class="check-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                          <polyline points="3.5 8.5 6.5 11.5 12.5 4.5"></polyline>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
                   <button id="resume-codex-app" class="thread-menu-item" type="button" role="menuitem">
-                    <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm1 1v8h10V4H3zm2 2h6v1H5V6zm0 2h4v1H5V8z"/></svg>
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1683a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4947zm-9.66-4.1354a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1402-1.6564zm-1.1213-9.5898a4.4755 4.4755 0 0 1 2.346-1.9729v.1656l.0047 5.5164a.7948.7948 0 0 0 .3927.6813l5.8428 3.3685-2.02 1.1683a.0804.0804 0 0 1-.071 0l-4.8303-2.7914a4.4992 4.4992 0 0 1-1.6649-6.1359zm15.864 4.5516-5.8428-3.3685 2.02-1.1683a.0804.0804 0 0 1 .071 0l4.8303 2.7914a4.4992 4.4992 0 0 1-.6766 8.1042v-5.6772a.79.79 0 0 0-.4019-.6816zm2.0107-3.0231-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 7.8174V5.485a.0804.0804 0 0 1 .0332-.0615l4.8817-2.8198a4.4992 4.4992 0 0 1 6.4273 4.6738zM8.008 12.8638a1.7695 1.7695 0 1 1 2.4178-2.4178 1.7695 1.7695 0 0 1-2.4178 2.4178zm-2.8858-6.1264 2.02-1.1683a.0804.0804 0 0 1 .071 0l4.8303 2.7914a4.4992 4.4992 0 0 1-.6766 8.1042v-5.6772a.79.79 0 0 0-.4019-.6816L8.008 12.8638a1.7695 1.7695 0 0 0-2.8858-6.1264z"/></svg>
                     <div class="menu-item-text">
                       <strong>ChatGPT Desktop App</strong>
-                      <span>Launch workspace project</span>
+                      <span>Open thread in ChatGPT Desktop</span>
                     </div>
                   </button>
                 </div>

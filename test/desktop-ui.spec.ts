@@ -1603,6 +1603,17 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   await expect(page.locator("#resume-codex-cli")).toContainText("Codex CLI");
   await expect(page.locator("#resume-codex-app")).toContainText("ChatGPT Desktop App");
 
+  // Clicking Codex CLI reveals command row without automatically closing or copying
+  const cliRow = page.locator("#cli-command-row");
+  await expect(cliRow).toBeHidden();
+  await page.locator("#resume-codex-cli").click();
+  await expect(cliRow).toBeVisible();
+  await expect(page.locator("#cli-cmd-text")).toContainText("codex resume");
+
+  // Clicking copy button copies and triggers checkmark
+  await page.locator("#copy-cli-cmd-btn").click();
+  await expect(page.locator("#copy-cli-cmd-btn .check-icon")).toBeVisible();
+
   // Press Escape to close
   await page.keyboard.press("Escape");
   await expect(resumeMenu).toBeHidden();

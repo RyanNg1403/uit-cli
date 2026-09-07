@@ -100,8 +100,9 @@ async function harness(saved: unknown[] = []) {
     "../dist/moodle-session-client.js": { MoodleSessionApi: class {} },
     "../dist/codex-client.js": { CodexClient: class { constructor() { return codex; } } },
   };
+  const clipboard = { writeText: vi.fn(), readText: vi.fn() };
   const modules: Record<string, unknown> = {
-    electron: { app, BrowserWindow, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) } },
+    electron: { app, BrowserWindow, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
     "node:os": { homedir: () => home }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
     "node:fs": { existsSync: vi.fn().mockReturnValue(false) },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
@@ -645,5 +646,8 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
 
     const rolloutRes = await h.invoke("thread:read-rollout", { threadId: "thread-123" });
     expect(rolloutRes).toEqual({ mtime: 0, messages: [] });
+
+    const clipRes = await h.invoke("clipboard:write", { text: "codex resume thread-123" });
+    expect(clipRes).toEqual({ success: true });
   });
 });
