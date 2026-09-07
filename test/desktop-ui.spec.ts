@@ -1582,3 +1582,29 @@ test("course view displays Materials, Members, and Grades tabs with live data an
   await expect(page.locator("#panel-materials")).toBeVisible();
   await expect(page.locator("#contents-panel")).toBeVisible();
 });
+
+test("thread header displays Open in dropdown with Codex CLI and Desktop App options", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Test Open in actions");
+
+  // Verify the Open in button and menu exist in the header
+  const resumeBtn = page.locator("#thread-resume-btn");
+  await expect(resumeBtn).toBeVisible();
+  await expect(resumeBtn).toContainText("Open in...");
+
+  const resumeMenu = page.locator("#thread-resume-menu");
+  await expect(resumeMenu).toBeHidden();
+
+  // Toggle menu open
+  await resumeBtn.click();
+  await expect(resumeMenu).toBeVisible();
+  await expect(page.locator("#resume-codex-cli")).toContainText("Codex CLI");
+  await expect(page.locator("#resume-codex-app")).toContainText("ChatGPT Desktop App");
+
+  // Press Escape to close
+  await page.keyboard.press("Escape");
+  await expect(resumeMenu).toBeHidden();
+});
+

@@ -41,7 +41,40 @@
           <div id="course-detail"></div>
         </section>
         <section id="view-agent" class="conversation" aria-label="Codex thread" hidden>
-          <header class="thread-header"><div class="thread-heading"><h1 id="agent-task-title">Codex</h1><p id="agent-course" class="muted" aria-label="Thread course" hidden></p></div></header>
+          <header class="thread-header">
+            <div class="thread-heading">
+              <h1 id="agent-task-title">Codex</h1>
+              <p id="agent-course" class="muted" aria-label="Thread course" hidden></p>
+            </div>
+            <div class="thread-actions" id="thread-actions" hidden>
+              <span id="thread-lock-badge" class="thread-lock-badge" hidden title="Thread is locked by another session (Codex CLI or Desktop App)">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M4.5 6V4a3.5 3.5 0 0 1 7 0v2h1a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h1zm1.5 0h4V4a2 2 0 0 0-4 0v2z"/></svg>
+                Read-only (locked externally)
+              </span>
+              <div class="thread-menu-wrap" id="thread-resume-wrap">
+                <button id="thread-resume-btn" class="secondary-button thread-action-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Resume thread in external Codex tool">
+                  <span>Open in...</span>
+                  <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+                </button>
+                <div id="thread-resume-menu" class="thread-resume-menu" role="menu" hidden>
+                  <button id="resume-codex-cli" class="thread-menu-item" type="button" role="menuitem">
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4 6 3 3-3 3M9 12h3"/></svg>
+                    <div class="menu-item-text">
+                      <strong>Codex CLI</strong>
+                      <span>Copy command to resume in terminal</span>
+                    </div>
+                  </button>
+                  <button id="resume-codex-app" class="thread-menu-item" type="button" role="menuitem">
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm1 1v8h10V4H3zm2 2h6v1H5V6zm0 2h4v1H5V8z"/></svg>
+                    <div class="menu-item-text">
+                      <strong>ChatGPT Desktop App</strong>
+                      <span>Launch workspace project</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </header>
           <div id="agent-workspace" class="workspace-path" hidden></div>
           <div id="agent-messages" class="messages" tabindex="0" aria-label="Conversation"></div>
           <button id="jump-to-latest" class="jump-to-latest secondary-button" type="button" aria-controls="agent-messages" hidden>Jump to latest</button>

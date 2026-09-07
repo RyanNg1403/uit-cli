@@ -24,6 +24,7 @@ import {
   cmdViewDiscussion,
   createContext
 } from "./commands.js";
+import { runMcpServer, installMcpServer } from "./mcp-server.js";
 
 export const WORKFLOW = `
 workflow:
@@ -242,6 +243,20 @@ export function createProgram(api: ApiClient = defaultApiClient, options: { open
     .argument("<function>", "API function name (from 'uit functions')")
     .argument("[params...]", "Parameters as key=value, e.g. courseid=19589")
     .action((fn, params) => cmdRaw({ function: fn, params }, ctx));
+
+  const mcpCmd = program
+    .command("mcp")
+    .description("Run or configure the UIT Model Context Protocol (MCP) server for Codex")
+    .action(() => {
+      runMcpServer();
+    });
+
+  mcpCmd
+    .command("install")
+    .description("Register UIT MCP server into ~/.codex/config.toml")
+    .action(() => {
+      installMcpServer();
+    });
 
   return program;
 }

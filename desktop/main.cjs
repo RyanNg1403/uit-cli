@@ -1,7 +1,11 @@
 const { app, BrowserWindow, ipcMain, session, shell, screen } = require("electron");
 const { homedir } = require("node:os");
 const { join, resolve, sep } = require("node:path");
-const { readFile, writeFile, rename, mkdir } = require("node:fs/promises");
+const { readFile, writeFile, rename, mkdir, unlink, readdir, stat } = require("node:fs/promises");
+const { existsSync } = require("node:fs");
+const { execFile } = require("node:child_process");
+const { promisify } = require("node:util");
+const execFileAsync = promisify(execFile);
 
 if (process.env.UIT_TEST_PROFILE) app.setPath("userData", resolve(process.env.UIT_TEST_PROFILE));
 
@@ -22,6 +26,8 @@ let linkedWrite = Promise.resolve();
 let portalErrors = [];
 let cachedModels = null;
 let bindingWrite = Promise.resolve();
+let idleLockTimer = null;
+const SSO_SESSION_FILE = join(homedir(), ".uit", "sso-session.json");
 
 const SSO_PARTITION = "persist:uit-sso";
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
@@ -36,6 +42,7 @@ async function loadService() {
   codex = new client.CodexClient();
   const configured = process.env.UIT_DISABLE_CONFIG === "1" ? undefined : service.configuredLegacySession?.();
   if (configured?.session?.baseUrl) legacySessions.set(configured.session.baseUrl, { ...configured.session, api: configured.api });
+  await restorePersistedSsoSession();
   try {
     const saved = JSON.parse(await readFile(join(app.getPath("userData"), "course-threads.json"), "utf8"));
     for (const [id, binding] of saved) threadBindings.set(id, { ...binding, busy: false });
@@ -66,6 +73,7 @@ async function loadService() {
       binding.busy = false;
       (binding.completedTurns ||= new Set()).add(turnId);
       for (const [id, request] of approvals) if (request.params.threadId === params.threadId) approvals.delete(id);
+      scheduleIdleLockRelease();
     }
     sendAgentEvent({ ...message, params: { ...params, ...(binding ? { taskId: binding.taskId } : {}) } });
   });
@@ -243,6 +251,204 @@ function requireCourseFileUrl(value, baseUrl) {
   return fileUrl.toString();
 }
 
+async function persistSsoSession(sessionData) {
+  try {
+    const dir = join(homedir(), ".uit");
+    await mkdir(dir, { recursive: true });
+    await writeFile(SSO_SESSION_FILE, JSON.stringify(sessionData, null, 2), { mode: 0o600 });
+  } catch (error) {
+    console.error("Could not persist SSO session:", error.message);
+  }
+}
+
+async function deletePersistedSsoSession() {
+  try {
+    await unlink(SSO_SESSION_FILE).catch(() => undefined);
+  } catch {}
+}
+
+async function restorePersistedSsoSession() {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+  try {
+    let saved;
+    try {
+      saved = JSON.parse(await readFile(SSO_SESSION_FILE, "utf8"));
+    } catch {
+      return;
+    }
+    if (!saved || !saved.baseUrl || !saved.userId || !saved.sesskey) return;
+
+    const authSession = session.fromPartition(SSO_PARTITION);
+    const existingCookies = await authSession.cookies.get({ url: saved.baseUrl });
+    if (!existingCookies.length && Array.isArray(saved.cookies) && saved.cookies.length > 0) {
+      for (const cookie of saved.cookies) {
+        await authSession.cookies.set({
+          url: saved.baseUrl,
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly
+        }).catch(() => undefined);
+      }
+    }
+
+    const probeWindow = new BrowserWindow({
+      show: false,
+      title: "UIT SSO Session",
+      webPreferences: {
+        partition: SSO_PARTITION,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+
+    const probeResult = await Promise.race([
+      (async () => {
+        await probeWindow.loadURL(`${saved.baseUrl}/my/`);
+        const currentUrl = probeWindow.webContents.getURL();
+        if (currentUrl.includes("/login")) throw new Error("Session expired");
+        const identity = await probeWindow.webContents.executeJavaScript(`(()=>{
+          const cfg = globalThis.M?.cfg || {};
+          return { sesskey: String(cfg.sesskey || ""), userId: Number(cfg.userId || cfg.userid || 0) };
+        })()`, true).catch(() => undefined);
+        if (!identity?.sesskey || identity.userId <= 0) throw new Error("Could not read SSO identity");
+        return identity;
+      })(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Probe timeout")), 6000))
+    ]).catch(() => null);
+
+    if (probeResult && probeResult.sesskey && probeResult.userId === saved.userId) {
+      ssoWindow = probeWindow;
+      const transport = {
+        execute: (script) => ssoWindow.webContents.executeJavaScript(script, true),
+        cookieHeader: async () => {
+          const cookies = await ssoWindow.webContents.session.cookies.get({ url: saved.baseUrl });
+          return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+        }
+      };
+      ssoSession = {
+        baseUrl: saved.baseUrl,
+        userId: probeResult.userId,
+        sesskey: probeResult.sesskey,
+        api: new MoodleSessionApi(saved.baseUrl, probeResult.sesskey, transport)
+      };
+      const cookies = await ssoWindow.webContents.session.cookies.get({ url: saved.baseUrl });
+      await persistSsoSession({
+        baseUrl: saved.baseUrl,
+        userId: probeResult.userId,
+        sesskey: probeResult.sesskey,
+        cookies: cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly })),
+        savedAt: Date.now()
+      });
+    } else {
+      if (!probeWindow.isDestroyed()) probeWindow.close();
+    }
+  } catch (error) {
+    console.error("Could not auto-restore SSO session:", error.message);
+  }
+}
+
+function scheduleIdleLockRelease() {
+  if (idleLockTimer) clearTimeout(idleLockTimer);
+  idleLockTimer = setTimeout(async () => {
+    idleLockTimer = null;
+    const anyBusy = [...threadBindings.values()].some((binding) => binding.busy);
+    if (!anyBusy && codex?.isConnected) {
+      try {
+        await codex.disconnect();
+      } catch (err) {
+        console.error("Error during idle lock release:", err.message);
+      }
+    }
+  }, 2500);
+}
+
+async function isThreadExternallyLocked(threadId) {
+  if (!threadId) return false;
+  const lockPath = join(homedir(), ".codex", "thread-writer-locks", `${threadId}.lock`);
+  if (!existsSync(lockPath)) return false;
+  try {
+    const { stdout } = await execFileAsync("lsof", ["-t", lockPath]);
+    const pids = stdout.trim().split(/\s+/).filter(Boolean).map(Number);
+    if (!pids.length) return false;
+    const ourChildPid = codex?.process?.pid;
+    const externalPids = pids.filter((pid) => pid !== ourChildPid && pid !== process.pid);
+    return externalPids.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function findRolloutFilePath(threadId) {
+  const sessionsDir = join(homedir(), ".codex", "sessions");
+  if (!existsSync(sessionsDir)) return null;
+
+  async function scan(dir, depth = 0) {
+    if (depth > 4) return null;
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); }
+    catch { return null; }
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isFile() && entry.name.endsWith(`${threadId}.jsonl`)) {
+        return fullPath;
+      }
+      if (entry.isDirectory()) {
+        const found = await scan(fullPath, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  return scan(sessionsDir);
+}
+
+async function readThreadRollout(threadId) {
+  const filePath = await findRolloutFilePath(threadId);
+  if (!filePath) return null;
+  try {
+    const fileStats = await stat(filePath);
+    const content = await readFile(filePath, "utf8");
+    const lines = content.split("\n").filter(Boolean);
+    const messages = [];
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.type === "response_item" && parsed.payload?.type === "message") {
+          const msg = parsed.payload;
+          if (msg.role === "user" || msg.role === "assistant") {
+            const textParts = (msg.content || [])
+              .filter((c) => c.type === "text" || c.type === "output_text" || c.type === "input_text")
+              .map((c) => c.text)
+              .filter((text) => typeof text === "string" && !text.startsWith("<skills_instructions>") && !text.startsWith("<permissions instructions>") && !text.startsWith("<recommended_plugins>") && !text.startsWith("<apps_instructions>") && !text.startsWith("<plugins_instructions>") && !text.startsWith("<environment_context>") && !text.startsWith("# AGENTS.md instructions"));
+
+            const fullText = textParts.join("\n").trim();
+            if (fullText) {
+              messages.push({
+                role: msg.role,
+                text: fullText,
+                id: msg.id,
+                turnId: parsed.payload?.internal_chat_message_metadata_passthrough?.turn_id
+              });
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return { mtime: fileStats.mtimeMs, messages };
+  } catch (error) {
+    console.error("Could not read rollout file:", error.message);
+    return null;
+  }
+}
+
 async function clearSsoSession({ clearStorage = false } = {}) {
   const window = ssoWindow;
   const authSession = window && !window.isDestroyed() ? window.webContents.session : session.fromPartition(SSO_PARTITION);
@@ -253,6 +459,7 @@ async function clearSsoSession({ clearStorage = false } = {}) {
   if (pending) pending.reject(new Error("UIT SSO was cancelled."));
   if (window && !window.isDestroyed()) window.close();
   if (clearStorage) {
+    await deletePersistedSsoSession();
     await authSession.clearStorageData({
       storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"]
     });
@@ -295,6 +502,18 @@ async function tryCompleteSso() {
     sesskey: identity.sesskey,
     api: new MoodleSessionApi(baseUrl, identity.sesskey, transport)
   };
+  try {
+    const cookies = await ssoWindow.webContents.session.cookies.get({ url: baseUrl });
+    await persistSsoSession({
+      baseUrl,
+      userId: identity.userId,
+      sesskey: identity.sesskey,
+      cookies: cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly })),
+      savedAt: Date.now()
+    });
+  } catch (err) {
+    console.error("Failed to persist SSO session:", err.message);
+  }
   // did-navigate and did-finish-load can fire together. Only the first
   // completion owns the pending promise; later callbacks must be ignored.
   pendingSsoLogin = undefined;
@@ -456,6 +675,10 @@ async function handleAgentRequest(request) {
 }
 
 async function startAgentTurn(rawInput, existing = false) {
+  if (idleLockTimer) {
+    clearTimeout(idleLockTimer);
+    idleLockTimer = null;
+  }
   const input = requireObject(rawInput, "Agent input");
   const { courseId, course, session: account } = await verifiedCourse(input);
   const generation = accountGenerations.get(account.baseUrl) || 0;
@@ -481,6 +704,7 @@ async function startAgentTurn(rawInput, existing = false) {
     binding = threadBindings.get(threadId);
     if (!binding || binding.courseId !== courseId || binding.baseUrl !== account.baseUrl || binding.userId !== account.userId) throw new Error("The thread belongs to a different course or account.");
     if (binding.busy) throw new Error("This thread already has an active turn.");
+    if (await isThreadExternallyLocked(threadId)) throw new Error("This thread is currently locked by an external Codex session. Please close it in the terminal or desktop app before sending here.");
     binding.busy = true;
     binding.turnId = undefined;
     try { await codex.resumeThread(threadId); }
@@ -503,6 +727,7 @@ async function startAgentTurn(rawInput, existing = false) {
     return { threadId, turnId: turn.id, status: turn.status, workspace: workspace.path, model: started?.model, effort };
   } catch (error) {
     binding.busy = false;
+    scheduleIdleLockRelease();
     if (!existing && started) {
       try {
         await codex.deleteThread(threadId);
@@ -697,14 +922,16 @@ function registerIpc() {
       await codex.setThreadName(id, name);
       return { success: true };
     },
-    "agent:stop": (_event, rawInput) => {
+    "agent:stop": async (_event, rawInput) => {
       const input = requireObject(rawInput, "Stop input");
       const id = requireString(input.threadId, "Thread ID");
       const binding = threadBindings.get(id);
       if (!binding) throw new Error("Unknown course thread.");
       const turnId = requireString(input.turnId, "Turn ID");
       if (binding.turnId !== turnId) throw new Error("This turn is no longer active.");
-      return codex.interruptTurn(id, turnId);
+      const result = await codex.interruptTurn(id, turnId);
+      scheduleIdleLockRelease();
+      return result;
     },
     "agent:approve": (_event, rawInput) => {
       const input = requireObject(rawInput, "Approval input");
@@ -714,6 +941,46 @@ function registerIpc() {
       approvals.delete(request.id);
     },
     "agent:disconnect": () => { cachedModels = null; return codex.disconnect(); },
+    "thread:release-lock": async (_event, rawInput) => {
+      const input = requireObject(rawInput, "Lock input");
+      requireString(input.threadId, "Thread ID");
+      if (idleLockTimer) {
+        clearTimeout(idleLockTimer);
+        idleLockTimer = null;
+      }
+      cachedModels = null;
+      await Promise.resolve(codex.disconnect()).catch(() => undefined);
+      return { success: true };
+    },
+    "thread:lock-status": async (_event, rawInput) => {
+      const input = requireObject(rawInput, "Lock status input");
+      const threadId = requireString(input.threadId, "Thread ID");
+      const locked = await isThreadExternallyLocked(threadId);
+      return { locked };
+    },
+    "thread:open-desktop": async (_event, rawInput) => {
+      const input = requireObject(rawInput, "Open desktop input");
+      const cwd = requireWorkspacePath(input.cwd, "Workspace path");
+      requireString(input.threadId, "Thread ID");
+      if (idleLockTimer) {
+        clearTimeout(idleLockTimer);
+        idleLockTimer = null;
+      }
+      cachedModels = null;
+      await Promise.resolve(codex.disconnect()).catch(() => undefined);
+      try {
+        await execFileAsync("codex", ["app", cwd]);
+      } catch {
+        await execFileAsync("open", ["-a", "ChatGPT", cwd]).catch(() => undefined);
+      }
+      return { success: true };
+    },
+    "thread:read-rollout": async (_event, rawInput) => {
+      const input = requireObject(rawInput, "Rollout input");
+      const threadId = requireString(input.threadId, "Thread ID");
+      const rollout = await readThreadRollout(threadId);
+      return rollout || { mtime: 0, messages: [] };
+    },
     "shell:open": (_event, target) => {
       return shell.openPath(requireWorkspacePath(target));
     },

@@ -244,6 +244,88 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .thread-heading h1 { font-size: 16px; letter-spacing: -.2px; overflow-wrap: anywhere; margin-bottom: 10px; }
 .project-label { font-size: 11px; color: var(--muted); margin-right: 6px; }
 #agent-course { font-size: 11px; padding: 3px 7px; min-height: 28px; max-width: min(380px, 100%); }
+.thread-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-top: 2px; }
+.thread-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+:root[data-theme="dark"] .thread-lock-badge {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.thread-menu-wrap { position: relative; }
+.thread-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.thread-resume-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 250px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 9px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.14);
+  padding: 4px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+.thread-resume-menu[hidden] { display: none; }
+.thread-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text, #111827);
+  transition: background 0.12s ease;
+}
+.thread-menu-item:hover, .thread-menu-item:focus {
+  background: var(--subtle, #f3f4f6);
+  outline: none;
+}
+.thread-menu-item svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--muted, #6b7280);
+}
+.menu-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.menu-item-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.menu-item-text span {
+  font-size: 11px;
+  color: var(--muted, #6b7280);
+  line-height: 1.3;
+}
 .workspace-path { padding: 0 28px 8px; font: 10px/1.5 ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
 .messages { flex: 1; min-height: 0; overflow: auto; padding: 28px 28px 72px; scroll-padding-block: 24px; position: relative; }
 .messages-inner { max-width: 800px; margin: 0 auto; padding-bottom: 24px; }

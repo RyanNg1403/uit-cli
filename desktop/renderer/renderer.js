@@ -1330,6 +1330,75 @@ function selectThread(id) {
   state.activeId = id;
   persist(); showView("agent");
 }
+function closeThreadResumeMenu() {
+  const menu = $("#thread-resume-menu");
+  const btn = $("#thread-resume-btn");
+  if (menu) menu.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+async function checkThreadLock(thread = activeThread()) {
+  const badge = $("#thread-lock-badge");
+  if (!badge) return;
+  if (!thread?.threadId) {
+    badge.hidden = true;
+    return;
+  }
+  const currentId = thread.id;
+  try {
+    const { locked } = await window.uit.agent.lockStatus(thread.threadId);
+    if (activeThread()?.id !== currentId) return;
+    badge.hidden = !locked;
+    if (locked) {
+      $("#agent-input").disabled = true;
+      $("#send-agent").disabled = true;
+      $("#attach-resource").disabled = true;
+      $("#agent-status").textContent = "Thread is locked in external session (read-only)";
+    } else {
+      if (!thread.busy && !thread.archived) {
+        $("#agent-input").disabled = false;
+        $("#send-agent").disabled = false;
+        $("#attach-resource").disabled = false;
+        updateThreadStatus();
+      }
+    }
+  } catch {
+    badge.hidden = true;
+  }
+}
+async function syncThreadRollout(thread = activeThread()) {
+  if (!thread?.threadId) return;
+  const currentId = thread.id;
+  try {
+    const result = await window.uit.agent.readRollout(thread.threadId);
+    if (!result || !result.messages || activeThread()?.id !== currentId) return;
+    if (result.mtime && (!thread.lastRolloutMtime || result.mtime > thread.lastRolloutMtime)) {
+      thread.lastRolloutMtime = result.mtime;
+      let updated = false;
+      for (const rm of result.messages) {
+        const existing = thread.messages.some((m) => m.text && (m.text === rm.text || rm.text.includes(m.text) || m.text.includes(rm.text)));
+        if (!existing && rm.text) {
+          thread.messages.push({
+            role: rm.role,
+            text: rm.text,
+            kind: rm.role === "assistant" ? "markdown" : undefined,
+            status: "completed",
+            label: rm.role === "assistant" ? "Codex (external)" : undefined
+          });
+          updated = true;
+        }
+      }
+      if (updated) {
+        persist();
+        if (activeThread()?.id === currentId) {
+          renderMessages();
+          updateJumpToLatest(thread);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Rollout sync error:", err);
+  }
+}
 function renderConversation() {
   const thread = activeThread();
   $("#agent-task-title").textContent = thread?.title || "Codex";
@@ -1337,6 +1406,9 @@ function renderConversation() {
   picker.hidden = !thread?.course;
   picker.dataset.courseKey = thread?.course ? courseKey(thread.course) : "";
   picker.textContent = thread?.course ? `${thread.course.shortname || thread.course.fullname} / ${siteLabel(thread.course)}` : "";
+  const actions = $("#thread-actions");
+  if (actions) actions.hidden = !thread?.threadId;
+  closeThreadResumeMenu();
   $(".composer").hidden = !thread;
   $("#agent-workspace").hidden = !thread?.cwd;
   $("#agent-workspace").textContent = thread?.cwd ? `Workspace: ${thread.cwd}` : "";
@@ -1346,6 +1418,7 @@ function renderConversation() {
   closeMention(); closeModelMenu();
   renderComposerContext(); renderModelPicker();
   renderChips(); renderMessages(); renderApprovals(); updateThreadStatus();
+  checkThreadLock(thread);
 }
 function autoResizeInput() {
   const input = $("#agent-input");
@@ -2537,10 +2610,57 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || event.defaultPrevented) return;
   if (mentionOpen()) { closeMention(); return; }
   if (!$("#model-menu").hidden) closeModelMenu();
+  closeThreadResumeMenu();
   closeRailMenu();
 });
 document.addEventListener("click", (event) => {
   if (railMenu && !event.target.closest(".rail-menu") && !event.target.closest("[data-rail-menu]")) closeRailMenu();
+  if (!$("#thread-resume-menu")?.hidden && !event.target.closest("#thread-resume-wrap")) closeThreadResumeMenu();
+});
+$("#thread-resume-btn")?.addEventListener("click", () => {
+  const menu = $("#thread-resume-menu");
+  if (!menu) return;
+  menu.hidden = !menu.hidden;
+  $("#thread-resume-btn")?.setAttribute("aria-expanded", String(!menu.hidden));
+});
+$("#resume-codex-cli")?.addEventListener("click", async () => {
+  closeThreadResumeMenu();
+  const thread = activeThread();
+  if (!thread?.threadId) {
+    toast("No active Codex thread to resume.");
+    return;
+  }
+  const cmd = `codex resume ${thread.threadId}`;
+  try {
+    await navigator.clipboard.writeText(cmd);
+    await window.uit.agent.releaseLock(thread.threadId);
+    toast(`Copied: ${cmd} (Lock released)`);
+    await checkThreadLock(thread);
+  } catch (err) {
+    toast(`Could not copy command. ${errorText(err)}`);
+  }
+});
+$("#resume-codex-app")?.addEventListener("click", async () => {
+  closeThreadResumeMenu();
+  const thread = activeThread();
+  if (!thread?.threadId || !thread.cwd) {
+    toast("No active Codex thread workspace to open.");
+    return;
+  }
+  try {
+    await window.uit.agent.openDesktop({ threadId: thread.threadId, cwd: thread.cwd });
+    toast("Opening project in Desktop App (Lock released)...");
+    await checkThreadLock(thread);
+  } catch (err) {
+    toast(`Could not open Desktop App. ${errorText(err)}`);
+  }
+});
+window.addEventListener("focus", async () => {
+  const thread = activeThread();
+  if (thread && state.view === "agent") {
+    await checkThreadLock(thread);
+    await syncThreadRollout(thread);
+  }
 });
 $("#agent-input").addEventListener("click", updateMentions);
 $("#agent-input").addEventListener("keyup", (event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateMentions(); });

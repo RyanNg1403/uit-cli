@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld("uit", {
     stop: (input) => ipcRenderer.invoke("agent:stop", input),
     approve: (input) => ipcRenderer.invoke("agent:approve", input),
     disconnect: () => ipcRenderer.invoke("agent:disconnect"),
+    releaseLock: (threadId) => ipcRenderer.invoke("thread:release-lock", { threadId }),
+    lockStatus: (threadId) => ipcRenderer.invoke("thread:lock-status", { threadId }),
+    openDesktop: (input) => ipcRenderer.invoke("thread:open-desktop", input),
+    readRollout: (threadId) => ipcRenderer.invoke("thread:read-rollout", { threadId }),
     onEvent: (callback) => {
       const listener = (_event, message) => callback(message);
       ipcRenderer.on("agent:event", listener);

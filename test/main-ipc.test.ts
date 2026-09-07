@@ -30,6 +30,9 @@ async function harness(saved: unknown[] = []) {
     mkdir: vi.fn().mockResolvedValue(undefined),
     writeFile: vi.fn().mockResolvedValue(undefined),
     rename: vi.fn().mockResolvedValue(undefined),
+    unlink: vi.fn().mockResolvedValue(undefined),
+    readdir: vi.fn().mockResolvedValue([]),
+    stat: vi.fn().mockResolvedValue({ mtimeMs: 0 }),
   };
   const service = {
     configuredLegacySession: vi.fn(() => { throw new Error("Real config must not be read"); }),
@@ -100,6 +103,9 @@ async function harness(saved: unknown[] = []) {
   const modules: Record<string, unknown> = {
     electron: { app, BrowserWindow, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) } },
     "node:os": { homedir: () => home }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
+    "node:fs": { existsSync: vi.fn().mockReturnValue(false) },
+    "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
+    "node:util": { promisify: (fn: any) => async (...args: any[]) => new Promise((res, rej) => fn(...args, (err: any, out: any) => err ? rej(err) : res(out))) },
   };
   const context = createContext({
     URL, console, setTimeout, clearTimeout, __dirname: path.dirname(mainPath),
@@ -617,5 +623,27 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     const grades = await h.invoke("course:grades", { courseId: 1, baseUrl: CURRENT, userId: 101 });
     expect(h.service.getCourseGrades).toHaveBeenCalledWith(1, h.currentApi, 101);
     expect(grades).toEqual([{ item: "Lab 1", grade: "10" }]);
+  });
+
+  it("releases thread writer lock and checks lock status via IPC", async () => {
+    const h = await harness();
+    h.connect();
+    const result = await h.invoke("thread:release-lock", { threadId: "thread-123" });
+    expect(result).toEqual({ success: true });
+    expect(h.codex.disconnect).toHaveBeenCalled();
+
+    const status = await h.invoke("thread:lock-status", { threadId: "thread-123" });
+    expect(status).toEqual({ locked: false });
+  });
+
+  it("handles thread:open-desktop and thread:read-rollout safely", async () => {
+    const h = await harness();
+    h.connect();
+    const openRes = await h.invoke("thread:open-desktop", { threadId: "thread-123", cwd: workspace });
+    expect(openRes).toEqual({ success: true });
+    expect(h.codex.disconnect).toHaveBeenCalled();
+
+    const rolloutRes = await h.invoke("thread:read-rollout", { threadId: "thread-123" });
+    expect(rolloutRes).toEqual({ mtime: 0, messages: [] });
   });
 });
