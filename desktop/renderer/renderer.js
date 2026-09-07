@@ -1459,11 +1459,6 @@ async function syncThreadRollout(thread = activeThread()) {
 function renderConversation() {
   const thread = activeThread();
   $("#agent-task-title").textContent = thread?.title || "Codex";
-  const picker = $("#agent-course");
-  picker.hidden = !thread?.course;
-  picker.dataset.courseKey = thread?.course ? courseKey(thread.course) : "";
-  picker.textContent = thread?.course ? (thread.course.shortname || thread.course.fullname) : "";
-  picker.title = thread?.course ? thread.course.fullname : "";
   const actions = $("#thread-actions");
   if (actions) actions.hidden = !thread?.threadId;
   closeThreadResumeMenu();

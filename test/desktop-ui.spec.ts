@@ -33,8 +33,8 @@ test("Codex has one creation entry per action and no scattered guidance", async 
   await page.screenshot({ path: info.outputPath("codex-empty-clean.png") });
   await page.locator("#new-project").click();
   await page.locator(".project-option").filter({ has: page.getByText(courses[0].fullname, { exact: true }) }).click();
-  await expect(page.locator("#agent-course")).toHaveText("CS01");
-  await expect(page.locator("#agent-course")).not.toContainText("Current Moodle");
+  await expect(page.locator("#agent-course")).toHaveCount(0);
+  await expect(page.locator("#course-nav .project")).toContainText("CS01");
   await expect(page.locator(".project-new-thread")).toHaveCount(1);
   await expect(page.locator("#agent-messages")).toBeEmpty();
   await expect(page.locator(".composer")).toBeVisible();
@@ -803,14 +803,13 @@ test("disconnect and reconnect isolates threads by portal AND account", async ({
   await expect(page.locator(".thread-link")).toHaveCount(0);
   await expect(page.getByLabel("Message Codex")).toHaveValue("");
   await expect(page.locator("#course-nav .project")).toHaveCount(0);
-  await expect(page.locator("#agent-course")).not.toContainText("LEGACY-CS01");
   await expect(page.locator(".project-new-thread")).toHaveCount(0);
   await page.locator("#new-project").click();
   await expect(page.locator(".project-option")).toHaveCount(15);
   await expect(page.locator(".project-option").filter({ hasText: "LEGACY-CS01" })).toHaveCount(0);
   await page.locator(".project-option").filter({ hasText: "OTHER-ACCOUNT" }).click();
   await expect(page.locator("#course-nav .project")).toHaveCount(1);
-  await expect(page.locator("#agent-course")).toContainText("OTHER-ACCOUNT");
+  await expect(page.locator("#course-nav .project")).toContainText("OTHER-ACCOUNT");
   await page.reload();
   await page.locator('.nav-item[data-view="agent"]').click();
   await expect(page.locator(".thread-link")).toHaveCount(0);

@@ -249,12 +249,11 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .load-error { padding: 16px 0; color: var(--error); }
 .load-error p { margin-bottom: 10px; white-space: pre-wrap; }
 .conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
-.thread-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 20px 28px 14px; }
+.thread-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 28px 14px; }
 .thread-heading { min-width: 0; }
-.thread-heading h1 { font-size: 16px; letter-spacing: -.2px; overflow-wrap: anywhere; margin-bottom: 10px; }
+.thread-heading h1 { font-size: 16px; letter-spacing: -.2px; overflow-wrap: anywhere; margin: 0; }
 .project-label { font-size: 11px; color: var(--muted); margin-right: 6px; }
-#agent-course { font-size: 11px; padding: 3px 7px; min-height: 28px; max-width: min(380px, 100%); }
-.thread-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-top: 2px; }
+.thread-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .thread-lock-badge {
   display: inline-flex;
   align-items: center;
@@ -1130,7 +1129,6 @@ dialog::backdrop { background: var(--backdrop); }
   .file-row::before { left: 5px; width: 8px; }
   .download-button { padding: 6px; font-size: 10px; }
   .thread-header { padding: 16px 20px 10px; gap: 4px; }
-  #agent-course { max-width: min(270px, 100%); }
   .workspace-path { padding-inline: 20px; }
   .messages { padding: 20px 14px; }
   .message.user { margin-left: 16px; padding: 12px 14px; }
