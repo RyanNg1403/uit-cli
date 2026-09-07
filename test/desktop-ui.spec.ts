@@ -33,7 +33,8 @@ test("Codex has one creation entry per action and no scattered guidance", async 
   await page.screenshot({ path: info.outputPath("codex-empty-clean.png") });
   await page.locator("#new-project").click();
   await page.locator(".project-option").filter({ has: page.getByText(courses[0].fullname, { exact: true }) }).click();
-  await expect(page.locator("#agent-course")).toHaveText("CS01 / Current Moodle");
+  await expect(page.locator("#agent-course")).toHaveText("CS01");
+  await expect(page.locator("#agent-course")).not.toContainText("Current Moodle");
   await expect(page.locator(".project-new-thread")).toHaveCount(1);
   await expect(page.locator("#agent-messages")).toBeEmpty();
   await expect(page.locator(".composer")).toBeVisible();
