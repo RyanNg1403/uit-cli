@@ -1651,7 +1651,7 @@ test("during thread-lock, input box, rename, and delete options convert to not-a
   await expect(deleteBtn).toHaveCSS("cursor", "not-allowed");
 });
 
-test("copy buttons for user and agent messages are positioned smartly and copy text with feedback", async ({ page, boot }) => {
+test("copy buttons for user and agent messages are positioned smartly and copy text with feedback", async ({ page, boot }, info) => {
   await boot({
     storage: JSON.stringify({
       version: 1,
@@ -1692,11 +1692,11 @@ test("copy buttons for user and agent messages are positioned smartly and copy t
   await expect(assistantCopyBtn).toHaveAttribute("title", "Copy message");
 
   // Initial screenshot before clicks
-  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_initial.png" });
+  await page.screenshot({ path: info.outputPath("copy_buttons_initial.png") });
 
   // Hover user message to test visibility
   await userMsg.hover();
-  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_user_hover.png" });
+  await page.screenshot({ path: info.outputPath("copy_buttons_user_hover.png") });
 
   // Click user copy button
   await userCopyBtn.click();
@@ -1713,11 +1713,94 @@ test("copy buttons for user and agent messages are positioned smartly and copy t
   expect(assistantCopyCalls.length).toBeGreaterThanOrEqual(1);
 
   // Take screenshot for visual verification of copied state
-  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_copied.png" });
+  await page.screenshot({ path: info.outputPath("copy_buttons_copied.png") });
 
   // Dark mode appearance
   await page.locator("#appearance").selectOption("dark");
   await userMsg.hover();
-  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/copy_buttons_dark.png" });
+  await page.screenshot({ path: info.outputPath("copy_buttons_dark.png") });
 });
 
+test("topbar logo, project Open in Courses, thin tool message and equal padding on New project", async ({ page, boot }, info) => {
+  await boot({
+    storage: JSON.stringify({
+      version: 1,
+      activeId: "ui-refinements",
+      threads: [{
+        id: "ui-refinements",
+        title: "Course inquiry",
+        course: courses[0],
+        draft: "",
+        resources: [],
+        prompted: true,
+        renamed: true,
+        messages: [
+          { role: "user", text: "list all pdf files attached in this course" },
+          { role: "assistant", kind: "tool", text: "Read course contents · 0.2s", command: "mcp read_course_contents", output: "Found 22 PDF files in course.", status: "completed" },
+          { role: "assistant", text: "The course has 22 attached PDF files:\n1. SE362.Q21_.pdf\n2. Chapter 1 - Introduction.pdf" }
+        ]
+      }]
+    })
+  });
+
+  // 1. Topbar logo: In agent view, #page-title contains Codex SVG logo
+  await page.locator('.nav-item[data-view="agent"]').click();
+  const pageTitle = page.locator("#page-title");
+  await expect(pageTitle).toHaveClass(/page-title-logo/);
+  await expect(pageTitle.locator("svg")).toBeVisible();
+  await expect(pageTitle).toHaveAttribute("aria-label", "Codex");
+
+  // Switch to Courses view: #page-title displays "Courses" text
+  await page.locator('.nav-item[data-view="courses"]').click();
+  await expect(pageTitle).not.toHaveClass(/page-title-logo/);
+  await expect(pageTitle).toHaveText("Courses");
+
+  // Switch back to agent view
+  await page.locator('.nav-item[data-view="agent"]').click();
+  await expect(pageTitle.locator("svg")).toBeVisible();
+
+  // 2. New project button has equal margin top and bottom
+  const newProjectBtn = page.locator("#new-project");
+  await expect(newProjectBtn).toBeVisible();
+  const newProjectMarginTop = await newProjectBtn.evaluate((el) => window.getComputedStyle(el).marginTop);
+  const newProjectMarginBottom = await newProjectBtn.evaluate((el) => window.getComputedStyle(el).marginBottom);
+  expect(newProjectMarginTop).toBe(newProjectMarginBottom);
+  expect(newProjectMarginTop).toBe("8px");
+
+  // 3. Project "..." menu contains "Open in Courses" and navigates to the course
+  const projectMoreBtn = page.locator(".project-menu-btn").first();
+  await expect(projectMoreBtn).toBeVisible();
+  await projectMoreBtn.click();
+  const openInCoursesItem = page.getByRole("menuitem", { name: "Open in Courses" });
+  await expect(openInCoursesItem).toBeVisible();
+  await openInCoursesItem.click();
+
+  // Verifies navigation to course view
+  await expect(page.locator("#view-course")).toBeVisible();
+  await expect(page.locator("#course-detail h1")).toContainText(courses[0].fullname);
+
+  // Go back to agent view to check tool call styling
+  await page.locator('.nav-item[data-view="agent"]').click();
+  await expect(page.locator("#view-agent")).toBeVisible();
+
+  // 4. Tool call message is thinner in width
+  const toolMsg = page.locator(".message-tool");
+  await expect(toolMsg).toBeVisible();
+  const toolCall = page.locator(".tool-call");
+  await expect(toolCall).toBeVisible();
+
+  const toolBox = await toolCall.boundingBox();
+  expect(toolBox).not.toBeNull();
+  // Ensure it's much thinner than the 800px full container width
+  expect(toolBox!.width).toBeLessThan(400);
+
+  // Take screenshots in light and dark mode for visual verification
+  await page.screenshot({ path: info.outputPath("ui_refinements_light.png") });
+
+  await page.locator("#appearance").selectOption("dark");
+  await page.screenshot({ path: info.outputPath("ui_refinements_dark.png") });
+
+  // Open the tool call to verify expanded state
+  await toolCall.locator("summary").click();
+  await page.screenshot({ path: info.outputPath("ui_refinements_tool_open.png") });
+});
