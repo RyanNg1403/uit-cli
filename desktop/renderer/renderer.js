@@ -547,6 +547,18 @@ function isTaRole(role) {
   const r = String(role || "").toLowerCase();
   return r.includes("ta") || r.includes("assistant") || r.includes("trợ giảng");
 }
+function isStudentRole(role) {
+  const r = String(role || "").toLowerCase().trim();
+  return (
+    !r ||
+    r === "student" ||
+    r === "học viên" ||
+    r === "sinh viên" ||
+    r.includes("student") ||
+    r.includes("học viên") ||
+    r.includes("sinh viên")
+  );
+}
 function memberPriority(member) {
   const roles = (member?.roles || []).map((r) => String(r).toLowerCase());
   if (roles.some(isLecturerRole)) return 0;
@@ -554,12 +566,22 @@ function memberPriority(member) {
   return 2;
 }
 function roleLabel(role) {
-  const r = String(role || "").toLowerCase();
-  if (r === "gvlt") return "GVLT";
+  const r = String(role || "").toLowerCase().trim();
   if (r === "gvth") return "GVTH";
-  if (r === "editingteacher" || r === "teacher" || r === "giảng viên" || r === "giáo viên") return "Teacher";
-  if (r === "teacherassistant" || r === "trợ giảng") return "TA";
-  if (r === "student" || r === "học viên" || r === "sinh viên") return "Student";
+  if (
+    r === "gvlt" ||
+    r === "editingteacher" ||
+    r === "teacher" ||
+    r === "giảng viên" ||
+    r === "giáo viên" ||
+    r === "lecturer" ||
+    r === "instructor" ||
+    r === "professor"
+  ) {
+    return "GVLT";
+  }
+  if (r === "teacherassistant" || r === "trợ giảng" || r === "ta") return "TA";
+  if (isLecturerRole(r)) return "GVLT";
   return role;
 }
 function roleClass(role) {
@@ -621,7 +643,7 @@ async function loadMembers(container, course, generation, refresh = false) {
           participants.unshift({
             id: contact.id || 0,
             fullname: contact.fullname,
-            roles: ["teacher"],
+            roles: ["GVLT"],
             email: contact.email || undefined,
           });
         }
@@ -667,7 +689,7 @@ function displayMembers(container, members, course) {
     const filtered = query
       ? sortedMembers.filter((m) =>
           (m.fullname && m.fullname.toLowerCase().includes(query)) ||
-          m.roles?.some((r) => r.toLowerCase().includes(query)) ||
+          m.roles?.some((r) => r.toLowerCase().includes(query) || roleLabel(r).toLowerCase().includes(query)) ||
           m.groups?.some((g) => g.toLowerCase().includes(query)) ||
           (m.email && m.email.toLowerCase().includes(query))
         )
@@ -687,8 +709,8 @@ function displayMembers(container, members, course) {
       const nameRow = node("div", "member-name-row");
       nameRow.append(node("strong", "member-name", member.fullname));
 
-      const roles = member.roles && member.roles.length ? member.roles : ["student"];
-      for (const role of roles) {
+      const nonStudentRoles = (member.roles || []).filter((r) => !isStudentRole(r));
+      for (const role of nonStudentRoles) {
         nameRow.append(node("span", `role-badge ${roleClass(role)}`, roleLabel(role)));
       }
       info.append(nameRow);

@@ -1555,9 +1555,15 @@ test("course view displays Materials, Members, and Grades tabs with live data an
   await expect(page.locator(".member-card .member-avatar")).toHaveCount(2);
   await expect(page.locator(".member-card .member-avatar").first()).toHaveClass(/teacher-avatar/);
   await expect(page.locator(".member-card").first()).toContainText("Dr. Bob");
+  await expect(page.locator(".member-card").first()).toContainText("GVLT");
+  await expect(page.locator(".member-card").first().locator(".role-badge.role-teacher")).toHaveCount(1);
   await expect(page.locator(".member-card").last()).toContainText("Alice Student");
+  await expect(page.locator(".member-card").last().locator(".role-badge")).toHaveCount(0);
 
   await page.getByPlaceholder("Search members by name or role...").fill("Bob");
+  await expect(page.locator(".member-card")).toHaveCount(1);
+  await expect(page.locator(".member-card")).toContainText("Dr. Bob");
+  await page.getByPlaceholder("Search members by name or role...").fill("GVLT");
   await expect(page.locator(".member-card")).toHaveCount(1);
   await expect(page.locator(".member-card")).toContainText("Dr. Bob");
   await page.getByPlaceholder("Search members by name or role...").fill("");
