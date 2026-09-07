@@ -1,19 +1,23 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="uit-cli" width="620">
+  <img src="assets/logo.svg" alt="uit-cli" width="560">
 </p>
 
 <p align="center">
-  Access your UIT course materials faster — from your terminal or through AI agents.<br>
-  Download lectures, check deadlines, read announcements, submit assignments, and more.<br>
-  Built on <a href="https://docs.moodle.org/dev/Web_service_API_functions">Moodle Web Services</a> — works with any Moodle instance.
+  <strong>The modern, AI-powered toolkit for UIT Moodle LMS (courses.uit.edu.vn).</strong><br>
+  Access course materials, inspect assignments, read announcements, and study with an AI tutor.<br>
+  Available as a <strong>Desktop Application (UIT Studio)</strong> and a <strong>Terminal CLI (uit-cli)</strong>.
 </p>
 
 <p align="center">
-  <code>npm install -g uit-cli</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>uit init</code>.
+  <a href="#uit-studio-desktop-application"><strong>UIT Studio (Desktop)</strong></a> &bull;
+  <a href="#features--screenshots"><strong>Features & Screenshots</strong></a> &bull;
+  <a href="#quick-start"><strong>Quick Start</strong></a> &bull;
+  <a href="#how-ids-flow"><strong>CLI Reference</strong></a> &bull;
+  <a href="#security-and-ethics"><strong>Security & Privacy</strong></a>
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="uit-cli demo" width="780">
+  <img src="assets/studio-chat.png" alt="UIT Studio Desktop App - Codex Assistant" width="880" style="border-radius: 8px;">
 </p>
 
 ---
@@ -77,29 +81,68 @@ deadlines -> assign_id  -> view / submit / status
 
 For flags, output formats, and detailed behavior of each command, see the [CLI Reference](docs/CLI_REFERENCE.md).
 
+## Features & Screenshots
+
+### 1. Codex AI Assistant & Study Partner
+Ask questions about your courses, lecture slides, assignments, and deadlines. Codex operates with real-time course context and dedicated Moodle tools to inspect files and materials on demand.
+
+<p align="center">
+  <img src="assets/studio-chat.png" alt="Codex AI workspace in UIT Studio" width="880" style="border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
+</p>
+
+* **Smart Course Context**: Codex reads lecture slides, syllabus, and course modules via built-in Moodle tools to answer your questions accurately.
+* **Clean & Distraction-Free**: Minimal header design with title rename via double-click and full action controls (Branch, Delete permanently) tucked into the sidebar menu.
+* **Branching & Persistence**: Branch any thread to explore alternative study tracks; drafts and conversation history automatically persist per account.
+
+---
+
+### 2. Dedicated Course Hub: Materials, Members, and Grades
+Each course features three dedicated, student-centered tabs:
+
+| Materials & Announcements | Class Members & Lecturers | Grades & Feedback |
+| :---: | :---: | :---: |
+| <img src="assets/course-materials.png" width="280" alt="Materials Tab" style="border-radius: 6px;"> | <img src="assets/course-members.png" width="280" alt="Members Tab" style="border-radius: 6px;"> | <img src="assets/course-grades.png" width="280" alt="Grades Tab" style="border-radius: 6px;"> |
+| Explore sections, lecture slides, assignments, and in-app document previews. | Complete class roster with lecturers pinned on top, role badges, and live search. | Course Total summary card, component score breakdown, and teacher feedback. |
+
+* **In-App Previews**: Read PDFs, images, code files, and Word documents (`.docx`) directly inside the app without opening external software.
+* **Continuous Multi-Page PDF Viewer**: Native canvas rendering with page jumping, zoom controls, and automatic dark mode adaptation.
+* **Lecturer & TA Highlights**: Course lecturers are pinned on top with distinct graduation cap avatars and teacher badges.
+
+---
+
+### 3. Dual Portals & Academic Year Dashboard
+Connect your UIT SSO account for current semester courses, and connect Legacy Moodle to browse previous academic terms — all unified into a single clean list.
+
+<p align="center">
+  <img src="assets/studio-courses.png" alt="UIT Studio Courses view" width="880" style="border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
+</p>
+
+* **Clean Calendar Year Groups**: Courses from the same calendar year (`2026`, `2025`) merge into clean cards without cluttered inferred labels.
+* **Instant Search & Filter**: Search across all semesters, course titles, course codes, and portal sources.
+* **Dual Portal Synchronization**: Connect both `courses.uit.edu.vn` (SSO) and `coursesold.uit.edu.vn` (Student ID) side-by-side.
+
+---
+
 ## UIT Studio desktop application
 
-Choose **Appearance: System, Light, or Dark** at the bottom of the sidebar. Your preference is saved on this device; System follows OS appearance changes. Document pages and images retain their original colors.
-
-In **Codex**, add a course with **New project**, then use the **+** beside its title to start a thread. Threads enter saved history only after their first prompt. Course resource clicks open previews (forum modules show their announcements); use their **...** menu for Download or a resource-tagged thread. **Open in Moodle** opens the page in your system browser. Missing courses can be added with **Add course by URL**, which verifies access without enrolling you. Search covers every semester, including Unknown semester; the semester selector also offers All semesters. Connected portals show their individual discovered-course counts. PDF pages scroll continuously. Drag the sidebar edge to resize it, or press Cmd+B/Ctrl+B to toggle it.
-
-The `codex/uit-app` branch contains the Electron-based UIT Studio application: semester-organized Moodle courses and course-scoped Codex projects. Desktop development requires Node.js 22.12 or newer. The CLI supports Node.js 20 or newer.
+The desktop application runs on macOS, Linux, and Windows:
 
 ```bash
-npm ci
+npm install
 npm run desktop:check   # build and validate the desktop foundation
 npm run desktop         # launch UIT Studio
-npm run test:desktop    # headless renderer and PDF regression tests
-npm run test:electron   # one hidden, isolated 60-second Electron stability test
 ```
 
-The desktop app supports browser-backed UIT SSO for the current course site and explicit legacy Moodle token login for the old undergraduate/graduate portals at the same time. Courses are merged and labeled by their originating site. Desktop legacy sign-in keeps its token in memory and does not overwrite the CLI `.env`; the legacy token path remains more sensitive than current-site SSO. It is under active development. Do not use real assignment submission for testing until the submission workflow phase is marked complete in the implementation plan.
+* **Appearance**: Switch between **System**, **Light**, and **Dark** at the bottom of the sidebar. System follows OS appearance changes; document pages and images retain their natural colors.
+* **Sidebar Controls**: Drag the sidebar boundary to resize it, or press <kbd>Cmd</kbd>+<kbd>B</kbd> / <kbd>Ctrl</kbd>+<kbd>B</kbd> to toggle navigation.
+* **Workspace Isolation**: Course files and artifacts are safely organized under `~/UIT/<site-key>/user-<id>/course-<id>/`.
 
-Click resources to read them; use **Download** only when you want a local copy. PDF, image, and text previews stay in memory and are limited to 25 MiB. Other formats and Moodle activities have an **Open in Moodle** viewer; legacy browser viewing may require a separate sign-in. This is not yet a complete replacement for every Moodle feature.
+### Testing UIT Studio
 
-Right-click a material, assignment, or announcement, or use its actions button, to create a course thread with an `@resource` attachment. Threads and drafts persist per account, with rename, archive/restore, branch, stop, and approval controls. Codex receives service-resolved context and read/download course tools. Sending a message can send course content to the configured Codex model provider. External Codex-app synchronization and exact feature parity are not implemented.
-
-Workspaces use `~/UIT/<site-key>/user-<id>/course-<id>/` to separate portals and accounts. Earlier workspace files are not migrated. See [UI verification](docs/UI_VERIFICATION.md) for test scope and remaining limitations.
+```bash
+npm run test:desktop    # 112 headless renderer, sidebar, and PDF tests
+npm run test:electron   # isolated 60-second Electron stability and memory soak test
+```
 
 ---
 
