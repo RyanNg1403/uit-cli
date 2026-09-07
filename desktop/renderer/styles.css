@@ -158,6 +158,16 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .thread-row .thread-menu-btn:hover { opacity: 1; color: var(--text); }
 .rail-menu { position: fixed; z-index: 60; min-width: 150px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 40px var(--shadow); padding: 4px; }
 .rail-menu button { display: block; width: 100%; text-align: left; border-radius: 7px; padding: 8px 10px; font-size: 12px; }
+.rail-menu button:disabled,
+.rail-menu button.disabled-action {
+  cursor: not-allowed !important;
+  opacity: 0.45;
+  pointer-events: auto !important;
+}
+.rail-menu button:disabled:hover,
+.rail-menu button.disabled-action:hover {
+  background: transparent !important;
+}
 .rail-menu .danger-menu-item { color: var(--error); }
 .danger-text { color: var(--error); }
 .thread-link { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; font-size: 12px; min-height: 32px; padding: 6px 8px; min-width: 0; }
@@ -532,6 +542,21 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 #agent-input::placeholder {
   color: var(--placeholder);
   opacity: .85;
+}
+#agent-input:disabled,
+textarea:disabled {
+  cursor: not-allowed !important;
+  opacity: .65;
+}
+.conversation.thread-locked .composer,
+.conversation.thread-locked #agent-form,
+.conversation.thread-locked #agent-input:disabled,
+.conversation.thread-locked #attach-resource:disabled,
+.conversation.thread-locked #send-agent:disabled {
+  cursor: not-allowed !important;
+}
+.conversation.thread-locked #agent-task-title {
+  cursor: not-allowed;
 }
 .mention-list { position: absolute; left: 10px; right: 10px; bottom: 100%; margin-bottom: 6px; max-height: 240px; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px var(--shadow); padding: 5px; z-index: 5; }
 .mention-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border-radius: 7px; padding: 7px 10px; font-size: 12px; }

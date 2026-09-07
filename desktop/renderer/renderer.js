@@ -282,7 +282,16 @@ function openRailMenu(anchor, actions) {
   const menu = node("div", "rail-menu");
   menu.setAttribute("role", "menu");
   for (const action of actions) {
-    const item = button(action.label, action.danger ? "danger-menu-item" : "", () => { closeRailMenu(); action.run(); });
+    const item = button(action.label, action.danger ? "danger-menu-item" : "", () => {
+      if (action.disabled) return;
+      closeRailMenu();
+      action.run();
+    });
+    if (action.disabled) {
+      item.disabled = true;
+      item.classList.add("disabled-action");
+      if (action.title) item.title = action.title;
+    }
     item.setAttribute("role", "menuitem");
     menu.append(item);
   }
@@ -291,7 +300,7 @@ function openRailMenu(anchor, actions) {
   const box = anchor.getBoundingClientRect();
   menu.style.top = `${Math.max(8, Math.min(box.bottom + 4, innerHeight - menu.offsetHeight - 8))}px`;
   menu.style.left = `${Math.max(8, box.right - menu.offsetWidth)}px`;
-  $("button", menu)?.focus();
+  ($("button:not(:disabled)", menu) || $("button", menu))?.focus();
 }
 function confirmPermanentDeletion(title, description) {
   const dialog = $("#delete-dialog");
@@ -321,6 +330,10 @@ function removeLocalThread(thread) {
 }
 async function deleteThread(thread) {
   if (!thread || thread.stopping || thread.deleting) return;
+  if (thread.locked) {
+    toast("Cannot delete: thread is locked in an external session.");
+    return;
+  }
   if (thread.busy || thread.pending || thread.branching) {
     toast("Stop active work in this thread before deleting it.");
     return;
@@ -420,6 +433,10 @@ function projectLine(course, allowAdd) {
 }
 function openRenameDialog(thread) {
   if (!thread) return;
+  if (thread.locked) {
+    toast("Cannot rename: thread is locked in an external session.");
+    return;
+  }
   $("#rename-dialog").dataset.taskId = thread.id;
   $("#thread-name").value = thread.title;
   $("#rename-dialog").showModal();
@@ -428,11 +445,34 @@ function openRenameDialog(thread) {
 
 function threadRow(thread) {
   const wrap = node("div", "thread thread-row");
-  const more = button("...", "icon-button thread-menu-btn", () => openRailMenu(more, [
-    { label: "Rename", run: () => openRenameDialog(thread) },
-    { label: "Branch", run: () => branchThread(thread) },
-    { label: "Delete permanently", danger: true, run: () => deleteThread(thread) },
-  ]));
+  const more = button("...", "icon-button thread-menu-btn", async () => {
+    let isLocked = Boolean(thread.locked);
+    if (thread.threadId && thread.locked === undefined) {
+      try {
+        const res = await window.uit?.agent?.lockStatus?.(thread.threadId);
+        if (res && typeof res.locked === "boolean") {
+          thread.locked = res.locked;
+          isLocked = res.locked;
+        }
+      } catch (_) {}
+    }
+    openRailMenu(more, [
+      {
+        label: "Rename",
+        disabled: isLocked,
+        title: isLocked ? "Thread is locked in an external session (read-only)" : undefined,
+        run: () => openRenameDialog(thread)
+      },
+      { label: "Branch", run: () => branchThread(thread) },
+      {
+        label: "Delete permanently",
+        danger: true,
+        disabled: isLocked,
+        title: isLocked ? "Thread is locked in an external session (read-only)" : undefined,
+        run: () => deleteThread(thread)
+      },
+    ]);
+  });
   more.setAttribute("aria-label", `Actions for ${thread.title}`);
   more.dataset.railMenu = "";
   more.title = "Thread actions";
@@ -1343,6 +1383,8 @@ async function checkThreadLock(thread = activeThread()) {
   if (!badge) return;
   if (!thread?.threadId) {
     badge.hidden = true;
+    if (thread) thread.locked = false;
+    $("#view-agent")?.classList.remove("thread-locked");
     return;
   }
   const currentId = thread.id;
@@ -1350,12 +1392,23 @@ async function checkThreadLock(thread = activeThread()) {
     const { locked } = await window.uit.agent.lockStatus(thread.threadId);
     if (activeThread()?.id !== currentId) return;
     badge.hidden = !locked;
+    thread.locked = locked;
     if (locked) {
+      $("#view-agent")?.classList.add("thread-locked");
       $("#agent-input").disabled = true;
       $("#send-agent").disabled = true;
       $("#attach-resource").disabled = true;
+      $("#agent-input").title = "Thread is locked in an external session (read-only)";
+      $("#send-agent").title = "Thread is locked in an external session (read-only)";
+      $("#attach-resource").title = "Thread is locked in an external session (read-only)";
+      $("#agent-task-title").title = "Thread is locked in an external session (read-only)";
       $("#agent-status").textContent = "Thread is locked in external session (read-only)";
     } else {
+      $("#view-agent")?.classList.remove("thread-locked");
+      $("#agent-input").title = "";
+      $("#send-agent").title = "Send";
+      $("#attach-resource").title = "Attach course resource";
+      $("#agent-task-title").title = "";
       if (!thread.busy && !thread.archived) {
         $("#agent-input").disabled = false;
         $("#send-agent").disabled = false;
@@ -1365,6 +1418,8 @@ async function checkThreadLock(thread = activeThread()) {
     }
   } catch {
     badge.hidden = true;
+    thread.locked = false;
+    $("#view-agent")?.classList.remove("thread-locked");
   }
 }
 async function syncThreadRollout(thread = activeThread()) {
@@ -2767,6 +2822,10 @@ document.addEventListener("click", (event) => {
 });
 $("#agent-task-title").addEventListener("dblclick", () => {
   const thread = activeThread();
+  if (thread?.locked) {
+    toast("Cannot rename: thread is locked in an external session.");
+    return;
+  }
   if (thread && hasPrompt(thread)) openRenameDialog(thread);
 });
 $("#cancel-rename").addEventListener("click", () => $("#rename-dialog").close());

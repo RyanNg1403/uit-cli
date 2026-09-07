@@ -1619,3 +1619,32 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   await expect(resumeMenu).toBeHidden();
 });
 
+test("during thread-lock, input box, rename, and delete options convert to not-allowed cursor and are disabled", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Test Locked State");
+
+  // Mock thread being locked externally
+  await page.evaluate(async () => {
+    window.uit.agent.lockStatus = async () => ({ locked: true });
+    window.dispatchEvent(new Event("focus"));
+  });
+
+  // Input box is disabled and has cursor: not-allowed
+  const input = page.locator("#agent-input");
+  await expect(input).toBeDisabled();
+  await expect(input).toHaveCSS("cursor", "not-allowed");
+
+  // Thread actions rail menu has Rename and Delete disabled with cursor: not-allowed
+  await page.locator(".thread-row .thread-menu-btn").first().click();
+  const renameBtn = page.locator(".rail-menu button", { hasText: "Rename" });
+  const deleteBtn = page.locator(".rail-menu button", { hasText: "Delete permanently" });
+
+  await expect(renameBtn).toBeDisabled();
+  await expect(renameBtn).toHaveCSS("cursor", "not-allowed");
+
+  await expect(deleteBtn).toBeDisabled();
+  await expect(deleteBtn).toHaveCSS("cursor", "not-allowed");
+});
+
