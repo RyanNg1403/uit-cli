@@ -25,9 +25,11 @@ import {
   createContext
 } from "./commands.js";
 import { runMcpServer, installMcpServer } from "./mcp-server.js";
+import { cmdLoginSso, type SsoLoginLauncher } from "./sso-login.js";
 
 export const WORKFLOW = `
 workflow:
+  uit login [token]                    -> sign in via UIT SSO or token (or uit init)
   uit courses --current                -> get course IDs
   uit contents  <course_id>            -> browse modules (shows module IDs)
   uit view      <id>                   -> inspect any module (accepts module_id or assign_id)
@@ -94,6 +96,7 @@ function printLanding(): void {
   console.log(LOGO);
   console.log("  CLI for courses.uit.edu.vn — Moodle LMS at UIT");
   console.log();
+  console.log("  \u001b[1mSign in:\u001b[0m        uit login (or uit login --token <token>)");
   console.log("  \u001b[1mGet started:\u001b[0m    uit courses --current");
   console.log("  \u001b[1mBrowse:\u001b[0m         uit contents <course_id>");
   console.log("  \u001b[1mInspect:\u001b[0m        uit view <module_id>");
@@ -107,7 +110,10 @@ function printLanding(): void {
   console.log();
 }
 
-export function createProgram(api: ApiClient = defaultApiClient, options: { openBrowser?: boolean } = {}): Command {
+export function createProgram(
+  api: ApiClient = defaultApiClient,
+  options: { openBrowser?: boolean; ssoLauncher?: SsoLoginLauncher } = {}
+): Command {
   const ctx = createContext(api);
   const program = new Command();
 
@@ -121,16 +127,38 @@ export function createProgram(api: ApiClient = defaultApiClient, options: { open
   program.hook("preAction", () => setJsonMode(Boolean(program.opts().json)));
 
   program
+    .command("login")
+    .description("Sign in to UIT Moodle via UIT SSO or API token")
+    .argument("[token]", "Moodle API token (for token-based login)")
+    .option("--sso", "Sign in via UIT SSO in browser window", true)
+    .option("--token <token>", "Sign in using a Moodle API token")
+    .option("-u, --username <username>", "Student ID for interactive token setup")
+    .option("-p, --password <password>", "Password for non-interactive token setup")
+    .option("--url <url>", "Moodle base URL", "https://courses.uit.edu.vn")
+    .action(async (token, opts) => {
+      if (opts.token || token || opts.username || opts.password) {
+        await cmdInit({ token: opts.token || token, url: opts.url, username: opts.username, password: opts.password });
+        return;
+      }
+      await cmdLoginSso({ url: opts.url }, options.ssoLauncher);
+    });
+
+  program
     .command("init")
-    .description("Set up credentials (~/.uit/.env)")
+    .description("Set up credentials (~/.uit/.env or ~/.uit/sso-session.json)")
     .argument("[token]", "Moodle API token from /login/token.php")
+    .option("--sso", "Sign in via UIT SSO (opens browser window)")
     .option("--url <url>", "Moodle base URL", "https://courses.uit.edu.vn")
     .option("--token <token>", "Use an existing Moodle API token instead of prompting for login")
     .option("-u, --username <username>", "Student ID for interactive token setup")
     .option("-p, --password <password>", "Password for non-interactive token setup")
-    .action((token, opts) =>
-      cmdInit({ token: opts.token || token, url: opts.url, username: opts.username, password: opts.password })
-    );
+    .action(async (token, opts) => {
+      if (opts.sso) {
+        await cmdLoginSso({ url: opts.url }, options.ssoLauncher);
+        return;
+      }
+      await cmdInit({ token: opts.token || token, url: opts.url, username: opts.username, password: opts.password });
+    });
 
   program
     .command("courses")

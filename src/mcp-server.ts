@@ -4,9 +4,8 @@ import { join, resolve, sep } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ApiClient, MoodleRecord } from "./types.js";
-import { createTokenApiClient, fetchCourseFile, writeCourseFile } from "./api.js";
-import { buildAjaxInfo, unwrapAjaxResponse } from "./moodle-session-client.js";
-import { get } from "./config.js";
+import { createTokenApiClient, createSessionApiClient, fetchCourseFile, writeCourseFile } from "./api.js";
+import { get, type SsoSessionData } from "./config.js";
 import {
   configuredLegacySession,
   getCourseContents,
@@ -18,48 +17,6 @@ import {
   getCourseGrades,
   listCourses
 } from "./desktop-service.js";
-
-class NodeSessionApiClient implements ApiClient {
-  constructor(
-    private readonly baseUrl: string,
-    private readonly sesskey: string,
-    private readonly cookieHeader: string
-  ) {}
-
-  async call<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
-    const info = buildAjaxInfo(name, params);
-    const endpoint = `${this.baseUrl}/lib/ajax/service.php?sesskey=${encodeURIComponent(this.sesskey)}`;
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: this.cookieHeader
-      },
-      body: JSON.stringify(info)
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    const data = await res.json();
-    return unwrapAjaxResponse(data) as T;
-  }
-
-  async downloadFile(fileUrl: string, destPath: string): Promise<void> {
-    await writeCourseFile(
-      await fetchCourseFile(this.baseUrl, fileUrl, { Cookie: this.cookieHeader }),
-      destPath
-    );
-  }
-
-  async uploadFile(_filepath: string): Promise<MoodleRecord> {
-    throw new Error("File uploads are not supported through the MCP server.");
-  }
-}
-
-interface SsoSessionData {
-  baseUrl: string;
-  userId: number;
-  sesskey: string;
-  cookies: Array<{ name: string; value: string }>;
-}
 
 export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
   const root = resolve(homedir(), "UIT");
@@ -74,9 +31,8 @@ export function resolveAvailableSession(): { api: ApiClient; userId: number; bas
     try {
       const data: SsoSessionData = JSON.parse(readFileSync(ssoPath, "utf8"));
       if (data.baseUrl && data.sesskey && data.userId && Array.isArray(data.cookies)) {
-        const cookieHeader = data.cookies.map((c) => `${c.name}=${c.value}`).join("; ");
         return {
-          api: new NodeSessionApiClient(data.baseUrl, data.sesskey, cookieHeader),
+          api: createSessionApiClient(data.baseUrl, data.sesskey, data.cookies),
           userId: data.userId,
           baseUrl: data.baseUrl
         };
@@ -116,7 +72,7 @@ export function resolveAvailableSession(): { api: ApiClient; userId: number; bas
     // None
   }
 
-  throw new Error("No active UIT session found. Log in via UIT Studio or run 'uit init'.");
+  throw new Error("No active UIT session found. Log in via UIT Studio or run 'uit login'.");
 }
 
 export const UIT_MCP_TOOLS = [

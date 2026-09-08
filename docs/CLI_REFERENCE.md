@@ -24,37 +24,34 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ---
 
-## `uit init [token]`
+## `uit login [token]` (or `uit init`)
 
-Set up credentials. With no token argument, prompts for your student ID and password, requests a Moodle Mobile web-service token, and fetches your user ID automatically.
-
-```bash
-uit init
-uit init --url https://your-moodle-instance.com   # non-default Moodle
-```
-
-If you already have a token, you can still paste it directly:
+Sign in to UIT Moodle. Supports both **UIT SSO** (recommended, opens interactive browser) and **Moodle API tokens**.
 
 ```bash
-uit init --token <token>
-# Positional token form is still supported:
-# uit init <token>
+# Recommended: Sign in via UIT SSO in browser (default)
+uit login
+
+# Sign in with an existing Moodle API token:
+uit login --token <token>
+# Positional token form is also supported:
+# uit login <token>
+
+# Interactive token prompt (prompts for student ID and password):
+uit login --username YOUR_STUDENT_ID
+
+# Non-interactive token setup:
+uit login --username YOUR_STUDENT_ID --password YOUR_PASSWORD
+
+# Specify non-default Moodle URL:
+uit login --url https://your-moodle-instance.com
 ```
 
-For non-interactive setup:
+Prefer the interactive browser login (`uit login`) or interactive token prompt for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
 
-```bash
-uit init --username YOUR_STUDENT_ID --password YOUR_PASSWORD
-```
+SSO sessions are saved to `~/.uit/sso-session.json` (chmod 600 on Unix) and shared with UIT Studio. Token credentials are saved to `~/.uit/.env`. A `.env` file in the working directory takes precedence over global configuration. Re-run `uit login` at any time to refresh or rotate the stored session.
 
-Prefer the interactive prompt for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the returned Moodle token.
-
-Get your token:
-```
-https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
-```
-
-Saves to `~/.uit/.env` (chmod 600 on Unix). A `.env` file in the working directory takes precedence. Re-run `uit init` to refresh or rotate the stored token.
+> **Note:** `uit init` is fully preserved as a backwards-compatible alias for `uit login`.
 
 ---
 
@@ -395,9 +392,12 @@ Errors exit with code 1. The `hint` field is included when the CLI can suggest a
 |---|---|
 | `UIT_TOKEN` | Moodle API token |
 | `UIT_BASE_URL` | Moodle instance URL (default: `https://courses.uit.edu.vn`) |
-| `UIT_USER_ID` | Your Moodle user ID (auto-detected by `uit init`) |
+| `UIT_USER_ID` | Your Moodle user ID (auto-detected on login) |
 
-Config is read from `.env` — first checking the working directory and parents, then `~/.uit/.env`. The project-local file takes precedence.
+Session and credentials are read with the following precedence:
+1. `.env` in the working directory and parents (`UIT_TOKEN`)
+2. `~/.uit/sso-session.json` (active UIT SSO session created via `uit login` or UIT Studio)
+3. `~/.uit/.env` (global token session created via `uit login --token <token>`)
 
 ---
 

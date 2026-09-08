@@ -5,6 +5,7 @@ import { basename, dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { get } from "./config.js";
+import { buildAjaxInfo, unwrapAjaxResponse } from "./ajax-helpers.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 
 declare module "./types.js" {
@@ -215,9 +216,149 @@ export async function downloadFile(fileUrl: string, destPath: string): Promise<v
   return defaultApiClient.downloadFile(fileUrl, destPath);
 }
 
+export class NodeSessionApiClient implements ApiClient {
+  constructor(
+    public readonly baseUrl: string,
+    public readonly sesskey: string,
+    public readonly cookieHeader: string
+  ) {}
+
+  async callRaw<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
+    const info = buildAjaxInfo(name, params);
+    const endpoint = `${this.baseUrl}/lib/ajax/service.php?sesskey=${encodeURIComponent(this.sesskey)}`;
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: this.cookieHeader
+      },
+      body: info
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    return unwrapAjaxResponse(data) as T;
+  }
+
+  private async fetchCourseContentsHtml(courseId: number): Promise<MoodleRecord[]> {
+    const res = await fetch(`${this.baseUrl}/course/view.php?id=${courseId}`, {
+      headers: { Cookie: this.cookieHeader },
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const html = await res.text();
+    const modules: MoodleRecord[] = [];
+    const blockRegex = /<li[^>]+id=[\"']module-(\d+)[\"'][\s\S]*?<\/li>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = blockRegex.exec(html)) !== null) {
+      const block = m[0];
+      const id = Number(m[1]);
+      const nameMatch = /data-activityname=[\"']([^\"']+)[\"']/i.exec(block) || /class=[\"'][^\"']*activityname[^\"']*[\"'][\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+      const modnameMatch = /class=[\"'][^\"']*(?:modtype_|activity\s+)([^\s\"']+)/i.exec(block);
+      const urlMatch = /href=[\"']([^\"']*(?:\/mod\/|\/view\.php)[^\"']*)[\"']/i.exec(block);
+      const name = nameMatch ? (nameMatch[1] || nameMatch[2] || "").replace(/<[^>]+>/g, "").trim() : "Activity";
+      modules.push({
+        id,
+        name,
+        modname: modnameMatch ? modnameMatch[1] : "resource",
+        url: urlMatch ? urlMatch[1] : "",
+        contents: []
+      });
+    }
+    return [{ id: 0, name: "General", modules }];
+  }
+
+  async call<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
+    if (name === "core_enrol_get_users_courses") {
+      const courseMap = new Map<number, MoodleRecord>();
+      for (const classification of ["all", "inprogress", "past", "future", "hidden"]) {
+        try {
+          const res = await this.callRaw<any>("core_course_get_enrolled_courses_by_timeline_classification", {
+            classification,
+            limit: 100,
+            offset: 0
+          });
+          const entries = Array.isArray(res) ? res : res?.courses;
+          if (Array.isArray(entries)) {
+            for (const item of entries) {
+              const id = Number(item?.id);
+              if (Number.isSafeInteger(id) && id > 0 && !courseMap.has(id)) {
+                courseMap.set(id, {
+                  ...item,
+                  id,
+                  categoryname: item.coursecategory || item.categoryname || ""
+                });
+              }
+            }
+          }
+        } catch {
+          // Continue to other classifications
+        }
+      }
+      return [...courseMap.values()] as T;
+    }
+
+    if (name === "core_course_get_contents") {
+      try {
+        return await this.callRaw<T>(name, params);
+      } catch {
+        return await this.fetchCourseContentsHtml(Number(params.courseid)) as T;
+      }
+    }
+
+    if (name === "mod_assign_get_assignments") {
+      try {
+        return await this.callRaw<T>(name, params);
+      } catch {
+        return { courses: [], warnings: [] } as T;
+      }
+    }
+
+    return this.callRaw<T>(name, params);
+  }
+
+  async downloadFile(fileUrl: string, destPath: string): Promise<void> {
+    await writeCourseFile(
+      await fetchCourseFile(this.baseUrl, fileUrl, { Cookie: this.cookieHeader }),
+      destPath
+    );
+  }
+
+  async uploadFile(_filepath: string): Promise<MoodleRecord> {
+    throw new Error("File uploads are not supported through SSO session yet. Please use 'uit login --token <token>' with a Moodle API token.");
+  }
+
+  async readFile(fileUrl: string): Promise<{ data: Uint8Array; mimeType: string }> {
+    return readCourseFile(
+      await fetchCourseFile(this.baseUrl, fileUrl, { Cookie: this.cookieHeader })
+    );
+  }
+}
+
+export function createSessionApiClient(
+  baseUrl: string,
+  sesskey: string,
+  cookies: Array<{ name: string; value: string }> | string
+): ApiClient {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const cookieHeader = typeof cookies === "string" ? cookies : cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+  return new NodeSessionApiClient(normalizedBaseUrl, sesskey, cookieHeader);
+}
+
+export function getActiveApiClient(): ApiClient {
+  const authType = get("authType");
+  if (authType === "sso") {
+    const sesskey = get("sesskey");
+    const cookies = get("cookies");
+    if (sesskey && cookies) {
+      return createSessionApiClient(get("baseUrl"), sesskey, cookies);
+    }
+  }
+  return createTokenApiClient(get("baseUrl"), get("token"));
+}
+
 export const defaultApiClient: ApiClient = {
-  call: (name, params) => createTokenApiClient(get("baseUrl"), get("token")).call(name, params),
-  uploadFile: (filepath) => createTokenApiClient(get("baseUrl"), get("token")).uploadFile(filepath),
-  downloadFile: (fileUrl, destPath) => createTokenApiClient(get("baseUrl"), get("token")).downloadFile(fileUrl, destPath),
-  readFile: (fileUrl) => createTokenApiClient(get("baseUrl"), get("token")).readFile!(fileUrl)
+  call: (name, params) => getActiveApiClient().call(name, params),
+  uploadFile: (filepath) => getActiveApiClient().uploadFile(filepath),
+  downloadFile: (fileUrl, destPath) => getActiveApiClient().downloadFile(fileUrl, destPath),
+  readFile: (fileUrl) => getActiveApiClient().readFile!(fileUrl)
 };

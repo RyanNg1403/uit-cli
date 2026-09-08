@@ -27,13 +27,17 @@ npm link
 
 ### Login
 
-Authenticate with your UIT student account (requests a secure Moodle Web Service token and stores it locally in `~/.uit/.env`):
+`uit login` supports both **UIT SSO** and **Moodle API tokens**:
 
 ```bash
-uit init
+# Recommended: Sign in via UIT SSO in browser (default)
+uit login
+
+# Or sign in via Moodle API token
+uit login --token <your_token>
 ```
 
-*Non-interactive setup is also supported:* `uit init --username YOUR_STUDENT_ID --password YOUR_PASSWORD`.
+*Tip: If you already signed in via **UIT Studio**, your SSO session is automatically shared with the CLI.*
 
 ### Basic Usage
 
@@ -41,9 +45,9 @@ uit init
 | :--- | :--- |
 | `uit courses` | List enrolled courses with course IDs |
 | `uit contents <course_id>` | Browse sections, lecture slides, and files |
-| `uit assignments [course_id]` | View assignment deadlines and submission status |
-| `uit grades [course_id]` | Check grades, weights, and teacher feedback |
-| `uit download <module_id>` | Download course materials and lecture slides |
+| `uit deadlines` | View assignment deadlines and submission status |
+| `uit grades <course_id>` | Check grades, weights, and teacher feedback |
+| `uit download <course_id>` | Download course materials and lecture slides |
 
 <p align="center">
   <img src="assets/demo.gif" alt="UIT CLI Demo" width="860">
