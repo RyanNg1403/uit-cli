@@ -145,7 +145,7 @@ export function createProgram(
 
   program
     .command("init")
-    .description("Set up credentials (~/.uit/.env or ~/.uit/sso-session.json)")
+    .description("Set up credentials (~/.uit/sessions.json)")
     .argument("[token]", "Moodle API token from /login/token.php")
     .option("--sso", "Sign in via UIT SSO (opens browser window)")
     .option("--url <url>", "Moodle base URL", "https://courses.uit.edu.vn")

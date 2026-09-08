@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ApiClient, MoodleRecord } from "./types.js";
 import { createTokenApiClient, createSessionApiClient, fetchCourseFile, writeCourseFile } from "./api.js";
-import { get, type SsoSessionData } from "./config.js";
+import { get, readSessionsFile, type SsoSessionData } from "./config.js";
 import {
   configuredLegacySession,
   getCourseContents,
@@ -19,44 +19,40 @@ import {
 } from "./desktop-service.js";
 
 export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
-  const root = resolve(homedir(), "UIT");
+  const root = resolve(homedir(), ".uit", "courses");
   const current = resolve(cwd);
   return current === root || current.startsWith(`${root}${sep}`);
 }
 
 export function resolveAvailableSession(): { api: ApiClient; userId: number; baseUrl: string } {
-  // 1. Check SSO session in ~/.uit/sso-session.json
-  const ssoPath = join(homedir(), ".uit", "sso-session.json");
-  if (existsSync(ssoPath)) {
-    try {
-      const data: SsoSessionData = JSON.parse(readFileSync(ssoPath, "utf8"));
-      if (data.baseUrl && data.sesskey && data.userId && Array.isArray(data.cookies)) {
-        return {
-          api: createSessionApiClient(data.baseUrl, data.sesskey, data.cookies),
-          userId: data.userId,
-          baseUrl: data.baseUrl
-        };
-      }
-    } catch {
-      // Fallback to legacy
-    }
+  // 1. Check ~/.uit/sessions.json
+  const sessions = readSessionsFile();
+  if (
+    sessions.sso &&
+    sessions.sso.baseUrl &&
+    sessions.sso.sesskey &&
+    sessions.sso.userId &&
+    Array.isArray(sessions.sso.cookies)
+  ) {
+    return {
+      api: createSessionApiClient(sessions.sso.baseUrl, sessions.sso.sesskey, sessions.sso.cookies),
+      userId: sessions.sso.userId,
+      baseUrl: sessions.sso.baseUrl
+    };
   }
 
-  // 2. Check legacy session in ~/.uit/.env
-  try {
-    const legacy = configuredLegacySession();
-    if (legacy?.session?.baseUrl && legacy.session.userId) {
+  if (sessions.legacy && sessions.legacy.length > 0) {
+    const record = sessions.legacy[0];
+    if (record && record.token && record.baseUrl && record.userId) {
       return {
-        api: legacy.api,
-        userId: legacy.session.userId,
-        baseUrl: legacy.session.baseUrl
+        api: createTokenApiClient(record.baseUrl, record.token),
+        userId: Number(record.userId),
+        baseUrl: record.baseUrl
       };
     }
-  } catch {
-    // None
   }
 
-  // 3. Fallback to basic token client if UIT_TOKEN is set
+  // 2. Fallback to process.env.UIT_TOKEN
   try {
     const token = get("token");
     const baseUrl = get("baseUrl");

@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { afterEach, vi } from "vitest";
 import { requestMobileToken } from "../src/commands.js";
 import { clean, extractUrls, htmlToText, idOrUrl, parseMoodleUrl, sanitize, ts } from "../src/output.js";
-import { parseEnv } from "../src/config.js";
 import { extractH5pPackage, parseZip } from "../src/unzip.js";
 import { makeZip } from "./zip-fixture.js";
 
@@ -99,22 +98,6 @@ describe("h5p package extraction", () => {
   });
 });
 
-describe("config helpers", () => {
-  it("parses the supported .env shape", () => {
-    expect(
-      parseEnv(`
-        # comment
-        UIT_TOKEN="abc"
-        UIT_BASE_URL='https://courses.uit.edu.vn'
-        UIT_USER_ID=123
-      `)
-    ).toEqual({
-      UIT_TOKEN: "abc",
-      UIT_BASE_URL: "https://courses.uit.edu.vn",
-      UIT_USER_ID: "123"
-    });
-  });
-});
 
 describe("Moodle token request", () => {
   it("requests a mobile web-service token with form data", async () => {

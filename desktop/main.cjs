@@ -61,7 +61,7 @@ let portalErrors = [];
 let cachedModels = null;
 let bindingWrite = Promise.resolve();
 let idleLockTimer = null;
-const SSO_SESSION_FILE = join(homedir(), ".uit", "sso-session.json");
+const SESSIONS_FILE = join(homedir(), ".uit", "sessions.json");
 
 const SSO_PARTITION = "persist:uit-sso";
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
@@ -81,7 +81,8 @@ async function loadService() {
     } catch (_) {}
   }
   const configured = process.env.UIT_DISABLE_CONFIG === "1" ? undefined : service.configuredLegacySession?.();
-  if (configured?.session?.baseUrl) legacySessions.set(configured.session.baseUrl, { ...configured.session, api: configured.api });
+  if (configured?.session?.baseUrl) legacySessions.set(configured.session.baseUrl, { ...configured.session, api: configured.api, token: configured.token });
+  await restorePersistedLegacySessions();
   await restorePersistedSsoSession();
   try {
     const saved = JSON.parse(await readFile(join(app.getPath("userData"), "course-threads.json"), "utf8"));
@@ -278,7 +279,7 @@ function requireString(value, label, { allowEmpty = false } = {}) {
 
 function requireWorkspacePath(value, label = "Workspace path") {
   const path = resolve(requireString(value, label));
-  const root = resolve(homedir(), "UIT");
+  const root = resolve(homedir(), ".uit", "courses");
   if (path !== root && !path.startsWith(`${root}${sep}`)) throw new Error("Only UIT workspace paths are allowed.");
   return path;
 }
@@ -291,31 +292,91 @@ function requireCourseFileUrl(value, baseUrl) {
   return fileUrl.toString();
 }
 
-async function persistSsoSession(sessionData) {
+async function readPersistedSessions() {
+  try {
+    const raw = JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
+    if (Array.isArray(raw)) return { legacy: raw };
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+async function writePersistedSessions(data) {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
   try {
     const dir = join(homedir(), ".uit");
     await mkdir(dir, { recursive: true });
-    await writeFile(SSO_SESSION_FILE, JSON.stringify(sessionData, null, 2), { mode: 0o600 });
+    await writeFile(`${SESSIONS_FILE}.part`, JSON.stringify(data, null, 2), { mode: 0o600 });
+    await rename(`${SESSIONS_FILE}.part`, SESSIONS_FILE);
+  } catch (error) {
+    console.error("Could not persist sessions:", error.message);
+  }
+}
+
+async function persistSsoSession(sessionData) {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+  try {
+    const data = await readPersistedSessions();
+    data.sso = sessionData;
+    await writePersistedSessions(data);
   } catch (error) {
     console.error("Could not persist SSO session:", error.message);
   }
 }
 
 async function deletePersistedSsoSession() {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
   try {
-    await unlink(SSO_SESSION_FILE).catch(() => undefined);
+    const data = await readPersistedSessions();
+    delete data.sso;
+    await writePersistedSessions(data);
   } catch {}
+}
+
+async function persistLegacySessions() {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+  try {
+    const records = [];
+    for (const session of legacySessions.values()) {
+      if (session.baseUrl && session.userId && session.token) {
+        records.push({ baseUrl: session.baseUrl, userId: session.userId, token: session.token });
+      }
+    }
+    const data = await readPersistedSessions();
+    data.legacy = records;
+    await writePersistedSessions(data);
+  } catch (error) {
+    console.error("Could not persist legacy sessions:", error.message);
+  }
+}
+
+async function restorePersistedLegacySessions() {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+  try {
+    const data = await readPersistedSessions();
+    if (Array.isArray(data.legacy)) {
+      for (const item of data.legacy) {
+        if (item && item.baseUrl && item.token && item.userId) {
+          const baseUrl = normalizeSiteUrl(item.baseUrl);
+          if (!isCurrentSite(baseUrl) && service.createLegacySession) {
+            const restored = service.createLegacySession(baseUrl, item.token, Number(item.userId));
+            legacySessions.set(baseUrl, { ...restored.session, api: restored.api, token: item.token });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") console.error("Could not restore legacy sessions:", error.message);
+  }
 }
 
 async function restorePersistedSsoSession() {
   if (process.env.UIT_DISABLE_CONFIG === "1") return;
   try {
-    let saved;
-    try {
-      saved = JSON.parse(await readFile(SSO_SESSION_FILE, "utf8"));
-    } catch {
-      return;
-    }
+    const data = await readPersistedSessions();
+    const saved = data?.sso;
     if (!saved || !saved.baseUrl || !saved.userId || !saved.sesskey) return;
 
     const authSession = session.fromPartition(SSO_PARTITION);
@@ -872,7 +933,8 @@ function registerIpc() {
       requireString(input.password, "Password");
       const result = await service.loginWithToken({ ...input, baseUrl }, false);
       await disconnectAccount(baseUrl);
-      legacySessions.set(baseUrl, { ...result.session, api: result.api });
+      legacySessions.set(baseUrl, { ...result.session, api: result.api, token: result.token });
+      await persistLegacySessions();
       return sessionStatusPayload();
     },
     "session:sso-login": async (_event, rawInput) => {
@@ -893,6 +955,7 @@ function registerIpc() {
         await clearSsoSession({ clearStorage: true });
         legacySessions.clear();
       }
+      await persistLegacySessions();
       return sessionStatusPayload();
     },
     "courses:list": listConnectedCourses,

@@ -25,6 +25,7 @@ export interface DesktopSession {
 export interface DesktopLoginResult {
   session: DesktopSession;
   api: ApiClient;
+  token?: string;
 }
 
 export interface CourseSummary {
@@ -326,7 +327,16 @@ export async function loginWithToken(input: DesktopLoginInput, persist = false):
   if (persist) save(token, userId, baseUrl);
   return {
     session: { authenticated: true, authMode: "token", baseUrl, userId },
-    api: createTokenApiClient(baseUrl, token)
+    api: createTokenApiClient(baseUrl, token),
+    token
+  };
+}
+
+export function createLegacySession(baseUrl: string, token: string, userId: number): DesktopLoginResult {
+  return {
+    session: { authenticated: true, authMode: "token", baseUrl, userId },
+    api: createTokenApiClient(baseUrl, token),
+    token
   };
 }
 
@@ -338,7 +348,8 @@ export function configuredLegacySession(): DesktopLoginResult | undefined {
   try {
     const session = sessionStatus();
     if (!session.authenticated || session.authMode !== "token" || !session.baseUrl) return undefined;
-    return { session, api: createTokenApiClient(session.baseUrl, get("token")) };
+    const token = get("token");
+    return { session, api: createTokenApiClient(session.baseUrl, token), token };
   } catch {
     return undefined;
   }
@@ -831,7 +842,7 @@ function workspacePath(courseId: number, baseUrl: string, userId: number): strin
   if (!/^https?:$/.test(site.protocol) || site.username || site.password) throw new Error("Invalid course site URL.");
   const canonical = `${site.origin}${site.pathname.replace(/\/+$/, "")}`;
   const siteKey = `${site.hostname.replace(/[^a-zA-Z0-9.-]/g, "_")}-${createHash("sha256").update(canonical).digest("hex").slice(0, 16)}`;
-  return resolve(homedir(), "UIT", siteKey, `user-${userId}`, `course-${courseId}`);
+  return resolve(homedir(), ".uit", "courses", siteKey, `user-${userId}`, `course-${courseId}`);
 }
 
 const downloads = new Map<string, Promise<string>>();

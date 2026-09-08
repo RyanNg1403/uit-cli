@@ -12,7 +12,7 @@ const LEGACY = "https://coursesold.uit.edu.vn";
 const reference = { courseId: 1, baseUrl: CURRENT, userId: 101 };
 const legacyReference = { courseId: 1, baseUrl: LEGACY, userId: 202 };
 const home = path.resolve("test-results", "vm-home");
-const workspace = path.join(home, "UIT", "CS01");
+const workspace = path.join(home, ".uit", "courses", "CS01");
 const profile = path.resolve("test-results", "vm-profile");
 
 function deferred<T = void>() {
@@ -218,6 +218,34 @@ describe("main IPC trust and routing", () => {
     await expect(h.invoke("session:login", { baseUrl: `${LEGACY}/sdh/`, username: "404", password: "fake" })).resolves.toMatchObject({ authenticated: true, userId: 404 });
     expect(h.service.loginWithToken).toHaveBeenCalledWith({ baseUrl: `${LEGACY}/sdh`, username: "404", password: "fake" }, false);
     expect(h.fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("persists legacy session on login and removes on logout when config is enabled", async () => {
+    const h = await harness();
+    h.context.process.env.UIT_DISABLE_CONFIG = "0";
+    h.service.loginWithToken.mockResolvedValue({
+      session: { baseUrl: `${LEGACY}/sdh`, userId: 404, authMode: "token" },
+      api: h.legacyApi,
+      token: "secret-token-123"
+    });
+    await h.invoke("session:login", { baseUrl: `${LEGACY}/sdh`, username: "404", password: "fake" });
+    expect(h.fs.writeFile).toHaveBeenCalledWith(
+      path.join(home, ".uit", "sessions.json.part"),
+      expect.stringContaining("secret-token-123"),
+      { mode: 0o600 }
+    );
+    expect(h.fs.rename).toHaveBeenCalledWith(
+      path.join(home, ".uit", "sessions.json.part"),
+      path.join(home, ".uit", "sessions.json")
+    );
+
+    // Logout updates persisted sessions file
+    await h.invoke("session:logout", { baseUrl: `${LEGACY}/sdh` });
+    expect(h.fs.writeFile).toHaveBeenCalledWith(
+      path.join(home, ".uit", "sessions.json.part"),
+      expect.not.stringContaining("secret-token-123"),
+      { mode: 0o600 }
+    );
   });
 
   it("requires sign-in for reads, preview, download, workspace and agent routes", async () => {

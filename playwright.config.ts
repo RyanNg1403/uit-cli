@@ -2,7 +2,7 @@ import { defineConfig } from "playwright/test";
 
 export default defineConfig({
   testDir: "./test",
-  testMatch: /(?:desktop-ui|electron-smoke|electron-stability|pdf-preview|support|sidebar)\.spec\.ts/,
+  testMatch: /(?:desktop-ui|electron-smoke|electron-stability|pdf-preview|support|sidebar|screenshots)\.spec\.ts/,
   outputDir: "test-results/artifacts",
   fullyParallel: true,
   workers: 4,

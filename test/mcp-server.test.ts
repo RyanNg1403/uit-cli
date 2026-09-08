@@ -8,7 +8,7 @@ import {
 
 describe("mcp-server workspace gating and tools", () => {
   it("gates tools based on whether cwd is inside ~/UIT", () => {
-    const uitRoot = resolve(homedir(), "UIT");
+    const uitRoot = resolve(homedir(), ".uit", "courses");
     expect(isInsideUitWorkspace(uitRoot)).toBe(true);
     expect(isInsideUitWorkspace(join(uitRoot, "CS01"))).toBe(true);
     expect(isInsideUitWorkspace(join(uitRoot, "course-123", "subfolder"))).toBe(true);

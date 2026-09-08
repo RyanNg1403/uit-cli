@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { CliError } from "./output.js";
 
@@ -20,6 +20,17 @@ export interface SsoSessionData {
   savedAt?: number;
 }
 
+export interface LegacySessionData {
+  baseUrl: string;
+  userId: number;
+  token: string;
+}
+
+export interface SessionsData {
+  sso?: SsoSessionData | null;
+  legacy?: LegacySessionData[] | null;
+}
+
 export interface Config {
   authType: "token" | "sso";
   baseUrl: string;
@@ -29,102 +40,110 @@ export interface Config {
   cookies?: SsoCookie[];
 }
 
+export const getSessionsFilePath = (): string => join(homedir(), ".uit", "sessions.json");
+
 let cfg: Config | undefined;
 
 export function resetConfigCache(): void {
   cfg = undefined;
 }
 
-function findLocalEnvFile(): string | undefined {
-  let dir = process.cwd();
-  for (let i = 0; i < 10; i += 1) {
-    const candidate = join(dir, ".env");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+export function readSessionsFile(): SessionsData {
+  const sessionsFile = getSessionsFilePath();
+  if (existsSync(sessionsFile)) {
+    try {
+      const data = JSON.parse(readFileSync(sessionsFile, "utf8"));
+      if (data && typeof data === "object" && !Array.isArray(data)) return data;
+      if (Array.isArray(data)) return { legacy: data };
+    } catch {
+      // Fall through
+    }
   }
-  return undefined;
+  // Migration fallback: check legacy files if present
+  const oldSsoPaths = [
+    join(homedir(), ".uit", "sso-session.json"),
+    join(homedir(), ".uit", ".sso-session.json")
+  ];
+  let migratedSso: SsoSessionData | null = null;
+  for (const p of oldSsoPaths) {
+    if (existsSync(p)) {
+      try {
+        migratedSso = JSON.parse(readFileSync(p, "utf8"));
+        break;
+      } catch {}
+    }
+  }
+  const oldLegacyPath = join(homedir(), ".uit", "legacy-sessions.json");
+  let migratedLegacy: LegacySessionData[] | null = null;
+  if (existsSync(oldLegacyPath)) {
+    try {
+      const records = JSON.parse(readFileSync(oldLegacyPath, "utf8"));
+      if (Array.isArray(records)) migratedLegacy = records;
+      else if (records && typeof records === "object" && records.token) migratedLegacy = [records];
+    } catch {}
+  }
+  return { sso: migratedSso, legacy: migratedLegacy };
 }
 
-export function parseEnv(content: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#") || !line.includes("=")) continue;
-    const index = line.indexOf("=");
-    const key = line.slice(0, index).trim();
-    let value = line.slice(index + 1).trim();
-    if (
-      (value.startsWith("\"") && value.endsWith("\"")) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[key] = value;
-  }
-  return env;
+export function writeSessionsFile(data: SessionsData): void {
+  const path = getSessionsFilePath();
+  const dir = join(homedir(), ".uit");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path, JSON.stringify(data, null, 2), "utf8");
+  if (process.platform !== "win32") chmodSync(path, 0o600);
 }
 
 function load(): Config {
   if (cfg) return cfg;
 
-  // 1. Check local .env file in cwd hierarchy
-  const localEnvPath = findLocalEnvFile();
-  if (localEnvPath) {
-    const env = parseEnv(readFileSync(localEnvPath, "utf8"));
-    if (env.UIT_TOKEN) {
-      const baseUrl = (env.UIT_BASE_URL || "https://courses.uit.edu.vn").replace(/\/+$/, "");
-      const userId = env.UIT_USER_ID ? Number.parseInt(env.UIT_USER_ID, 10) : null;
+  // 1. Environment variable override (e.g. CI/CD or scripts)
+  if (process.env.UIT_TOKEN) {
+    const baseUrl = (process.env.UIT_BASE_URL || "https://courses.uit.edu.vn").replace(/\/+$/, "");
+    const userId = process.env.UIT_USER_ID ? Number.parseInt(process.env.UIT_USER_ID, 10) : null;
+    cfg = {
+      authType: "token",
+      token: process.env.UIT_TOKEN,
+      baseUrl,
+      userId: Number.isFinite(userId) ? userId : null
+    };
+    return cfg;
+  }
+
+  // 2. Read ~/.uit/sessions.json
+  const sessions = readSessionsFile();
+
+  // 2a. Check SSO session
+  if (
+    sessions.sso &&
+    sessions.sso.baseUrl &&
+    sessions.sso.sesskey &&
+    sessions.sso.userId &&
+    Array.isArray(sessions.sso.cookies)
+  ) {
+    cfg = {
+      authType: "sso",
+      token: "",
+      baseUrl: sessions.sso.baseUrl.replace(/\/+$/, ""),
+      userId: Number(sessions.sso.userId),
+      sesskey: sessions.sso.sesskey,
+      cookies: sessions.sso.cookies
+    };
+    return cfg;
+  }
+
+  // 2b. Check Legacy token session
+  if (sessions.legacy && sessions.legacy.length > 0) {
+    const record = sessions.legacy[0];
+    if (record && record.token) {
+      const baseUrl = (record.baseUrl || "https://coursesold.uit.edu.vn").replace(/\/+$/, "");
+      const userId = record.userId ? Number.parseInt(String(record.userId), 10) : null;
       cfg = {
         authType: "token",
-        token: env.UIT_TOKEN,
+        token: record.token,
         baseUrl,
         userId: Number.isFinite(userId) ? userId : null
       };
       return cfg;
-    }
-  }
-
-  // 2. Check active SSO session in ~/.uit/sso-session.json
-  const ssoPath = join(homedir(), ".uit", "sso-session.json");
-  if (existsSync(ssoPath)) {
-    try {
-      const data: SsoSessionData = JSON.parse(readFileSync(ssoPath, "utf8"));
-      if (data.baseUrl && data.sesskey && data.userId && Array.isArray(data.cookies)) {
-        cfg = {
-          authType: "sso",
-          token: "",
-          baseUrl: data.baseUrl.replace(/\/+$/, ""),
-          userId: Number(data.userId),
-          sesskey: data.sesskey,
-          cookies: data.cookies
-        };
-        return cfg;
-      }
-    } catch {
-      // Fall through if parsing fails
-    }
-  }
-
-  // 3. Fallback to legacy global ~/.uit/.env token
-  const homeEnvPath = join(homedir(), ".uit", ".env");
-  if (existsSync(homeEnvPath)) {
-    try {
-      const env = parseEnv(readFileSync(homeEnvPath, "utf8"));
-      if (env.UIT_TOKEN) {
-        const baseUrl = (env.UIT_BASE_URL || "https://courses.uit.edu.vn").replace(/\/+$/, "");
-        const userId = env.UIT_USER_ID ? Number.parseInt(env.UIT_USER_ID, 10) : null;
-        cfg = {
-          authType: "token",
-          token: env.UIT_TOKEN,
-          baseUrl,
-          userId: Number.isFinite(userId) ? userId : null
-        };
-        return cfg;
-      }
-    } catch {
-      // Fall through
     }
   }
 
@@ -144,31 +163,28 @@ export function get(key: keyof Config): Config[keyof Config] {
 }
 
 export function save(token: string, userId: number, baseUrl: string): string {
-  const dir = join(homedir(), ".uit");
-  const path = join(dir, ".env");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    path,
-    `UIT_TOKEN="${token}"\nUIT_BASE_URL="${baseUrl}"\nUIT_USER_ID=${userId}\n`,
-    "utf8"
-  );
-  if (process.platform !== "win32") chmodSync(path, 0o600);
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+  const sessions = readSessionsFile();
+  const legacyList = (sessions.legacy || []).filter((item) => item.baseUrl !== cleanBaseUrl);
+  legacyList.unshift({ baseUrl: cleanBaseUrl, userId, token });
+  sessions.legacy = legacyList;
+  writeSessionsFile(sessions);
+  const path = getSessionsFilePath();
   console.error(`Saved to ${path}`);
   cfg = {
     authType: "token",
     token,
     userId,
-    baseUrl: baseUrl.replace(/\/+$/, "")
+    baseUrl: cleanBaseUrl
   };
   return path;
 }
 
 export function saveSsoSession(sessionData: SsoSessionData): string {
-  const dir = join(homedir(), ".uit");
-  const path = join(dir, "sso-session.json");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path, JSON.stringify(sessionData, null, 2), "utf8");
-  if (process.platform !== "win32") chmodSync(path, 0o600);
+  const sessions = readSessionsFile();
+  sessions.sso = sessionData;
+  writeSessionsFile(sessions);
+  const path = getSessionsFilePath();
   console.error(`SSO session saved to ${path}`);
   cfg = {
     authType: "sso",
@@ -179,4 +195,23 @@ export function saveSsoSession(sessionData: SsoSessionData): string {
     cookies: sessionData.cookies
   };
   return path;
+}
+
+export function deleteSsoSession(): void {
+  const sessions = readSessionsFile();
+  delete sessions.sso;
+  writeSessionsFile(sessions);
+  cfg = undefined;
+}
+
+export function deleteLegacySession(baseUrl?: string): void {
+  const sessions = readSessionsFile();
+  if (baseUrl) {
+    const clean = baseUrl.replace(/\/+$/, "");
+    sessions.legacy = (sessions.legacy || []).filter((item) => item.baseUrl !== clean);
+  } else {
+    sessions.legacy = [];
+  }
+  writeSessionsFile(sessions);
+  cfg = undefined;
 }

@@ -99,9 +99,9 @@ describe("SSO CLI workflow and session resolution", () => {
       site: "https://courses.uit.edu.vn"
     });
 
-    const saved = JSON.parse(readFileSync(join(tempDir, ".uit", "sso-session.json"), "utf8"));
-    expect(saved.userId).toBe(2026);
-    expect(saved.sesskey).toBe("sso-sess-key");
+    const saved = JSON.parse(readFileSync(join(tempDir, ".uit", "sessions.json"), "utf8"));
+    expect(saved.sso.userId).toBe(2026);
+    expect(saved.sso.sesskey).toBe("sso-sess-key");
   });
 
   it("triggers SSO login when running uit init --sso", async () => {

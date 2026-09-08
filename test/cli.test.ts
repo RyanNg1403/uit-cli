@@ -27,10 +27,9 @@ function mockApi(responses: Record<string, any>): ApiClient {
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), "uit-cli-test-"));
-  writeFileSync(
-    join(tempDir, ".env"),
-    'UIT_TOKEN="token-123"\nUIT_BASE_URL="https://courses.uit.edu.vn"\nUIT_USER_ID=42\n'
-  );
+  process.env.UIT_TOKEN = "token-123";
+  process.env.UIT_BASE_URL = "https://courses.uit.edu.vn";
+  process.env.UIT_USER_ID = "42";
   process.chdir(tempDir);
   resetConfigCache();
   stdout = "";
@@ -44,6 +43,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.UIT_TOKEN;
+  delete process.env.UIT_BASE_URL;
+  delete process.env.UIT_USER_ID;
   stdoutSpy.mockRestore();
   stderrSpy.mockRestore();
   process.chdir(originalCwd);
