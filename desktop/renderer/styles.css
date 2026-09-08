@@ -404,24 +404,39 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .message-role { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
 .message-header .message-role { margin-bottom: 0; }
 .message pre { font-family: inherit; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
-.message.user { position: relative; background: var(--message); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px 14px; margin-left: clamp(24px, 12%, 96px); }
+.message.user { position: relative; background: var(--message); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px 10px; margin-left: clamp(24px, 12%, 96px); }
 
-.message-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.message-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-height: 24px; }
 .message-actions[hidden] { display: none !important; }
+.message-actions.user-actions { justify-content: flex-end; margin-top: 4px; }
+
+.message-time {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .15s ease, visibility .15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
 
 .message-copy-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border-radius: 6px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: opacity .15s ease, color .15s ease, background-color .15s ease, border-color .15s ease, transform .1s ease;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .15s ease, visibility .15s ease, color .15s ease, background-color .15s ease, border-color .15s ease, transform .1s ease;
   user-select: none;
   flex: 0 0 auto;
 }
@@ -447,30 +462,23 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   color: #10b981 !important;
   background: color-mix(in srgb, #10b981 12%, transparent) !important;
   border-color: color-mix(in srgb, #10b981 32%, transparent) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 .message-copy-btn.is-copied svg {
   stroke: #10b981 !important;
 }
 
-.message.user .message-copy-btn {
-  opacity: 0;
-}
-.message.user:hover .message-copy-btn,
-.message.user:focus-within .message-copy-btn,
-.message.user .message-copy-btn:focus-visible,
-.message.user .message-copy-btn.is-copied {
+.message:hover .message-time {
   opacity: 1;
+  visibility: visible;
 }
 
-.message.assistant .message-copy-btn {
-  opacity: 0.65;
-}
-.message.assistant:hover .message-copy-btn,
-.message.assistant:focus-within .message-copy-btn,
-.message.assistant .message-copy-btn:hover,
-.message.assistant .message-copy-btn:focus-visible,
-.message.assistant .message-copy-btn.is-copied {
+.message:hover .message-copy-btn,
+.message:focus-within .message-copy-btn,
+.message-copy-btn:focus-visible {
   opacity: 1;
+  visibility: visible;
 }
 .message.event { margin-block: 8px; }
 .message.event pre { font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -478,7 +486,8 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .message.error .message-role { color: var(--error); }
 .message.message-tool,
 .message.message-file-change {
-  max-width: min(520px, 100%);
+  max-width: 100%;
+  margin-bottom: 12px;
 }
 .md { font-family: inherit; font-size: 13px; line-height: 1.75; white-space: pre-wrap; margin: 0; }
 .md > *:first-child { margin-top: 0; }

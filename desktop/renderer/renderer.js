@@ -66,6 +66,14 @@ function codexLogo() {
   svg.append(path);
   return svg;
 }
+function formatMessageTimestamp(timestamp) {
+  if (!timestamp) return "";
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return "";
+  const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${dateStr}, ${timeStr}`;
+}
 function errorText(error) {
   if (error instanceof Error) return error.message;
   if (!error) return "Unknown error";
@@ -1457,7 +1465,8 @@ async function syncThreadRollout(thread = activeThread()) {
             text: rm.text,
             kind: rm.role === "assistant" ? "markdown" : undefined,
             status: "completed",
-            label: rm.role === "assistant" ? "Codex (external)" : undefined
+            label: rm.role === "assistant" ? "Codex (external)" : undefined,
+            createdAt: rm.createdAt || result.mtime || Date.now()
           });
           updated = true;
         }
@@ -1914,6 +1923,19 @@ function createMessageCopyButton(getText) {
   return btn;
 }
 
+function isAgentExecutionStart(thread, message) {
+  if (!thread || message.role === "user" || message.kind === "turn-state") return false;
+  const list = thread.messages;
+  const index = list.indexOf(message);
+  if (index <= 0) return true;
+  for (let i = index - 1; i >= 0; i--) {
+    const prev = list[i];
+    if (prev.kind === "reasoning" || prev.label === "Thought process" || prev.kind === "turn-state") continue;
+    return prev.role === "user";
+  }
+  return true;
+}
+
 function renderMessages(changes = null) {
   const thread = activeThread();
   const box = $("#agent-messages");
@@ -1979,6 +2001,9 @@ function renderMessages(changes = null) {
     if (status) item.dataset.status = status;
 
     if (isToolLike) {
+      if (isAgentExecutionStart(thread, message)) {
+        item.append(node("p", "message-role", "Codex"));
+      }
       const details = node("details", "tool-call");
       if (status === "working") details.open = true;
       const summary = node("summary");
@@ -2057,18 +2082,30 @@ function renderMessages(changes = null) {
       if (isUser) {
         const header = node("div", "message-header");
         header.append(node("p", "message-role", "You"));
-        copyBtn = createMessageCopyButton(() => message.text);
-        header.append(copyBtn);
         item.append(header, content);
+        actions = node("div", "message-actions user-actions");
+        const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
+        if (timeStr) actions.append(node("span", "message-time", timeStr));
+        copyBtn = createMessageCopyButton(() => message.text);
+        actions.append(copyBtn);
+        item.append(actions);
       } else if (isAssistant) {
-        item.append(node("p", "message-role", "Codex"), content);
+        if (isAgentExecutionStart(thread, message)) {
+          item.append(node("p", "message-role", "Codex"));
+        }
+        item.append(content);
         if (message.resources?.length) item.append(node("p", "message-resources", message.resources.map((resource) => `@${resource.name}`).join("  ")));
         actions = node("div", "message-actions");
+        const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
+        if (timeStr) actions.append(node("span", "message-time", timeStr));
         copyBtn = createMessageCopyButton(() => message.text);
         actions.append(copyBtn);
         if (message.streaming || !message.text) actions.hidden = true;
         item.append(actions);
       } else {
+        if (isAgentExecutionStart(thread, message) && message.label !== "Codex") {
+          item.append(node("p", "message-role", "Codex"));
+        }
         item.append(node("p", "message-role", message.label || "Activity"), content);
       }
       messageNodes.set(message, { item, content, actions, copyBtn });
@@ -2287,7 +2324,7 @@ async function sendMessage() {
   thread.taskId = taskId; thread.turnId = null; thread.busy = true; thread.pending = true; thread.stopping = false; thread.approvals = [];
   thread.started = true; thread.prompted = true; thread.interrupted = false; thread.streamItem = null;
   thread.draft = ""; thread.resources = [];
-  thread.messages.push({ role: "user", text, resources });
+  thread.messages.push({ role: "user", text, resources, createdAt: Date.now() });
   thread.messages.push({ role: "event", kind: "turn-state", status: "working", label: "Codex is working", text: "Codex is working", taskId });
   timelineState(thread).following = true;
   if (!thread.renamed && thread.title === "New thread") thread.title = text.slice(0, 70);
@@ -2427,8 +2464,13 @@ function handleAgentEvent(message) {
     let entry = itemId ? thread.messages.find((entry) => entry.itemId === itemId && entry.turnId === thread.turnId) : null;
     if (!entry && role === "assistant" && thread.streamItem && (!itemId || !thread.streamItem.itemId || thread.streamItem.itemId === itemId)) entry = thread.streamItem;
     if (!entry) {
-      entry = { role, label, text: "", itemId, turnId: thread.turnId, kind, status };
-      thread.messages.push(entry);
+      entry = { role, label, text: "", itemId, turnId: thread.turnId, kind, status, createdAt: Date.now() };
+      const tsIndex = thread.messages.findIndex((m) => m.kind === "turn-state" && m.status === "working");
+      if (tsIndex !== -1) {
+        thread.messages.splice(tsIndex, 0, entry);
+      } else {
+        thread.messages.push(entry);
+      }
     }
     if (label) entry.label = label;
     if (kind) entry.kind = kind;

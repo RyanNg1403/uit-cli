@@ -1681,10 +1681,20 @@ test("copy buttons for user and agent messages are positioned smartly and copy t
   await expect(userMsg).toBeVisible();
   await expect(assistantMsg).toBeVisible();
 
-  // User message copy button is positioned smartly in .message-header at top right
-  const userCopyBtn = userMsg.locator(".message-header .message-copy-btn");
+  // User message copy button is positioned smartly in .message-actions at the bottom right
+  const userCopyBtn = userMsg.locator(".message-actions .message-copy-btn");
   await expect(userCopyBtn).toHaveCount(1);
   await expect(userCopyBtn).toHaveAttribute("title", "Copy message");
+
+  // Timestamps exist on both user and assistant messages in .message-actions
+  const userTime = userMsg.locator(".message-actions .message-time");
+  const assistantTime = assistantMsg.locator(".message-actions .message-time");
+  await expect(userTime).toHaveCount(1);
+  await expect(assistantTime).toHaveCount(1);
+
+  // Before hover: timestamp is hidden (opacity: 0)
+  const initialUserTimeOpacity = await userTime.evaluate((el) => window.getComputedStyle(el).opacity);
+  expect(Number(initialUserTimeOpacity)).toBe(0);
 
   // Agent message copy button is positioned smartly in .message-actions at the bottom
   const assistantCopyBtn = assistantMsg.locator(".message-actions .message-copy-btn");
@@ -1696,6 +1706,14 @@ test("copy buttons for user and agent messages are positioned smartly and copy t
 
   // Hover user message to test visibility
   await userMsg.hover();
+  await expect(userTime).toHaveCSS("opacity", "1");
+  await expect(userTime).toHaveCSS("visibility", "visible");
+
+  // Verify timestamp font size is smaller than message font size (e.g. 11px < 13px)
+  const timeFontSize = await userTime.evaluate((el) => parseFloat(window.getComputedStyle(el).fontSize));
+  const msgFontSize = await userMsg.locator("pre").evaluate((el) => parseFloat(window.getComputedStyle(el).fontSize));
+  expect(timeFontSize).toBeLessThan(msgFontSize);
+
   await page.screenshot({ path: info.outputPath("copy_buttons_user_hover.png") });
 
   // Click user copy button
@@ -1704,6 +1722,13 @@ test("copy buttons for user and agent messages are positioned smartly and copy t
   await expect(userCopyBtn).toHaveAttribute("title", "Copied!");
   const userCopyCalls = (await calls(page, "agent.writeClipboard")).filter((c: any) => (c.input?.text || c.input) === "Explain binary search in detail");
   expect(userCopyCalls.length).toBeGreaterThanOrEqual(1);
+
+  // Hover assistant message to test visibility
+  await assistantMsg.hover();
+  await expect(assistantTime).toHaveCSS("opacity", "1");
+  await expect(assistantTime).toHaveCSS("visibility", "visible");
+  // At a time, only one message's date and time is shown - user timestamp is now hidden
+  await expect(userTime).toHaveCSS("opacity", "0");
 
   // Click assistant copy button
   await assistantCopyBtn.click();
@@ -1783,9 +1808,18 @@ test("topbar logo, project Open in Courses, thin tool message and equal padding 
   await page.locator('.nav-item[data-view="agent"]').click();
   await expect(page.locator("#view-agent")).toBeVisible();
 
-  // 4. Tool call message is thinner in width
+  // 4. Tool call message is thinner in width, and Codex header marks the start of agent execution
   const toolMsg = page.locator(".message-tool");
   await expect(toolMsg).toBeVisible();
+  const toolRole = toolMsg.locator(".message-role");
+  await expect(toolRole).toBeVisible();
+  await expect(toolRole).toHaveText("Codex");
+
+  // Assistant text message follows under the same agent execution without repeating Codex header
+  const assistantTextMsg = page.locator(".message.assistant.message-assistant");
+  await expect(assistantTextMsg).toBeVisible();
+  await expect(assistantTextMsg.locator(".message-role")).toHaveCount(0);
+
   const toolCall = page.locator(".tool-call");
   await expect(toolCall).toBeVisible();
 
@@ -1800,7 +1834,10 @@ test("topbar logo, project Open in Courses, thin tool message and equal padding 
   await page.locator("#appearance").selectOption("dark");
   await page.screenshot({ path: info.outputPath("ui_refinements_dark.png") });
 
-  // Open the tool call to verify expanded state
+  // Open the tool call to verify expanded state extends wider to the right
   await toolCall.locator("summary").click();
+  const openToolBox = await toolCall.boundingBox();
+  expect(openToolBox).not.toBeNull();
+  expect(openToolBox!.width).toBeGreaterThan(600);
   await page.screenshot({ path: info.outputPath("ui_refinements_tool_open.png") });
 });

@@ -470,11 +470,13 @@ async function readThreadRollout(threadId) {
 
             const fullText = textParts.join("\n").trim();
             if (fullText) {
+              const createdAt = parsed.timestamp ? new Date(parsed.timestamp).getTime() : fileStats.mtimeMs;
               messages.push({
                 role: msg.role,
                 text: fullText,
                 id: msg.id,
-                turnId: parsed.payload?.internal_chat_message_metadata_passthrough?.turn_id
+                turnId: parsed.payload?.internal_chat_message_metadata_passthrough?.turn_id,
+                createdAt
               });
             }
           }
