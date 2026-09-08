@@ -1825,8 +1825,8 @@ test("topbar logo, project Open in Courses, thin tool message and equal padding 
 
   const toolBox = await toolCall.boundingBox();
   expect(toolBox).not.toBeNull();
-  // Ensure it's much thinner than the 800px full container width
-  expect(toolBox!.width).toBeLessThan(400);
+  // All tool calls share a uniform fixed width (420px) when closed
+  expect(toolBox!.width).toBeLessThanOrEqual(420);
 
   // Take screenshots in light and dark mode for visual verification
   await page.screenshot({ path: info.outputPath("ui_refinements_light.png") });
