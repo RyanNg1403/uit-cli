@@ -738,7 +738,9 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
             resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.description || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
           }
         }
-      } catch {}
+      } catch {
+        // Assignment metadata is an optional fallback for resolving this resource.
+      }
       if (!resource) {
         try {
           const announcements = await listAnnouncements(courseId, api);
@@ -750,7 +752,9 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
               resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.message || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
             }
           }
-        } catch {}
+        } catch {
+          // Announcement metadata is an optional fallback for resolving this resource.
+        }
       }
     }
   }
@@ -819,7 +823,7 @@ export async function previewFile(courseId: number, fileUrl: string, _filename: 
   const result = await api.readFile(file.fileurl);
   if (result.data.byteLength > MAX_PREVIEW_BYTES) throw new Error("Preview is limited to 25 MB. Download this file explicitly instead.");
   const reported = result.mimeType.split(";")[0].trim().toLowerCase();
-  let mimeType = reported && reported !== "application/octet-stream"
+  const mimeType = reported && reported !== "application/octet-stream"
     ? reported
     : previewMimeFor(file.filename, file.mimetype?.toLowerCase());
   if (!previewableMime(mimeType, file.filename)) {

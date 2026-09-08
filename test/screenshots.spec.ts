@@ -7,8 +7,7 @@
  * Run with:
  *   npx playwright test screenshots --config=playwright.config.ts
  */
-import { test, expect, courses, fileTypes, openCourse, emit } from "./fixtures/desktop";
-import type { Page } from "playwright/test";
+import { test, expect, openCourse } from "./fixtures/desktop";
 
 const SCREENSHOT_DIR = "test-results/screenshots";
 
@@ -127,12 +126,6 @@ test("13 — Codex with chat messages", async ({ page, boot }) => {
   await page.locator("#send-agent").click();
   await page.locator("#stop-agent").click();
   await expect(page.locator("#agent-status")).toHaveText("Ready");
-
-  // Simulate a response message by emitting turn events
-  const threadId = await page.evaluate(() => {
-    const link = document.querySelector(".thread-link");
-    return link?.getAttribute("data-thread") || "thread-1";
-  });
 
   await page.waitForTimeout(300);
   await page.screenshot({ ...out("13-codex-with-messages") });

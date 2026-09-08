@@ -203,14 +203,14 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .brand .icon-button { flex: 0 0 auto; }
 .login-logo { display: block; width: min(300px, 100%); height: auto; margin: 2px 0 12px; }
 
-.primary-nav { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.primary-nav { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 14px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
   transition: all var(--transition-fast);
 }
 .nav-item > span { width: 18px; color: var(--muted); text-align: center; font: 13px ui-monospace, monospace; }
-.nav-item > .nav-logo { display: inline-flex; align-items: center; justify-content: center; }
+.nav-logo { display: inline-flex; align-items: center; justify-content: center; }
 .nav-logo svg { width: 17px; height: 17px; display: block; }
 .nav-item[aria-current="page"],
 .thread-link[aria-current="page"],
@@ -221,7 +221,7 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   font-weight: 600;
 }
 
-.course-nav { overflow: auto; flex: 1; min-height: 0; padding-bottom: 12px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.course-nav { overflow: auto; flex: 1; min-height: 0; padding-top: 2px; padding-bottom: 12px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .course-nav::-webkit-scrollbar { width: 5px; }
 .course-nav::-webkit-scrollbar-track { background: transparent; }
 .course-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -330,9 +330,9 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .search-field input { width: 100%; background: var(--subtle); border-radius: var(--radius-sm); }
 .semester-field { max-width: 45%; }
 .semester-field select { width: 100%; }
-.list-heading { display: flex; gap: 10px; align-items: center; padding: 0 0 10px; border-bottom: 1px solid var(--line); color: var(--muted); }
-.list-heading h2 { font-size: 12px; font-weight: 500; }
-.list-count { margin-left: auto; font-size: 11px; }
+.list-heading { display: flex; gap: 10px; align-items: baseline; padding: 0 0 12px; border-bottom: 1px solid var(--line); color: var(--muted); margin-bottom: 6px; }
+.list-heading h2 { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -0.015em; }
+.list-count { margin-left: auto; font-size: 12px; color: var(--muted); }
 
 /* ─── Course Rows & Cards ─── */
 .course-row {
@@ -356,7 +356,21 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .course-copy strong { display: block; font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; }
 .course-copy small { display: block; color: var(--muted); margin-top: 4px; font-size: 11px; }
 .course-year-group { margin-bottom: 28px; }
-.course-year-group > .section-label { font-size: 15px; font-weight: 650; color: var(--text); padding: 4px 2px 10px; margin: 0; }
+#course-grid .section-label,
+.course-list .section-label,
+.course-year-group > .section-label {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.015em;
+  padding: 8px 0 12px;
+  margin: 24px 0 6px;
+  display: block;
+}
+#course-grid .section-label:first-of-type,
+.course-list .section-label:first-of-type {
+  margin-top: 14px;
+}
 .course-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

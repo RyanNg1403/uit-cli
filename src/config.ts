@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { CliError } from "./output.js";
@@ -70,7 +71,9 @@ export function readSessionsFile(): SessionsData {
       try {
         migratedSso = JSON.parse(readFileSync(p, "utf8"));
         break;
-      } catch {}
+      } catch {
+        // Ignore malformed legacy files and continue checking migration sources.
+      }
     }
   }
   const oldLegacyPath = join(homedir(), ".uit", "legacy-sessions.json");
@@ -80,7 +83,9 @@ export function readSessionsFile(): SessionsData {
       const records = JSON.parse(readFileSync(oldLegacyPath, "utf8"));
       if (Array.isArray(records)) migratedLegacy = records;
       else if (records && typeof records === "object" && records.token) migratedLegacy = [records];
-    } catch {}
+    } catch {
+      // Ignore malformed legacy data; load() will report that no session exists.
+    }
   }
   return { sso: migratedSso, legacy: migratedLegacy };
 }
@@ -88,9 +93,19 @@ export function readSessionsFile(): SessionsData {
 export function writeSessionsFile(data: SessionsData): void {
   const path = getSessionsFilePath();
   const dir = join(homedir(), ".uit");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2), "utf8");
-  if (process.platform !== "win32") chmodSync(path, 0o600);
+  const temporaryPath = `${path}.part-${randomUUID()}`;
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(data, null, 2), {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600
+    });
+    renameSync(temporaryPath, path);
+    if (process.platform !== "win32") chmodSync(path, 0o600);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
 }
 
 function load(): Config {
@@ -148,6 +163,12 @@ function load(): Config {
   }
 
   throw new CliError("No active UIT session found. Run: uit login (or uit login --token <token>)");
+}
+
+/** Resolve the same active session configuration for CLI, MCP, and desktop callers. */
+export function getActiveConfig(options: { fresh?: boolean } = {}): Readonly<Config> {
+  if (options.fresh) resetConfigCache();
+  return load();
 }
 
 export function get(key: "token"): string;

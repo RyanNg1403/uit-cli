@@ -891,7 +891,8 @@ async function openCourse(course, refresh = false) {
   const generation = ++state.detailGeneration;
   const detail = $("#course-detail");
   detail.replaceChildren();
-  detail.append(node("p", "eyebrow", `${semesterOf(course).label} / ${siteLabel(course)} / ${course.shortname}`), node("h1", "", course.fullname));
+  const eyebrowParts = [semesterOf(course).label, course.shortname].filter(Boolean);
+  detail.append(node("p", "eyebrow", eyebrowParts.join(" / ")), node("h1", "", course.fullname));
   if (course.summary) detail.append(node("p", "course-description", course.summary));
   const actions = node("div", "detail-actions");
   actions.append(button("New Thread", "primary-button", () => newThread(course)), iconButton("Refresh resources", "secondary-button icon-action", refreshIcon(), () => openCourse(course, true)), button("Open in Moodle", "secondary-button", () => openMoodle(course, `${course.baseUrl}/course/view.php?id=${course.id}`)));
@@ -1452,7 +1453,10 @@ async function syncThreadRollout(thread = activeThread()) {
   if (!thread?.threadId) return;
   const currentId = thread.id;
   try {
-    const result = await window.uit.agent.readRollout(thread.threadId);
+    const result = await window.uit.agent.readRollout({
+      threadId: thread.threadId,
+      afterMtime: thread.lastRolloutMtime || 0
+    });
     if (!result || !result.messages || activeThread()?.id !== currentId) return;
     if (result.mtime && (!thread.lastRolloutMtime || result.mtime > thread.lastRolloutMtime)) {
       thread.lastRolloutMtime = result.mtime;

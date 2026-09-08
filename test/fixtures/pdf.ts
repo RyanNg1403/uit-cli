@@ -10,7 +10,7 @@ export function pdfFixture(width = 612, height = 792, pages = 2, pageSizes: Arra
       `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
     ]),
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    "<< /S /JavaScript /JS (app.alert\(\"PDF action must not execute\"\)) >>",
+    '<< /S /JavaScript /JS (app.alert("PDF action must not execute")) >>',
     "<< /Type /Annot /Subtype /Link /Rect [40 480 280 600] /A << /S /URI /URI (https://example.invalid/pdf-action) >> >>",
     "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 7 >>\nstream\nFF0000>\nendstream",
   ];

@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { afterEach, vi } from "vitest";
-import { requestMobileToken } from "../src/commands.js";
+import { courseDownloadPath, requestMobileToken } from "../src/commands.js";
 import { clean, extractUrls, htmlToText, idOrUrl, parseMoodleUrl, sanitize, ts } from "../src/output.js";
 import { extractH5pPackage, parseZip } from "../src/unzip.js";
 import { makeZip } from "./zip-fixture.js";
@@ -31,6 +31,28 @@ describe("output helpers", () => {
     expect(ts(0)).toBe("");
     expect(ts(1_700_000_000)).toMatch(/^2023-11-1[45] /);
     expect(sanitize("Week/1: Intro?.pdf")).toBe("Week_1_ Intro_.pdf");
+  });
+});
+
+describe("course download paths", () => {
+  it("keeps nested Moodle files inside the selected download directory", () => {
+    const root = join(tmpdir(), "uit-download-root");
+    expect(courseDownloadPath(root, "/slides/week 1/", "intro?.pdf")).toBe(
+      join(root, "slides", "week 1", "intro_.pdf")
+    );
+  });
+
+  it("neutralizes absolute paths, traversal segments, and Windows separators", () => {
+    const root = join(tmpdir(), "uit-download-root");
+    const destination = courseDownloadPath(root, "../../outside\\nested", "../secret.txt");
+    expect(destination).toBe(join(root, "outside", "nested", "secret.txt"));
+    expect(destination.startsWith(`${root}${sep}`)).toBe(true);
+  });
+
+  it("rejects filenames that contain no usable name", () => {
+    expect(() => courseDownloadPath(join(tmpdir(), "uit-download-root"), "/", "..")).toThrow(
+      "invalid filename"
+    );
   });
 });
 

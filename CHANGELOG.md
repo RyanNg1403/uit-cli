@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning. For new releases, update the version with `npm version patch`, `npm version minor`, or `npm version major`, then push the generated tag.
 
+## [1.2.0] - 2026-09-08
+
+### Added
+
+- Added UIT Studio, including course resources, members, grades, authenticated previews, multi-account support, and Codex-powered course workspaces.
+- Added UIT SSO login alongside legacy Moodle token authentication.
+- Added the workspace-gated UIT MCP server and Codex CLI/App integration.
+- Added linting, desktop UI coverage, Electron stability coverage, and npm package verification to CI.
+- Added free unsigned macOS packaging for Apple Silicon and Intel, with GitHub Release artifacts and SHA-256 checksums.
+- Added a repository-hosted installer for the CLI, UIT Studio, or both.
+
+### Changed
+
+- Parallelized independent SSO course discovery requests.
+- Avoid repeated Codex rollout directory scans and unchanged history-file reads.
+- Unified active-session resolution across the CLI and MCP server.
+
+### Fixed
+
+- Prevented direct MCP tool calls from bypassing workspace gating.
+- Prevented Moodle file metadata from escaping the selected download directory.
+- Made credential-file updates atomic and private.
+- Made packaged UIT Studio register a runnable embedded MCP command instead of a Node path trapped inside its application archive.
+
 ## [1.1.0] - 2026-06-27
 
 ### Added

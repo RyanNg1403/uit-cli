@@ -14,14 +14,24 @@ Fast, scriptable terminal client for browsing courses, checking assignments, dow
 
 ### Installation
 
-```bash
-# Global install via npm
-npm install -g uit-cli
+`npm` installs the CLI and MCP server only; UIT Studio is distributed separately.
 
-# Or clone and link
+```bash
+npm install -g uit-cli
+```
+
+On macOS and Linux, the free installer is also available. It uses npm internally, so Node.js 20.19 or later is still required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
+```
+
+To work from source instead:
+
+```bash
 git clone https://github.com/RyanNg1403/uit-cli.git
 cd uit-cli
-npm install
+npm ci
 npm link
 ```
 
@@ -61,12 +71,28 @@ The native desktop workspace combining Moodle course management with an intellig
 
 ### Installation & Launch
 
-Requires Node.js 20+:
+UIT Studio is currently distributed for macOS on Apple Silicon and Intel Macs. The downloadable builds are unsigned to keep distribution free, so macOS may block the first launch. If it does, open **System Settings → Privacy & Security** and choose **Open Anyway** for UIT Studio.
+
+Install UIT Studio into `~/Applications`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
+```
+
+Install both UIT CLI and UIT Studio:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --all
+```
+
+The installer detects the Mac architecture and verifies the release archive's SHA-256 checksum. You can also download the unsigned DMG directly from the [latest GitHub release](https://github.com/RyanNg1403/uit-cli/releases/latest).
+
+To launch from source instead, install Node.js 20.19 or later and run:
 
 ```bash
 git clone https://github.com/RyanNg1403/uit-cli.git
 cd uit-cli
-npm install
+npm ci
 npm run desktop
 ```
 

@@ -102,10 +102,11 @@ async function harness(saved: unknown[] = []) {
     "../dist/mcp-server.js": { installMcpServer: vi.fn() },
   };
   const clipboard = { writeText: vi.fn(), readText: vi.fn() };
+  const existsSync = vi.fn().mockReturnValue(false);
   const modules: Record<string, unknown> = {
     electron: { app, BrowserWindow, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
     "node:os": { homedir: () => home }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
-    "node:fs": { existsSync: vi.fn().mockReturnValue(false) },
+    "node:fs": { existsSync },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
     "node:util": { promisify: (fn: any) => async (...args: any[]) => new Promise((res, rej) => fn(...args, (err: any, out: any) => err ? rej(err) : res(out))) },
   };
@@ -136,7 +137,7 @@ async function harness(saved: unknown[] = []) {
   const start = (input = {}) => invoke("agent:start", { ...reference, taskId: "task-1", message: "Explain @Assignment", ...input });
   const request = (input: any) => { context.request = input; return runInContext("handleAgentRequest(request)", context); };
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
-  return { context, app, window, windows, handlers, event, invoke, service, codex, fs, connect, currentApi, legacyApi, start, request, bindings, shell };
+  return { context, app, window, windows, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell };
 }
 
 describe("main IPC trust and routing", () => {
@@ -675,8 +676,31 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
 
     const rolloutRes = await h.invoke("thread:read-rollout", { threadId: "thread-123" });
     expect(rolloutRes).toEqual({ mtime: 0, messages: [] });
+    await expect(h.invoke("thread:read-rollout", { threadId: "thread-123", afterMtime: -1 })).rejects.toThrow(
+      "Invalid rollout timestamp"
+    );
 
     const clipRes = await h.invoke("clipboard:write", { text: "codex resume thread-123" });
     expect(clipRes).toEqual({ success: true });
+  });
+
+  it("caches rollout paths and skips unchanged rollout file reads", async () => {
+    const h = await harness();
+    const threadId = "thread-cached";
+    h.existsSync.mockReturnValue(true);
+    h.fs.readdir.mockResolvedValue([
+      { name: `rollout-${threadId}.jsonl`, isFile: () => true, isDirectory: () => false }
+    ]);
+    h.fs.stat.mockResolvedValue({ mtimeMs: 1234 });
+    h.fs.readFile.mockClear();
+
+    await expect(h.invoke("thread:read-rollout", { threadId, afterMtime: 1234 })).resolves.toEqual({
+      mtime: 1234,
+      messages: []
+    });
+    await h.invoke("thread:read-rollout", { threadId, afterMtime: 1234 });
+
+    expect(h.fs.readdir).toHaveBeenCalledOnce();
+    expect(h.fs.readFile).not.toHaveBeenCalled();
   });
 });

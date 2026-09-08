@@ -3,20 +3,27 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { ApiClient, MoodleRecord } from "./types.js";
-import { createTokenApiClient, createSessionApiClient, fetchCourseFile, writeCourseFile } from "./api.js";
-import { get, readSessionsFile, type SsoSessionData } from "./config.js";
+import type { ApiClient } from "./types.js";
+import { createTokenApiClient, createSessionApiClient } from "./api.js";
+import { getActiveConfig } from "./config.js";
 import {
-  configuredLegacySession,
   getCourseContents,
   listAssignments,
   listAnnouncements,
-  resolveCourseResource,
   materializeFile,
   listCourseParticipants,
   getCourseGrades,
   listCourses
 } from "./desktop-service.js";
+
+function packageVersion(): string {
+  try {
+    const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
+    return String(JSON.parse(readFileSync(packagePath, "utf8")).version || "unknown");
+  } catch {
+    return "unknown";
+  }
+}
 
 export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
   const root = resolve(homedir(), ".uit", "courses");
@@ -25,50 +32,26 @@ export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
 }
 
 export function resolveAvailableSession(): { api: ApiClient; userId: number; baseUrl: string } {
-  // 1. Check ~/.uit/sessions.json
-  const sessions = readSessionsFile();
-  if (
-    sessions.sso &&
-    sessions.sso.baseUrl &&
-    sessions.sso.sesskey &&
-    sessions.sso.userId &&
-    Array.isArray(sessions.sso.cookies)
-  ) {
+  // MCP servers are long-lived; reload so Studio/CLI login changes take effect.
+  const config = getActiveConfig({ fresh: true });
+  const userId = Number(config.userId);
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    throw new Error("The active UIT session has no valid user ID. Sign in again or set UIT_USER_ID.");
+  }
+  if (config.authType === "sso") {
+    if (!config.sesskey || !config.cookies) throw new Error("The active UIT SSO session is incomplete. Sign in again.");
     return {
-      api: createSessionApiClient(sessions.sso.baseUrl, sessions.sso.sesskey, sessions.sso.cookies),
-      userId: sessions.sso.userId,
-      baseUrl: sessions.sso.baseUrl
+      api: createSessionApiClient(config.baseUrl, config.sesskey, config.cookies),
+      userId,
+      baseUrl: config.baseUrl
     };
   }
-
-  if (sessions.legacy && sessions.legacy.length > 0) {
-    const record = sessions.legacy[0];
-    if (record && record.token && record.baseUrl && record.userId) {
-      return {
-        api: createTokenApiClient(record.baseUrl, record.token),
-        userId: Number(record.userId),
-        baseUrl: record.baseUrl
-      };
-    }
-  }
-
-  // 2. Fallback to process.env.UIT_TOKEN
-  try {
-    const token = get("token");
-    const baseUrl = get("baseUrl");
-    const userId = Number(get("userId") || 0);
-    if (token && baseUrl) {
-      return {
-        api: createTokenApiClient(baseUrl, token),
-        userId,
-        baseUrl
-      };
-    }
-  } catch {
-    // None
-  }
-
-  throw new Error("No active UIT session found. Log in via UIT Studio or run 'uit login'.");
+  if (!config.token) throw new Error("The active UIT token session is incomplete. Sign in again.");
+  return {
+    api: createTokenApiClient(config.baseUrl, config.token),
+    userId,
+    baseUrl: config.baseUrl
+  };
 }
 
 export const UIT_MCP_TOOLS = [
@@ -138,7 +121,14 @@ export const UIT_MCP_TOOLS = [
   }
 ];
 
-export async function executeMcpTool(name: string, args: Record<string, any>): Promise<unknown> {
+export async function executeMcpTool(
+  name: string,
+  args: Record<string, any>,
+  cwd: string = process.cwd()
+): Promise<unknown> {
+  if (!isInsideUitWorkspace(cwd)) {
+    throw new Error("UIT MCP tools are only available inside a UIT course workspace.");
+  }
   const session = resolveAvailableSession();
   const courseId = Number(args.courseId);
 
@@ -162,6 +152,7 @@ export async function executeMcpTool(name: string, args: Record<string, any>): P
     case "uit_course_members": {
       if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid courseId");
       const roleFilter = args.role || "all";
+      if (!new Set(["all", "teacher", "student"]).has(roleFilter)) throw new Error("Invalid role filter");
       const participants = await listCourseParticipants(courseId, session.api);
       return participants.filter((p) => {
         if (roleFilter === "all") return true;
@@ -218,7 +209,7 @@ export function runMcpServer(): void {
         result: {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "uit-mcp", version: "1.1.0" }
+          serverInfo: { name: "uit-mcp", version: packageVersion() }
         }
       });
       return;
@@ -234,7 +225,7 @@ export function runMcpServer(): void {
     }
 
     if (method === "tools/list") {
-      // Workspace Gating: only return tools if cwd is inside ~/UIT
+      // Only advertise tools inside the managed UIT course workspace.
       const inside = isInsideUitWorkspace(process.cwd());
       send({
         jsonrpc: "2.0",
@@ -317,34 +308,79 @@ exec node "${cliPath}" "$@"
   }
 }
 
-export function installMcpServer(): void {
+export function upsertMcpConfig(existing: string, command: string, args: string[]): string {
+  const commandLine = `command = ${JSON.stringify(command)}`;
+  const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
+  const lines = existing.split("\n");
+  const sectionStart = lines.findIndex((line) => line.trim().toLowerCase() === "[mcp_servers.uit]");
+
+  if (sectionStart === -1) {
+    const separator = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
+    return `${existing}${separator}[mcp_servers.uit]\n${commandLine}\n${argsLine}\n`;
+  }
+
+  let sectionEnd = lines.length;
+  for (let index = sectionStart + 1; index < lines.length; index += 1) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[index])) {
+      sectionEnd = index;
+      break;
+    }
+  }
+
+  const commandIndex = lines.findIndex(
+    (line, index) => index > sectionStart && index < sectionEnd && /^\s*command\s*=/.test(line)
+  );
+  const argsIndex = lines.findIndex(
+    (line, index) => index > sectionStart && index < sectionEnd && /^\s*args\s*=/.test(line)
+  );
+
+  if (commandIndex === -1) {
+    lines.splice(sectionStart + 1, 0, commandLine);
+    sectionEnd += 1;
+  } else {
+    lines[commandIndex] = commandLine;
+  }
+
+  const adjustedArgsIndex = argsIndex !== -1 && commandIndex === -1 && argsIndex > sectionStart
+    ? argsIndex + 1
+    : argsIndex;
+  if (adjustedArgsIndex === -1) {
+    const currentCommandIndex = lines.findIndex(
+      (line, index) => index > sectionStart && index < sectionEnd && /^\s*command\s*=/.test(line)
+    );
+    lines.splice(currentCommandIndex + 1, 0, argsLine);
+  } else {
+    lines[adjustedArgsIndex] = argsLine;
+  }
+
+  return lines.join("\n");
+}
+
+export function installMcpServer(options: { command?: string; args?: string[] } = {}): void {
   const configPath = join(homedir(), ".codex", "config.toml");
-  const binPath = ensureLocalBinWrapper();
-  const command = existsSync(binPath) ? binPath : "uit";
-  const snippet = `\n[mcp_servers.uit]\ncommand = "${command}"\nargs = ["mcp"]\n`;
+  const binPath = options.command ? undefined : ensureLocalBinWrapper();
+  const command = options.command || (binPath && existsSync(binPath) ? binPath : "uit");
+  const args = options.args || ["mcp"];
+  const configured = (existing: string) => upsertMcpConfig(existing, command, args);
 
   if (!existsSync(configPath)) {
     const codexDir = join(homedir(), ".codex");
     if (!existsSync(codexDir)) {
-      try { mkdirSync(codexDir, { recursive: true }); } catch (_) {}
+      mkdirSync(codexDir, { recursive: true });
     }
-    writeFileSync(configPath, snippet, "utf8");
+    writeFileSync(configPath, configured(""), "utf8");
     console.log(`Created ~/.codex/config.toml and added [mcp_servers.uit]`);
     return;
   }
 
   const existing = readFileSync(configPath, "utf8");
-  if (/\[mcp_servers\.uit\]/i.test(existing)) {
-    if (command !== "uit" && /\[mcp_servers\.uit\]\s*\n\s*command\s*=\s*"uit"/i.test(existing)) {
-      const updated = existing.replace(/(\[mcp_servers\.uit\]\s*\n\s*command\s*=\s*)"uit"/i, `$1"${command}"`);
-      writeFileSync(configPath, updated, "utf8");
-      console.log(`Updated uit MCP server path in ~/.codex/config.toml to ${command}`);
-    } else {
-      console.log(`uit MCP server is already configured in ~/.codex/config.toml`);
-    }
+  const updated = configured(existing);
+  if (updated === existing) {
+    console.log(`uit MCP server is already configured in ~/.codex/config.toml`);
     return;
   }
-
-  writeFileSync(configPath, `${existing}${snippet}`, "utf8");
-  console.log(`Configured uit MCP server in ~/.codex/config.toml`);
+  writeFileSync(configPath, updated, "utf8");
+  console.log(/\[mcp_servers\.uit\]/i.test(existing)
+    ? `Updated uit MCP server path in ~/.codex/config.toml to ${command}`
+    : `Configured uit MCP server in ~/.codex/config.toml`);
 }

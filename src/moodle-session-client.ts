@@ -468,7 +468,7 @@ export class MoodleSessionApi implements ApiClient {
       if (name === "mod_assign_get_submission_status") return await this.submissionStatusFallback(params) as T;
       if (name === "core_course_get_course_module") {
         const cmid = Number(params.cmid);
-        if (!Number.isSafeInteger(cmid) || cmid <= 0) throw new Error("Invalid course module ID.");
+        if (!Number.isSafeInteger(cmid) || cmid <= 0) throw new Error("Invalid course module ID.", { cause: error });
         if (!this.modules.has(cmid)) {
           const courses = params.courseid ? [{ id: Number(params.courseid) }] : await this.call<MoodleRecord[]>("core_enrol_get_users_courses");
           for (const course of courses) {
@@ -477,7 +477,7 @@ export class MoodleSessionApi implements ApiClient {
           }
         }
         const module = this.modules.get(cmid);
-        if (!module) throw new Error("Course module was not found in accessible courses.");
+        if (!module) throw new Error("Course module was not found in accessible courses.", { cause: error });
         let cm: MoodleRecord;
         try { cm = await this.activityFallback(module); }
         catch (error) { cm = { ...module, unavailable: { details: String(error) } }; }

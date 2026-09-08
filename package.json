@@ -1,8 +1,13 @@
 {
   "name": "uit-cli",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "CLI for courses.uit.edu.vn (Moodle)",
   "license": "MIT",
+  "productName": "UIT Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RyanNg1403/uit-cli.git"
+  },
   "type": "module",
   "bin": {
     "uit": "dist/cli.js"
@@ -17,16 +22,20 @@
     "dev": "tsx src/cli.ts",
     "desktop:build": "npm run build",
     "desktop": "npm run desktop:build && electron desktop/main.cjs",
+    "desktop:package": "npm run desktop:build && electron-builder --mac zip dmg --publish never",
     "desktop:check": "npm run desktop:build && node --check desktop/main.cjs && node --check desktop/preload.cjs && node --check desktop/renderer/renderer.js && node --check desktop/renderer/appearance.js",
+    "installer:check": "sh -n scripts/install.sh && scripts/install.sh --help >/dev/null",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:desktop": "npm run desktop:build && playwright test desktop-ui pdf-preview sidebar",
     "test:electron": "npm run desktop:build && playwright test electron-stability --workers=1",
+    "lint": "eslint .",
+    "package:check": "npm run build && node scripts/check-package.mjs",
     "typecheck": "tsc --noEmit",
     "prepack": "npm run build"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "commander": "^14.0.2",
@@ -35,10 +44,15 @@
     "playwright": "^1.63.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.0.0",
     "electron": "41.10.3",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^4.0.14"
   }
 }

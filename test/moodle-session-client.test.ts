@@ -1,12 +1,33 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
 import { MoodleSessionApi, buildAjaxInfo, unwrapAjaxResponse } from "../src/moodle-session-client.js";
+import { NodeSessionApiClient } from "../src/api.js";
 import { clearCourseCache, listCourses, lookupCourse, resolveCourseResource } from "../src/desktop-service.js";
 
 beforeEach(() => { vi.spyOn(console, "error").mockImplementation(() => undefined); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Moodle session API", () => {
+  it("loads independent Node SSO timeline buckets concurrently", async () => {
+    let active = 0;
+    let peak = 0;
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      const [{ args }] = JSON.parse(String(init.body));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      const id = ["all", "inprogress", "past", "future", "hidden"].indexOf(args.classification) + 1;
+      return Response.json([{ data: { courses: [{ id }] } }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    await expect(api.call("core_enrol_get_users_courses")).resolves.toHaveLength(5);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(peak).toBe(5);
+  });
+
   it("normalizes Moodle bracket-array arguments for AJAX", () => {
     expect(JSON.parse(buildAjaxInfo("mod_assign_get_assignments", { "courseids[0]": 42, "courseids[2]": 99 }))).toEqual([
       { index: 0, methodname: "mod_assign_get_assignments", args: { courseids: [42, null, 99] } }

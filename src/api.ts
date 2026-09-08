@@ -247,14 +247,14 @@ export class NodeSessionApiClient implements ApiClient {
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const html = await res.text();
     const modules: MoodleRecord[] = [];
-    const blockRegex = /<li[^>]+id=[\"']module-(\d+)[\"'][\s\S]*?<\/li>/gi;
+    const blockRegex = /<li[^>]+id=["']module-(\d+)["'][\s\S]*?<\/li>/gi;
     let m: RegExpExecArray | null;
     while ((m = blockRegex.exec(html)) !== null) {
       const block = m[0];
       const id = Number(m[1]);
-      const nameMatch = /data-activityname=[\"']([^\"']+)[\"']/i.exec(block) || /class=[\"'][^\"']*activityname[^\"']*[\"'][\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i.exec(block);
-      const modnameMatch = /class=[\"'][^\"']*(?:modtype_|activity\s+)([^\s\"']+)/i.exec(block);
-      const urlMatch = /href=[\"']([^\"']*(?:\/mod\/|\/view\.php)[^\"']*)[\"']/i.exec(block);
+      const nameMatch = /data-activityname=["']([^"']+)["']/i.exec(block) || /class=["'][^"']*activityname[^"']*["'][\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+      const modnameMatch = /class=["'][^"']*(?:modtype_|activity\s+)([^\s"']+)/i.exec(block);
+      const urlMatch = /href=["']([^"']*(?:\/mod\/|\/view\.php)[^"']*)["']/i.exec(block);
       const name = nameMatch ? (nameMatch[1] || nameMatch[2] || "").replace(/<[^>]+>/g, "").trim() : "Activity";
       modules.push({
         id,
@@ -270,7 +270,8 @@ export class NodeSessionApiClient implements ApiClient {
   async call<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
     if (name === "core_enrol_get_users_courses") {
       const courseMap = new Map<number, MoodleRecord>();
-      for (const classification of ["all", "inprogress", "past", "future", "hidden"]) {
+      const classifications = ["all", "inprogress", "past", "future", "hidden"];
+      const groups = await Promise.all(classifications.map(async (classification) => {
         try {
           const res = await this.callRaw<any>("core_course_get_enrolled_courses_by_timeline_classification", {
             classification,
@@ -278,20 +279,23 @@ export class NodeSessionApiClient implements ApiClient {
             offset: 0
           });
           const entries = Array.isArray(res) ? res : res?.courses;
-          if (Array.isArray(entries)) {
-            for (const item of entries) {
-              const id = Number(item?.id);
-              if (Number.isSafeInteger(id) && id > 0 && !courseMap.has(id)) {
-                courseMap.set(id, {
-                  ...item,
-                  id,
-                  categoryname: item.coursecategory || item.categoryname || ""
-                });
-              }
-            }
-          }
+          return Array.isArray(entries) ? entries : [];
         } catch {
           // Continue to other classifications
+          return [];
+        }
+      }));
+      // Merge in classification order so the same source keeps precedence.
+      for (const entries of groups) {
+        for (const item of entries) {
+          const id = Number(item?.id);
+          if (Number.isSafeInteger(id) && id > 0 && !courseMap.has(id)) {
+            courseMap.set(id, {
+              ...item,
+              id,
+              categoryname: item.coursecategory || item.categoryname || ""
+            });
+          }
         }
       }
       return [...courseMap.values()] as T;

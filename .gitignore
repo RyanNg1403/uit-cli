@@ -11,4 +11,5 @@ coverage/
 .uit.json
 test-results/
 playwright-report/
+release/
 .opencode/

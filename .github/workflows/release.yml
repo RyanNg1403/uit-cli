@@ -10,19 +10,90 @@ permissions:
   id-token: write
 
 jobs:
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - arm64
+          - x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20.19"
+          cache: npm
+
+      - name: Verify tag matches package version
+        run: node -e "const { version } = require('./package.json'); if (process.env.GITHUB_REF_NAME !== 'v' + version) { throw new Error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package version v' + version); }"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build unsigned macOS distributables
+        run: npm run desktop:package -- --${{ matrix.arch }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Verify packaged MCP on native architecture
+        run: |
+          native_arch="$(uname -m)"
+          if { [ "$native_arch" = "arm64" ] && [ "${{ matrix.arch }}" != "arm64" ]; } || \
+             { [ "$native_arch" = "x86_64" ] && [ "${{ matrix.arch }}" != "x64" ]; }; then
+            echo "Skipping execution of the cross-architecture package."
+            exit 0
+          fi
+          app_directory="mac"
+          if [ "${{ matrix.arch }}" = "arm64" ]; then app_directory="mac-arm64"; fi
+          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "release/${app_directory}/UIT Studio.app/Contents/MacOS/UIT Studio" --uit-mcp)"
+          printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
+          printf '%s\n' "$response" | grep -F "\"version\":\"${GITHUB_REF_NAME#v}\""
+
+      - name: Stage release assets and checksums
+        run: |
+          mkdir -p release-assets
+          for extension in zip dmg; do
+            asset="UIT-Studio-macos-${{ matrix.arch }}.${extension}"
+            test -f "release/${asset}"
+            cp "release/${asset}" "release-assets/${asset}"
+            (cd release-assets && shasum -a 256 "${asset}" > "${asset}.sha256")
+          done
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: uit-studio-macos-${{ matrix.arch }}
+          path: release-assets/*
+          if-no-files-found: error
+
   publish:
+    needs: build-macos
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
-          cache: npm
+          node-version: "20.19"
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org
+
+      - name: Verify tag matches package version
+        run: node -e "const { version } = require('./package.json'); if (process.env.GITHUB_REF_NAME !== 'v' + version) { throw new Error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package version v' + version); }"
+
+      - name: Verify tagged commit is on main
+        run: |
+          git fetch origin main --depth=1
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
       - name: Install dependencies
         run: npm ci
@@ -30,11 +101,32 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint -- --quiet
+
       - name: Test
         run: npm test
 
-      - name: Build
-        run: npm run build
+      - name: Check desktop build
+        run: npm run desktop:check
+
+      - name: Check installer
+        run: npm run installer:check
+
+      - name: Verify npm package
+        run: npm run package:check
+
+      - name: Download macOS release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: uit-studio-macos-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify npm publisher
+        run: test "$(npm whoami)" = "phatng"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
         run: npm publish --provenance
@@ -44,4 +136,7 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release-assets/*
+          --generate-notes --verify-tag
+          --notes "UIT Studio for macOS is distributed unsigned. macOS may require users to approve its first launch with Open Anyway in System Settings > Privacy & Security."

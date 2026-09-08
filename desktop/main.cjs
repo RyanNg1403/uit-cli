@@ -77,7 +77,9 @@ async function loadService() {
   if (process.env.UIT_DISABLE_CONFIG !== "1") {
     try {
       const mcp = await import("../dist/mcp-server.js");
-      mcp.installMcpServer?.();
+      mcp.installMcpServer?.(app.isPackaged
+        ? { command: process.execPath, args: ["--uit-mcp"] }
+        : undefined);
     } catch (_) {}
   }
   const configured = process.env.UIT_DISABLE_CONFIG === "1" ? undefined : service.configuredLegacySession?.();
@@ -483,9 +485,14 @@ async function isThreadExternallyLocked(threadId) {
   }
 }
 
+const rolloutFilePaths = new Map();
+
 async function findRolloutFilePath(threadId) {
   const sessionsDir = join(homedir(), ".codex", "sessions");
   if (!existsSync(sessionsDir)) return null;
+  const cached = rolloutFilePaths.get(threadId);
+  if (cached && existsSync(cached)) return cached;
+  rolloutFilePaths.delete(threadId);
 
   async function scan(dir, depth = 0) {
     if (depth > 4) return null;
@@ -496,6 +503,7 @@ async function findRolloutFilePath(threadId) {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       if (entry.isFile() && entry.name.endsWith(`${threadId}.jsonl`)) {
+        rolloutFilePaths.set(threadId, fullPath);
         return fullPath;
       }
       if (entry.isDirectory()) {
@@ -509,11 +517,12 @@ async function findRolloutFilePath(threadId) {
   return scan(sessionsDir);
 }
 
-async function readThreadRollout(threadId) {
+async function readThreadRollout(threadId, afterMtime = 0) {
   const filePath = await findRolloutFilePath(threadId);
   if (!filePath) return null;
   try {
     const fileStats = await stat(filePath);
+    if (afterMtime >= fileStats.mtimeMs) return { mtime: fileStats.mtimeMs, messages: [] };
     const content = await readFile(filePath, "utf8");
     const lines = content.split("\n").filter(Boolean);
     const messages = [];
@@ -1099,7 +1108,9 @@ function registerIpc() {
     "thread:read-rollout": async (_event, rawInput) => {
       const input = requireObject(rawInput, "Rollout input");
       const threadId = requireString(input.threadId, "Thread ID");
-      const rollout = await readThreadRollout(threadId);
+      const afterMtime = input.afterMtime === undefined ? 0 : Number(input.afterMtime);
+      if (!Number.isFinite(afterMtime) || afterMtime < 0) throw new Error("Invalid rollout timestamp.");
+      const rollout = await readThreadRollout(threadId, afterMtime);
       return rollout || { mtime: 0, messages: [] };
     },
     "shell:open": (_event, target) => {
@@ -1153,17 +1164,27 @@ async function createWindow() {
   window.webContents.on("will-navigate", (event) => event.preventDefault());
 }
 
-app.whenReady().then(createWindow).catch((error) => {
-  console.error(error);
-  app.quit();
-});
+if ((process.argv || []).includes("--uit-mcp")) {
+  process.stdin.once("end", () => app.quit());
+  import("../dist/mcp-server.js")
+    .then(({ runMcpServer }) => runMcpServer())
+    .catch((error) => {
+      console.error(error);
+      app.exit(1);
+    });
+} else {
+  app.whenReady().then(createWindow).catch((error) => {
+    console.error(error);
+    app.quit();
+  });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
 
-app.on("activate", () => {
-  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
-});
+  app.on("activate", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  });
 
-app.on("before-quit", () => { codex?.disconnect(); });
+  app.on("before-quit", () => { codex?.disconnect(); });
+}

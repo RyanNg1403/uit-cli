@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,14 +16,13 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 import { createProgram, main } from "../src/cli.js";
-import { get, resetConfigCache, saveSsoSession, type SsoSessionData } from "../src/config.js";
+import { get, getActiveConfig, resetConfigCache, saveSsoSession, type SsoSessionData } from "../src/config.js";
 import { NodeSessionApiClient, createSessionApiClient } from "../src/api.js";
 import type { ApiClient } from "../src/types.js";
 
 const originalCwd = process.cwd();
 let tempDir: string;
 let stdout = "";
-let stderr = "";
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 
@@ -44,13 +43,10 @@ beforeEach(() => {
   process.chdir(tempDir);
   resetConfigCache();
   stdout = "";
-  stderr = "";
   stdoutSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
     stdout += `${args.join(" ")}\n`;
   });
-  stderrSpy = vi.spyOn(console, "error").mockImplementation((...args) => {
-    stderr += `${args.join(" ")}\n`;
-  });
+  stderrSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -78,6 +74,35 @@ describe("SSO CLI workflow and session resolution", () => {
     expect(get("sesskey")).toBe("sesskey-12345");
     expect(get("cookies")).toEqual([{ name: "MoodleSession", value: "cookie-value-abc" }]);
     expect(get("token")).toBe("");
+    const configDir = join(tempDir, ".uit");
+    expect(readdirSync(configDir)).toEqual(["sessions.json"]);
+    if (process.platform !== "win32") {
+      expect(statSync(join(configDir, "sessions.json")).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("uses environment credentials consistently when they override a saved session", () => {
+    saveSsoSession({
+      baseUrl: "https://courses.uit.edu.vn",
+      userId: 19589,
+      sesskey: "saved-sesskey",
+      cookies: [{ name: "MoodleSession", value: "saved-cookie" }]
+    });
+    process.env.UIT_TOKEN = "environment-token";
+    process.env.UIT_BASE_URL = "https://coursesold.uit.edu.vn/";
+    process.env.UIT_USER_ID = "42";
+    try {
+      expect(getActiveConfig({ fresh: true })).toMatchObject({
+        authType: "token",
+        baseUrl: "https://coursesold.uit.edu.vn",
+        token: "environment-token",
+        userId: 42
+      });
+    } finally {
+      delete process.env.UIT_TOKEN;
+      delete process.env.UIT_BASE_URL;
+      delete process.env.UIT_USER_ID;
+    }
   });
 
   it("handles uit login --sso with mock launcher", async () => {
