@@ -27,6 +27,8 @@ import {
 import { runMcpServer, installMcpServer } from "./mcp-server.js";
 import { cmdLoginSso, type SsoLoginLauncher } from "./sso-login.js";
 
+const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
+
 export const WORKFLOW = `
 workflow:
   uit login [token]                    -> sign in via UIT SSO or token (or uit init)
@@ -134,13 +136,12 @@ export function createProgram(
     .option("--token <token>", "Sign in using a Moodle API token")
     .option("-u, --username <username>", "Student ID for interactive token setup")
     .option("-p, --password <password>", "Password for non-interactive token setup")
-    .option("--url <url>", "Moodle base URL", "https://courses.uit.edu.vn")
     .action(async (token, opts) => {
       if (opts.token || token || opts.username || opts.password) {
-        await cmdInit({ token: opts.token || token, url: opts.url, username: opts.username, password: opts.password });
+        await cmdInit({ token: opts.token || token, url: CURRENT_SITE_BASE_URL, username: opts.username, password: opts.password });
         return;
       }
-      await cmdLoginSso({ url: opts.url }, options.ssoLauncher);
+      await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
     });
 
   program
@@ -148,16 +149,15 @@ export function createProgram(
     .description("Set up credentials (~/.uit/sessions.json)")
     .argument("[token]", "Moodle API token from /login/token.php")
     .option("--sso", "Sign in via UIT SSO (opens browser window)")
-    .option("--url <url>", "Moodle base URL", "https://courses.uit.edu.vn")
     .option("--token <token>", "Use an existing Moodle API token instead of prompting for login")
     .option("-u, --username <username>", "Student ID for interactive token setup")
     .option("-p, --password <password>", "Password for non-interactive token setup")
     .action(async (token, opts) => {
       if (opts.sso) {
-        await cmdLoginSso({ url: opts.url }, options.ssoLauncher);
+        await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
         return;
       }
-      await cmdInit({ token: opts.token || token, url: opts.url, username: opts.username, password: opts.password });
+      await cmdInit({ token: opts.token || token, url: CURRENT_SITE_BASE_URL, username: opts.username, password: opts.password });
     });
 
   program

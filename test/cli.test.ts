@@ -54,11 +54,14 @@ afterEach(() => {
 });
 
 describe("CLI command flows", () => {
-  it("shows init --token in help", async () => {
+  it("shows token login without exposing an arbitrary Moodle URL", async () => {
     const program = createProgram(mockApi({}));
     const initCommand = program.commands.find((command) => command.name() === "init");
+    const loginCommand = program.commands.find((command) => command.name() === "login");
 
     expect(initCommand?.helpInformation()).toContain("--token <token>");
+    expect(initCommand?.helpInformation()).not.toContain("--url");
+    expect(loginCommand?.helpInformation()).not.toContain("--url");
   });
 
   it("lists courses in the same JSON shape", async () => {

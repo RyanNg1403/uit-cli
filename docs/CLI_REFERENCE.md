@@ -43,8 +43,6 @@ uit login --username YOUR_STUDENT_ID
 # Non-interactive token setup:
 uit login --username YOUR_STUDENT_ID --password YOUR_PASSWORD
 
-# Specify non-default Moodle URL:
-uit login --url https://your-moodle-instance.com
 ```
 
 Prefer the interactive browser login (`uit login`) or interactive token prompt for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
