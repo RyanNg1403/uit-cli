@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { courses, CURRENT, LEGACY, fileTypes, key, openCourse, STORE } from "./fixtures/desktop";
 import { pdfFixture } from "./fixtures/pdf";
 
-test.describe.configure({ mode: "serial", retries: 0, timeout: 180_000 });
+// Linux CI uses Xvfb and software rendering, so the same 60-second soak can
+// require several minutes of wall time while screenshots and PDF views settle.
+test.describe.configure({ mode: "serial", retries: 0, timeout: 420_000 });
 
 test("one hidden Electron process survives an offline navigation and PDF soak", async ({}, info) => {
   const mainPath = fileURLToPath(new URL("../desktop/main.cjs", import.meta.url));
