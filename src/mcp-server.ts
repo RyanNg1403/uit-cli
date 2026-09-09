@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ApiClient } from "./types.js";
 import { createTokenApiClient, createSessionApiClient } from "./api.js";
-import { getActiveConfig } from "./config.js";
+import { getActiveConfig, readSessionsFile, type Config } from "./config.js";
 import {
   getCourseContents,
   listAssignments,
@@ -15,6 +15,7 @@ import {
   getCourseGrades,
   listCourses
 } from "./desktop-service.js";
+import { workspacePath } from "./desktop-service.js";
 
 function packageVersion(): string {
   try {
@@ -31,9 +32,49 @@ export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
   return current === root || current.startsWith(`${root}${sep}`);
 }
 
-export function resolveAvailableSession(): { api: ApiClient; userId: number; baseUrl: string } {
-  // MCP servers are long-lived; reload so Studio/CLI login changes take effect.
-  const config = getActiveConfig({ fresh: true });
+function persistedConfigs(): Config[] {
+  if (process.env.UIT_TOKEN) return [getActiveConfig({ fresh: true }) as Config];
+  const sessions = readSessionsFile();
+  const configs: Config[] = [];
+  if (sessions.sso?.baseUrl && sessions.sso.sesskey && sessions.sso.userId && Array.isArray(sessions.sso.cookies)) {
+    configs.push({
+      authType: "sso",
+      baseUrl: sessions.sso.baseUrl.replace(/\/+$/, ""),
+      userId: Number(sessions.sso.userId),
+      sesskey: sessions.sso.sesskey,
+      cookies: sessions.sso.cookies
+    });
+  }
+  for (const session of sessions.legacy || []) {
+    if (session?.baseUrl && session.token && session.userId) {
+      configs.push({ authType: "token", baseUrl: session.baseUrl.replace(/\/+$/, ""), userId: Number(session.userId), token: session.token });
+    }
+  }
+  return configs;
+}
+
+function workspaceCourseId(cwd: string): number | undefined {
+  const root = resolve(homedir(), ".uit", "courses");
+  const current = resolve(cwd);
+  if (!current.startsWith(`${root}${sep}`)) return undefined;
+  const parts = current.slice(root.length + 1).split(sep);
+  const match = /^course-([1-9]\d*)$/.exec(parts[2] || "");
+  return match ? Number(match[1]) : undefined;
+}
+
+export function resolveAvailableSession(cwd: string = process.cwd()): { api: ApiClient; userId: number; baseUrl: string } {
+  // Bind credentials to the portal/account encoded by the course workspace.
+  // MCP servers are long-lived, so reload persisted sessions on every call.
+  const courseId = workspaceCourseId(cwd);
+  if (!courseId) throw new Error("UIT MCP tools require a specific UIT course workspace.");
+  const current = resolve(cwd);
+  const config = persistedConfigs().find((candidate) => {
+    const userId = Number(candidate.userId);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return false;
+    const workspace = workspacePath(courseId, candidate.baseUrl, userId);
+    return current === workspace || current.startsWith(`${workspace}${sep}`);
+  });
+  if (!config) throw new Error("No saved UIT session matches this course workspace. Reconnect its portal account.");
   const userId = Number(config.userId);
   if (!Number.isSafeInteger(userId) || userId <= 0) {
     throw new Error("The active UIT session has no valid user ID. Sign in again or set UIT_USER_ID.");
@@ -129,7 +170,7 @@ export async function executeMcpTool(
   if (!isInsideUitWorkspace(cwd)) {
     throw new Error("UIT MCP tools are only available inside a UIT course workspace.");
   }
-  const session = resolveAvailableSession();
+  const session = resolveAvailableSession(cwd);
   const courseId = Number(args.courseId);
 
   switch (name) {

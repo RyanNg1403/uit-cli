@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
 import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeFile, previewableMime, previewFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
@@ -598,6 +598,24 @@ describe("deterministic materialization", () => {
     expect(entries.some((entry) => entry.includes(".part-") || entry.endsWith(".pdf"))).toBe(false);
     vi.mocked(api.downloadFile).mockImplementationOnce(async (_url, path) => { await writeFile(path, "complete"); });
     await expect(materializeFile(42, file.fileurl, file.filename, api, identity)).resolves.toContain("lecture.pdf");
+  });
+
+  it("rejects a material directory replaced by a symlink", async () => {
+    await home();
+    const api = client();
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
+    const identity = { baseUrl: site, userId: 7 };
+    const first = await materializeFile(42, file.fileurl, file.filename, api, identity);
+    const hashDirectory = dirname(first);
+    const outside = join(state.home, "outside-course-workspace");
+    await mkdir(outside);
+    await rm(hashDirectory, { recursive: true });
+    await symlink(outside, hashDirectory, "dir");
+    vi.mocked(api.downloadFile).mockClear();
+
+    await expect(materializeFile(42, file.fileurl, file.filename, api, identity)).rejects.toThrow("symbolic links");
+    expect(api.downloadFile).not.toHaveBeenCalled();
+    expect(await readdir(outside)).toEqual([]);
   });
 
   it("invalidates same-URL content revisions but not credential rotation", async () => {

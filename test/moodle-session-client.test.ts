@@ -31,7 +31,7 @@ describe("Moodle session API", () => {
   it("propagates Node SSO authentication failures instead of returning an empty course list", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json([{
       error: true,
-      exception: { errorcode: "invalidsesskey", message: "Session expired" }
+      exception: { errorcode: "invalidsesskey", message: "Session expired; web service is not available" }
     }])));
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "expired", "MoodleSession=old");
 
@@ -46,6 +46,58 @@ describe("Moodle session API", () => {
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
 
     await expect(api.call("core_enrol_get_users_courses")).rejects.toThrow("Course discovery is unavailable");
+  });
+
+  it("does not hide Node SSO contents authentication failures behind HTML fallback", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json([{
+      error: true,
+      exception: { errorcode: "invalidsesskey", message: "Session expired" }
+    }]));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "expired", "MoodleSession=old");
+
+    await expect(api.call("core_course_get_contents", { courseid: 42 })).rejects.toThrow("Session expired");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("validates Node SSO HTML fallback pages and enriches resource files", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/lib/ajax/")) return Response.json([{
+        error: true,
+        exception: { errorcode: "servicenotavailable", message: "Unavailable" }
+      }]);
+      if (url.includes("/course/view.php")) return new Response(`
+        <body class="course-42"><div class="course-content"><ul>
+          <li id="module-101" class="activity modtype_resource" data-activityname="Slides">
+            <a class="aalink" href="/mod/resource/view.php?id=101">Slides</a>
+          </li>
+        </ul></div></body>
+      `, { headers: { "content-type": "text/html; charset=utf-8" } });
+      return new Response('<div class="resourceworkaround"><a href="/pluginfile.php/1/mod_resource/content/0/slides.pdf">Slides</a></div>', {
+        headers: { "content-type": "text/html" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    const result = await api.call<any[]>("core_course_get_contents", { courseid: 42 });
+    expect(result[0].modules).toMatchObject([{
+      id: 101,
+      modname: "resource",
+      contents: [{ type: "file", filename: "slides.pdf", fileurl: "https://courses.uit.edu.vn/pluginfile.php/1/mod_resource/content/0/slides.pdf" }]
+    }]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects a login page returned by the Node SSO contents fallback", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json([{ error: true, exception: { errorcode: "servicenotavailable" } }]))
+      .mockResolvedValueOnce(new Response('<form id="login"><input name="logintoken"></form>', { headers: { "content-type": "text/html" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=expired");
+
+    await expect(api.call("core_course_get_contents", { courseid: 42 })).rejects.toThrow("session expired");
   });
 
   it("normalizes Moodle bracket-array arguments for AJAX", () => {

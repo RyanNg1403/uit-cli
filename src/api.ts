@@ -18,8 +18,30 @@ export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
 
 function unavailableSessionMethod(error: unknown): boolean {
   const code = String((error as { errorcode?: string })?.errorcode || "");
-  if (/^(?:invalid_parameter_exception|invalidparameter|servicenotavailable|invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/i.test(code)) return true;
+  if (code) return /^(?:invalid_parameter_exception|invalidparameter|servicenotavailable|invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/i.test(code);
   return /(?:unknown method|not available for ajax|not callable via ajax|cannot find.*function|web\s*service is not available)/i.test(String(error));
+}
+
+function decodeHtmlText(value: string): string {
+  return value
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&#(?:39|x27);/gi, "'")
+    .trim();
+}
+
+function fileRecord(rawUrl: string, pageUrl: string): MoodleRecord | undefined {
+  try {
+    const url = new URL(rawUrl, pageUrl);
+    if (url.origin !== new URL(pageUrl).origin || !/(?:token)?pluginfile\.php(?:\/|$)/i.test(url.pathname)) return undefined;
+    let filename = basename(url.pathname) || "resource";
+    try { filename = decodeURIComponent(filename); } catch { /* Preserve malformed Moodle filenames verbatim. */ }
+    return { type: "file", filename, fileurl: url.toString(), filesize: 0 };
+  } catch { return undefined; }
 }
 
 /** Public resource URLs must not carry session credentials or Moodle core_files keys. */
@@ -245,13 +267,49 @@ export class NodeSessionApiClient implements ApiClient {
     return unwrapAjaxResponse(data) as T;
   }
 
-  private async fetchCourseContentsHtml(courseId: number): Promise<MoodleRecord[]> {
-    const res = await fetch(`${this.baseUrl}/course/view.php?id=${courseId}`, {
+  private async fetchHtmlPage(path: string): Promise<{ html: string; url: string }> {
+    const url = new URL(path, `${this.baseUrl}/`);
+    if (url.origin !== new URL(this.baseUrl).origin) throw new Error("Course page belongs to another origin.");
+    const res = await fetch(url, {
       headers: { Cookie: this.cookieHeader },
+      redirect: "manual",
       signal: AbortSignal.timeout(30_000)
     });
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const location = res.headers.get("location") || "";
+      throw new Error(/\/login(?:\/|$)/i.test(new URL(location, url).pathname)
+        ? "UIT session expired. Please sign in again."
+        : `Unexpected Moodle redirect (${res.status}).`);
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const contentType = res.headers.get("content-type") || "";
+    if (!/^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType) || /attachment/i.test(res.headers.get("content-disposition") || "")) {
+      await res.body?.cancel();
+      throw new Error("Expected a Moodle HTML page, not a download.");
+    }
     const html = await res.text();
+    if (/(?:name\s*=\s*["'](?:logintoken|password)["']|class\s*=\s*["'][^"']*\b(?:notloggedin|guestuser)\b|href\s*=\s*["'][^"']*\/login\/index\.php)/i.test(html)) {
+      throw new Error("UIT session expired. Please sign in again.");
+    }
+    if (/(?:class\s*=\s*["'][^"']*(?:errorbox|alert-danger|notifyproblem)\b|data-rel\s*=\s*["']fatalerror["'])/i.test(html)) {
+      throw new Error("Moodle could not display this page.");
+    }
+    return { html, url: url.toString() };
+  }
+
+  private async fetchCourseContentsHtml(courseId: number): Promise<MoodleRecord[]> {
+    if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid course ID.");
+    const { html, url: pageUrl } = await this.fetchHtmlPage(`/course/view.php?id=${courseId}`);
+    const identities = [
+      ...html.matchAll(/(?:class|id)\s*=\s*["'][^"']*\bcourse-(\d+)\b[^"']*["']/gi),
+      ...html.matchAll(/data-courseid\s*=\s*["'](\d+)["']/gi)
+    ].map((match) => Number(match[1]));
+    if (!identities.length || identities.some((id) => id !== courseId)) {
+      throw new Error("Moodle returned a different or unverified course.");
+    }
+    if (!/(?:class\s*=\s*["'][^"']*\bcourse-content\b|data-region\s*=\s*["']section["']|<li[^>]+class\s*=\s*["'][^"']*\bactivity\b)/i.test(html)) {
+      throw new Error("Unable to verify accessible course contents.");
+    }
     const modules: MoodleRecord[] = [];
     const blockRegex = /<li[^>]+id=["']module-(\d+)["'][\s\S]*?<\/li>/gi;
     let m: RegExpExecArray | null;
@@ -259,16 +317,41 @@ export class NodeSessionApiClient implements ApiClient {
       const block = m[0];
       const id = Number(m[1]);
       const nameMatch = /data-activityname=["']([^"']+)["']/i.exec(block) || /class=["'][^"']*activityname[^"']*["'][\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i.exec(block);
-      const modnameMatch = /class=["'][^"']*(?:modtype_|activity\s+)([^\s"']+)/i.exec(block);
+      const modnameMatch = /class=["'][^"']*\bmodtype_([^\s"']+)/i.exec(block);
       const urlMatch = /href=["']([^"']*(?:\/mod\/|\/view\.php)[^"']*)["']/i.exec(block);
       const name = nameMatch ? (nameMatch[1] || nameMatch[2] || "").replace(/<[^>]+>/g, "").trim() : "Activity";
+      const contents = [...block.matchAll(/<a\b[^>]*href\s*=\s*(["'])(.*?)\1[^>]*>/gi)]
+        .map((link) => fileRecord(link[2], pageUrl)).filter(Boolean);
       modules.push({
         id,
-        name,
-        modname: modnameMatch ? modnameMatch[1] : "resource",
-        url: urlMatch ? urlMatch[1] : "",
-        contents: []
+        course: courseId,
+        name: decodeHtmlText(name),
+        modname: modnameMatch?.[1] || (/\/mod\/([^/]+)\//i.exec(urlMatch?.[1] || "")?.[1]) || "resource",
+        url: urlMatch ? new URL(urlMatch[1].replace(/&amp;/gi, "&"), pageUrl).toString() : "",
+        contents
       });
+    }
+
+    // Moodle commonly exposes resource URLs only after opening the activity.
+    for (let start = 0; start < modules.length; start += 4) {
+      await Promise.all(modules.slice(start, start + 4).map(async (module) => {
+        if (!["resource", "folder", "url"].includes(String(module.modname))) return;
+        try {
+          const activityUrl = new URL(String(module.url || `/mod/${module.modname}/view.php?id=${module.id}`), pageUrl);
+          if (activityUrl.origin !== new URL(this.baseUrl).origin || !activityUrl.pathname.includes(`/mod/${module.modname}/`)) {
+            throw new Error("Moodle returned an invalid activity URL.");
+          }
+          activityUrl.searchParams.set("forceview", "1");
+          const page = await this.fetchHtmlPage(activityUrl.toString());
+          const found = [...page.html.matchAll(/<(?:a|object|iframe)\b[^>]*(?:href|data|src)\s*=\s*(["'])(.*?)\1[^>]*>/gi)]
+            .map((link) => fileRecord(link[2], page.url)).filter(Boolean);
+          const unique = new Map((module.contents || []).map((item: MoodleRecord) => [item.fileurl, item]));
+          for (const item of found) if (item) unique.set(item.fileurl, item);
+          module.contents = [...unique.values()];
+        } catch (error) {
+          module.unavailable = { contents: String(error) };
+        }
+      }));
     }
     return [{ id: 0, name: "General", modules }];
   }
@@ -314,7 +397,8 @@ export class NodeSessionApiClient implements ApiClient {
     if (name === "core_course_get_contents") {
       try {
         return await this.callRaw<T>(name, params);
-      } catch {
+      } catch (error) {
+        if (!unavailableSessionMethod(error)) throw error;
         return await this.fetchCourseContentsHtml(Number(params.courseid)) as T;
       }
     }
@@ -322,7 +406,8 @@ export class NodeSessionApiClient implements ApiClient {
     if (name === "mod_assign_get_assignments") {
       try {
         return await this.callRaw<T>(name, params);
-      } catch {
+      } catch (error) {
+        if (!unavailableSessionMethod(error)) throw error;
         return { courses: [], warnings: [] } as T;
       }
     }

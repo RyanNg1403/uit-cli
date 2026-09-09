@@ -1,7 +1,7 @@
-import { mkdir, stat, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
 import { get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
@@ -840,13 +840,42 @@ export async function previewFile(courseId: number, fileUrl: string, _filename: 
 
 export interface CourseIdentity { baseUrl: string; userId: number; shortname?: string }
 
-function workspacePath(courseId: number, baseUrl: string, userId: number): string {
+export function workspacePath(courseId: number, baseUrl: string, userId: number): string {
   if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error("A valid course and account identity is required for the workspace.");
   const site = new URL(baseUrl);
   if (!/^https?:$/.test(site.protocol) || site.username || site.password) throw new Error("Invalid course site URL.");
   const canonical = `${site.origin}${site.pathname.replace(/\/+$/, "")}`;
   const siteKey = `${site.hostname.replace(/[^a-zA-Z0-9.-]/g, "_")}-${createHash("sha256").update(canonical).digest("hex").slice(0, 16)}`;
   return resolve(homedir(), ".uit", "courses", siteKey, `user-${userId}`, `course-${courseId}`);
+}
+
+async function ensureWorkspaceDirectories(root: string, children: string[]): Promise<void> {
+  const coursesRoot = resolve(homedir(), ".uit", "courses");
+  const relativeRoot = relative(coursesRoot, root);
+  if (!relativeRoot || relativeRoot.startsWith("..") || resolve(coursesRoot, relativeRoot) !== root) {
+    throw new Error("Invalid UIT workspace path.");
+  }
+
+  // Create and verify one component at a time. A recursive mkdir beneath a
+  // hostile symlink could otherwise create files outside the UIT workspace.
+  const paths = [
+    resolve(homedir(), ".uit"),
+    coursesRoot,
+    ...relativeRoot.split(sep).reduce<string[]>((items, part) => {
+      items.push(join(items.at(-1) || coursesRoot, part));
+      return items;
+    }, []),
+    ...children.map((child) => join(root, child))
+  ];
+  for (const path of paths) {
+    await mkdir(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+    const info = await lstat(path);
+    if (info.isSymbolicLink() || !info.isDirectory() || await realpath(path) !== resolve(path)) {
+      throw new Error("UIT workspace directories must not be symbolic links.");
+    }
+  }
 }
 
 const downloads = new Map<string, Promise<string>>();
@@ -867,10 +896,10 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
   const existing = downloads.get(destination);
   if (existing) return existing;
   const pending = (async () => {
-    await mkdir(join(destination, ".."), { recursive: true });
+    await ensureWorkspaceDirectories(root, ["materials", join("materials", hash)]);
     try {
-      const info = await stat(destination);
-      if (!info.isFile()) throw new Error("Course download destination is not a file.");
+      const info = await lstat(destination);
+      if (info.isSymbolicLink() || !info.isFile()) throw new Error("Course download destination is not a regular file.");
       return destination;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -878,6 +907,7 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
     const temporary = `${destination}.part-${randomUUID()}`;
     try {
       await api.downloadFile(file.fileurl, temporary);
+      await ensureWorkspaceDirectories(root, ["materials", join("materials", hash)]);
       await rename(temporary, destination);
     } catch (error) {
       await rm(temporary, { force: true }).catch(() => undefined);
@@ -899,7 +929,7 @@ export async function courseWorkspace(courseId: number, _shortname: string, base
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     created = true;
   }
-  await Promise.all([join(path, ".uit", "context"), join(path, "materials"), join(path, "artifacts")].map((directory) => mkdir(directory, { recursive: true })));
+  await ensureWorkspaceDirectories(path, [".uit", join(".uit", "context"), "materials", "artifacts"]);
   return { path, courseId, created };
 }
 

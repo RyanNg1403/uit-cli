@@ -18,6 +18,8 @@ vi.mock("node:os", async (importOriginal) => {
 import { createProgram, main } from "../src/cli.js";
 import { get, getActiveConfig, resetConfigCache, save, saveSsoSession, type SsoSessionData } from "../src/config.js";
 import { NodeSessionApiClient, createSessionApiClient } from "../src/api.js";
+import { workspacePath } from "../src/desktop-service.js";
+import { resolveAvailableSession } from "../src/mcp-server.js";
 import type { ApiClient } from "../src/types.js";
 
 const originalCwd = process.cwd();
@@ -119,6 +121,25 @@ describe("SSO CLI workflow and session resolution", () => {
       baseUrl: "https://courses.uit.edu.vn",
       token: "replacement-token",
       userId: 42
+    });
+  });
+
+  it("binds MCP authentication to the portal and account encoded by its workspace", () => {
+    save("legacy-token", 77, "https://coursesold.uit.edu.vn");
+    saveSsoSession({
+      baseUrl: "https://courses.uit.edu.vn",
+      userId: 19589,
+      sesskey: "current-sesskey",
+      cookies: [{ name: "MoodleSession", value: "current-cookie" }]
+    });
+
+    expect(resolveAvailableSession(workspacePath(42, "https://coursesold.uit.edu.vn", 77))).toMatchObject({
+      baseUrl: "https://coursesold.uit.edu.vn",
+      userId: 77
+    });
+    expect(resolveAvailableSession(workspacePath(42, "https://courses.uit.edu.vn", 19589))).toMatchObject({
+      baseUrl: "https://courses.uit.edu.vn",
+      userId: 19589
     });
   });
 
