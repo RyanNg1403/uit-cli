@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, join, resolve } from "node:path";
 import {
+  ensureLocalBinWrapper,
   executeMcpTool,
   isInsideUitWorkspace,
   upsertMcpConfig,
@@ -54,5 +56,34 @@ describe("mcp-server workspace gating and tools", () => {
     expect(upsertMcpConfig("", "uit", ["mcp"])).toBe(
       '[mcp_servers.uit]\ncommand = "uit"\nargs = ["mcp"]\n'
     );
+  });
+
+  it("updates a commented MCP section header without creating a duplicate table", () => {
+    const updated = upsertMcpConfig(
+      '[mcp_servers.uit] # configured manually\ncommand = "old"\nargs = ["mcp"]\n\n[mcp_servers.other] # keep\ncommand = "other"\n',
+      "/Applications/UIT Studio.app/Contents/MacOS/UIT Studio",
+      ["--uit-mcp"]
+    );
+    expect(updated.match(/\[mcp_servers\.uit\]/g)).toHaveLength(1);
+    expect(updated).toContain('command = "/Applications/UIT Studio.app/Contents/MacOS/UIT Studio"');
+    expect(updated).toContain('[mcp_servers.other] # keep\ncommand = "other"');
+  });
+
+  it("creates a separately named wrapper without following an npm-owned uit symlink", () => {
+    const directory = mkdtempSync(join(tmpdir(), "uit-mcp-wrapper-"));
+    try {
+      const cli = join(directory, "cli.js");
+      writeFileSync(cli, "export const intact = true;\n");
+      symlinkSync(cli, join(directory, "uit"));
+
+      const wrapper = ensureLocalBinWrapper(directory);
+
+      expect(basename(wrapper)).toBe("uit-mcp");
+      expect(lstatSync(join(directory, "uit")).isSymbolicLink()).toBe(true);
+      expect(readFileSync(cli, "utf8")).toBe("export const intact = true;\n");
+      expect(readFileSync(wrapper, "utf8")).toContain("# Managed by uit-cli");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

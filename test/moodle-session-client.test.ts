@@ -25,6 +25,7 @@ describe("Moodle session API", () => {
 
     await expect(api.call("core_enrol_get_users_courses")).resolves.toHaveLength(5);
     expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock.mock.calls.every(([, init]) => init.signal instanceof AbortSignal)).toBe(true);
     expect(peak).toBe(5);
   });
 

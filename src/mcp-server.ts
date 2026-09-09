@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, renameSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ApiClient } from "./types.js";
 import { createTokenApiClient, createSessionApiClient } from "./api.js";
@@ -323,15 +323,16 @@ export function runMcpServer(): void {
   });
 }
 
-export function ensureLocalBinWrapper(): string {
-  const localBin = join(homedir(), ".local", "bin");
-  const binPath = join(localBin, "uit");
+export function ensureLocalBinWrapper(localBin: string = join(homedir(), ".local", "bin")): string {
+  // Never use the public `uit` name here: npm may already own it via a symlink.
+  const binPath = join(localBin, "uit-mcp");
   const cliPath = fileURLToPath(new URL("cli.js", import.meta.url));
   try {
     if (!existsSync(localBin)) {
       mkdirSync(localBin, { recursive: true });
     }
     const wrapper = `#!/usr/bin/env bash
+# Managed by uit-cli
 if ! command -v node >/dev/null 2>&1; then
   for p in "$HOME/.nvm/versions/node"/*/bin /opt/homebrew/bin /usr/local/bin; do
     if [ -x "$p/node" ]; then
@@ -342,7 +343,20 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 exec node "${cliPath}" "$@"
 `;
-    writeFileSync(binPath, wrapper, { mode: 0o755 });
+    if (existsSync(binPath)) {
+      const info = lstatSync(binPath);
+      if (info.isSymbolicLink() || !info.isFile() || !readFileSync(binPath, "utf8").startsWith("#!/usr/bin/env bash\n# Managed by uit-cli\n")) {
+        return "uit";
+      }
+      if (readFileSync(binPath, "utf8") === wrapper) return binPath;
+      const temporary = `${binPath}.part-${process.pid}`;
+      try {
+        writeFileSync(temporary, wrapper, { flag: "wx", mode: 0o755 });
+        renameSync(temporary, binPath);
+      } finally { rmSync(temporary, { force: true }); }
+    } else {
+      writeFileSync(binPath, wrapper, { flag: "wx", mode: 0o755 });
+    }
     return binPath;
   } catch {
     return "uit";
@@ -353,7 +367,7 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   const commandLine = `command = ${JSON.stringify(command)}`;
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
   const lines = existing.split("\n");
-  const sectionStart = lines.findIndex((line) => line.trim().toLowerCase() === "[mcp_servers.uit]");
+  const sectionStart = lines.findIndex((line) => /^\s*\[mcp_servers\.uit\]\s*(?:#.*)?$/i.test(line));
 
   if (sectionStart === -1) {
     const separator = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
@@ -362,7 +376,7 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
 
   let sectionEnd = lines.length;
   for (let index = sectionStart + 1; index < lines.length; index += 1) {
-    if (/^\s*\[[^\]]+\]\s*$/.test(lines[index])) {
+    if (/^\s*\[[^\]]+\]\s*(?:#.*)?$/.test(lines[index])) {
       sectionEnd = index;
       break;
     }

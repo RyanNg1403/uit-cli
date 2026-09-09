@@ -260,7 +260,8 @@ export class NodeSessionApiClient implements ApiClient {
         "Content-Type": "application/json",
         Cookie: this.cookieHeader
       },
-      body: info
+      body: info,
+      signal: AbortSignal.timeout(30_000)
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
