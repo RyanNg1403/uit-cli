@@ -159,8 +159,12 @@ export async function readCourseFile(response: Response): Promise<{ data: Uint8A
   return { data: Buffer.concat(chunks, size), mimeType: (response.headers.get("content-type") || "application/octet-stream").split(";")[0].trim().toLowerCase() };
 }
 
-export async function writeCourseFile(response: Response, destPath: string): Promise<void> {
+export async function writeCourseFile(response: Response, destPath: string, options: { atomic?: boolean } = {}): Promise<void> {
   if (!response.body) throw new Error("Empty course file response.");
+  if (options.atomic === false) {
+    await pipeline(Readable.fromWeb(response.body as any), createWriteStream(destPath));
+    return;
+  }
   mkdirSync(dirname(destPath) || ".", { recursive: true });
   const temporaryPath = `${destPath}.part-${randomUUID()}`;
   try {
@@ -224,8 +228,8 @@ export function createTokenApiClient(baseUrl: string, token: string): ApiClient 
     return data as MoodleRecord;
   };
 
-  const downloadWithToken = async (fileUrl: string, destPath: string): Promise<void> => {
-    await writeCourseFile(await fetchCourseFile(normalizedBaseUrl, fileUrl, {}, token), destPath);
+  const downloadWithToken = async (fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<void> => {
+    await writeCourseFile(await fetchCourseFile(normalizedBaseUrl, fileUrl, {}, token), destPath, options);
   };
 
   return {
@@ -242,8 +246,8 @@ export async function uploadFile(filepath: string): Promise<MoodleRecord> {
   return defaultApiClient.uploadFile(filepath);
 }
 
-export async function downloadFile(fileUrl: string, destPath: string): Promise<void> {
-  return defaultApiClient.downloadFile(fileUrl, destPath);
+export async function downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<void> {
+  return defaultApiClient.downloadFile(fileUrl, destPath, options);
 }
 
 export class NodeSessionApiClient implements ApiClient {
@@ -486,10 +490,11 @@ export class NodeSessionApiClient implements ApiClient {
     return this.callRaw<T>(name, params);
   }
 
-  async downloadFile(fileUrl: string, destPath: string): Promise<void> {
+  async downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<void> {
     await writeCourseFile(
       await fetchCourseFile(this.baseUrl, fileUrl, { Cookie: this.cookieHeader }),
-      destPath
+      destPath,
+      options
     );
   }
 
@@ -529,6 +534,6 @@ export function getActiveApiClient(): ApiClient {
 export const defaultApiClient: ApiClient = {
   call: (name, params) => getActiveApiClient().call(name, params),
   uploadFile: (filepath) => getActiveApiClient().uploadFile(filepath),
-  downloadFile: (fileUrl, destPath) => getActiveApiClient().downloadFile(fileUrl, destPath),
+  downloadFile: (fileUrl, destPath, options) => getActiveApiClient().downloadFile(fileUrl, destPath, options),
   readFile: (fileUrl) => getActiveApiClient().readFile!(fileUrl)
 };

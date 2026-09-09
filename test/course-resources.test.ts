@@ -656,7 +656,17 @@ describe("deterministic materialization", () => {
     clearCourseCache(api);
     expect(await materializeFile(42, file.fileurl, file.filename, api, identity)).not.toBe(updated);
     expect(api.downloadFile).toHaveBeenCalledTimes(3);
-    expect(api.downloadFile).toHaveBeenLastCalledWith(file.fileurl, expect.any(String));
+    expect(api.downloadFile).toHaveBeenLastCalledWith(file.fileurl, expect.any(String), { atomic: false });
+  });
+
+  it("streams a production token-client download into the pinned destination", async () => {
+    await home();
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ modules: [{ id: 10, contents: [file] }] }])))
+      .mockResolvedValueOnce(new Response("from-production-client")));
+    const identity = { baseUrl: site, userId: 7 };
+    const destination = await materializeFile(42, file.fileurl, file.filename, createTokenApiClient(site, "secret"), identity);
+    expect(await readFile(destination, "utf8")).toBe("from-production-client");
   });
 
   it("uses the documented token endpoint for explicit downloads", async () => {

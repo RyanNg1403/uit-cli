@@ -374,6 +374,8 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
   const lines = existing.split("\n");
   const uitSection = /^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$/i;
+  const commandKey = /^\s*(?:command|"command"|'command')\s*=/;
+  const argsKey = /^\s*(?:args|"args"|'args')\s*=/;
   const sectionStart = lines.findIndex((line) => uitSection.test(line));
 
   if (sectionStart === -1) {
@@ -390,10 +392,10 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   }
 
   const commandIndex = lines.findIndex(
-    (line, index) => index > sectionStart && index < sectionEnd && /^\s*command\s*=/.test(line)
+    (line, index) => index > sectionStart && index < sectionEnd && commandKey.test(line)
   );
   const argsIndex = lines.findIndex(
-    (line, index) => index > sectionStart && index < sectionEnd && /^\s*args\s*=/.test(line)
+    (line, index) => index > sectionStart && index < sectionEnd && argsKey.test(line)
   );
 
   if (commandIndex === -1) {
@@ -408,7 +410,7 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
     : argsIndex;
   if (adjustedArgsIndex === -1) {
     const currentCommandIndex = lines.findIndex(
-      (line, index) => index > sectionStart && index < sectionEnd && /^\s*command\s*=/.test(line)
+      (line, index) => index > sectionStart && index < sectionEnd && commandKey.test(line)
     );
     lines.splice(currentCommandIndex + 1, 0, argsLine);
   } else {

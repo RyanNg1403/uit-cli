@@ -80,6 +80,15 @@ describe("mcp-server workspace gating and tools", () => {
     expect(updated).toContain('command = "uit-mcp"\nargs = ["mcp"]');
   });
 
+  it("replaces quoted option keys without adding equivalent duplicates", () => {
+    const updated = upsertMcpConfig(
+      "[mcp_servers.uit]\n'command' = \"old\"\n\"args\" = [\"old\"]\n",
+      "uit-mcp",
+      ["mcp"]
+    );
+    expect(updated).toBe('[mcp_servers.uit]\ncommand = "uit-mcp"\nargs = ["mcp"]\n');
+  });
+
   it("stops MCP updates before a TOML array table", () => {
     const updated = upsertMcpConfig(
       '[mcp_servers.uit]\n\n[[profiles]] # unrelated\ncommand = "profile-command"\nargs = ["profile-arg"]\n',

@@ -932,7 +932,7 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
       if (!sameFile(openedInfo, pathInfo) || await realpath(directory) !== directory) {
         throw new Error("UIT workspace directories must not be symbolic links.");
       }
-      await api.downloadFile(file.fileurl, openFilePath(handle.fd));
+      await api.downloadFile(file.fileurl, openFilePath(handle.fd), { atomic: false });
       const completedInfo = await lstat(destination).catch(() => undefined);
       if (!completedInfo || !sameFile(openedInfo, completedInfo) || await realpath(directory).catch(() => "") !== directory) {
         throw new Error("UIT workspace directories must not be symbolic links.");
