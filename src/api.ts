@@ -398,7 +398,8 @@ export class NodeSessionApiClient implements ApiClient {
             ...(Number.isSafeInteger(instance) && instance > 0 ? { id: instance } : { unavailable: { instance: "Assignment instance ID unavailable." } }),
             intro,
             introattachments: attachments,
-            duedate: timestamp("duedate"),
+            // Moodle uses zero (not omission) to represent an undated assignment.
+            duedate: timestamp("duedate") || 0,
             cutoffdate: timestamp("cutoffdate"),
             allowsubmissionsfromdate: timestamp("allowsubmissionsfromdate"),
             url: page.url

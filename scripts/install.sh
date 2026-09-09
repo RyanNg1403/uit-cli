@@ -43,8 +43,16 @@ install_cli() {
   command -v npm >/dev/null 2>&1 || fail "npm is required to install UIT CLI."
   node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 20 || (major === 20 && minor >= 19) ? 0 : 1)' \
     || fail "Node.js 20.19 or later is required to install UIT CLI."
+  if [ "$release" = "latest" ]; then
+    package="uit-cli"
+  else
+    case "$release" in
+      v[0-9]*) package="uit-cli@${release#v}" ;;
+      *) fail "UIT_INSTALL_VERSION must be a release tag such as v1.2.0." ;;
+    esac
+  fi
   printf 'Installing UIT CLI and its MCP server from npm...\n'
-  npm install --global uit-cli
+  npm install --global "$package"
 }
 
 install_studio() {

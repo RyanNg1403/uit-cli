@@ -135,7 +135,7 @@ describe("Moodle session API", () => {
       `, { headers: { "content-type": "text/html" } });
       return new Response(`
         <body id="page-mod-assign-view">
-          <div data-assignmentid="701" data-duedate="1800000000"></div>
+          <div data-assignmentid="701"></div>
           <div id="intro">Build the project <a href="/pluginfile.php/1/mod_assign/introattachment/0/spec.pdf">spec</a></div>
         </body>
       `, { headers: { "content-type": "text/html" } });
@@ -148,7 +148,7 @@ describe("Moodle session API", () => {
       id: 701,
       cmid: 91,
       name: "Project",
-      duedate: 1800000000,
+      duedate: 0,
       introattachments: [{ filename: "spec.pdf" }]
     }]);
   });
