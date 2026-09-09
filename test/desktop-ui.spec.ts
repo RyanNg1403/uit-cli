@@ -1595,7 +1595,6 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   await expect(resumeBtn).toBeVisible();
   await expect(resumeBtn).toHaveText("Open in");
   await expect(resumeBtn).not.toContainText("Open in...");
-  await page.screenshot({ path: "/Users/PhatNguyen/.gemini/antigravity-cli/brain/94f78d99-a1bb-4d5c-97aa-7846eaa11f59/open_in_clean.png" });
 
   const resumeMenu = page.locator("#thread-resume-menu");
   await expect(resumeMenu).toBeHidden();
