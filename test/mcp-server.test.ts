@@ -69,6 +69,17 @@ describe("mcp-server workspace gating and tools", () => {
     expect(updated).toContain('[mcp_servers.other] # keep\ncommand = "other"');
   });
 
+  it("updates an equivalent quoted MCP section without creating a duplicate table", () => {
+    const updated = upsertMcpConfig(
+      '[mcp_servers."uit"] # quoted TOML key\ncommand = "old"\nargs = ["old"]\n',
+      "uit-mcp",
+      ["mcp"]
+    );
+    expect(updated.match(/\[mcp_servers\.(?:uit|"uit")\]/g)).toHaveLength(1);
+    expect(updated).toContain('[mcp_servers."uit"] # quoted TOML key');
+    expect(updated).toContain('command = "uit-mcp"\nargs = ["mcp"]');
+  });
+
   it("stops MCP updates before a TOML array table", () => {
     const updated = upsertMcpConfig(
       '[mcp_servers.uit]\n\n[[profiles]] # unrelated\ncommand = "profile-command"\nargs = ["profile-arg"]\n',

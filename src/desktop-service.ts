@@ -1,7 +1,8 @@
-import { lstat, mkdir, realpath, rename, rm, stat } from "node:fs/promises";
-import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, realpath, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { basename, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
 import { get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
@@ -880,6 +881,16 @@ async function ensureWorkspaceDirectories(root: string, children: string[]): Pro
 
 const downloads = new Map<string, Promise<string>>();
 
+function openFilePath(fd: number): string {
+  if (process.platform === "linux") return `/proc/self/fd/${fd}`;
+  if (process.platform === "darwin") return `/dev/fd/${fd}`;
+  throw new Error("Secure course downloads are currently supported on macOS and Linux.");
+}
+
+function sameFile(left: { dev: number; ino: number }, right: { dev: number; ino: number }): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
 export async function materializeFile(courseId: number, fileUrl: string, _filename: string, api: ApiClient = defaultApiClient, identity?: CourseIdentity): Promise<string> {
   const owner = identity || (api === defaultApiClient ? { baseUrl: get("baseUrl"), userId: Number(get("userId")) } : undefined);
   if (!owner) throw new Error("Site and account identity are required to download a course file.");
@@ -897,6 +908,7 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
   if (existing) return existing;
   const pending = (async () => {
     await ensureWorkspaceDirectories(root, ["materials", join("materials", hash)]);
+    const directory = dirname(destination);
     try {
       const info = await lstat(destination);
       if (info.isSymbolicLink() || !info.isFile()) throw new Error("Course download destination is not a regular file.");
@@ -904,16 +916,37 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const temporary = `${destination}.part-${randomUUID()}`;
+
+    // Create without following the final component, then stream through the
+    // verified file descriptor. Even if an Agent swaps a parent directory after
+    // validation, authenticated bytes remain pinned to this exact new inode.
+    const handle = await open(
+      destination,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o600
+    );
+    const openedInfo = await handle.stat();
+    let complete = false;
     try {
-      await api.downloadFile(file.fileurl, temporary);
-      await ensureWorkspaceDirectories(root, ["materials", join("materials", hash)]);
-      await rename(temporary, destination);
-    } catch (error) {
-      await rm(temporary, { force: true }).catch(() => undefined);
-      throw error;
+      const pathInfo = await lstat(destination);
+      if (!sameFile(openedInfo, pathInfo) || await realpath(directory) !== directory) {
+        throw new Error("UIT workspace directories must not be symbolic links.");
+      }
+      await api.downloadFile(file.fileurl, openFilePath(handle.fd));
+      const completedInfo = await lstat(destination).catch(() => undefined);
+      if (!completedInfo || !sameFile(openedInfo, completedInfo) || await realpath(directory).catch(() => "") !== directory) {
+        throw new Error("UIT workspace directories must not be symbolic links.");
+      }
+      complete = true;
+      return destination;
+    } finally {
+      if (!complete) {
+        await handle.truncate(0).catch(() => undefined);
+        const currentInfo = await lstat(destination).catch(() => undefined);
+        if (currentInfo && sameFile(openedInfo, currentInfo)) await rm(destination, { force: true }).catch(() => undefined);
+      }
+      await handle.close();
     }
-    return destination;
   })();
   downloads.set(destination, pending);
   try { return await pending; }

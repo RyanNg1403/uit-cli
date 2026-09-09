@@ -143,6 +143,28 @@ describe("SSO CLI workflow and session resolution", () => {
     });
   });
 
+  it("retains workspace-matched saved sessions when an environment token is present", () => {
+    saveSsoSession({
+      baseUrl: "https://courses.uit.edu.vn",
+      userId: 19589,
+      sesskey: "saved-sesskey",
+      cookies: [{ name: "MoodleSession", value: "saved-cookie" }]
+    });
+    process.env.UIT_TOKEN = "environment-token";
+    process.env.UIT_BASE_URL = "https://coursesold.uit.edu.vn";
+    process.env.UIT_USER_ID = "42";
+    try {
+      expect(resolveAvailableSession(workspacePath(7, "https://courses.uit.edu.vn", 19589))).toMatchObject({
+        baseUrl: "https://courses.uit.edu.vn",
+        userId: 19589
+      });
+    } finally {
+      delete process.env.UIT_TOKEN;
+      delete process.env.UIT_BASE_URL;
+      delete process.env.UIT_USER_ID;
+    }
+  });
+
   it("rejects cross-course MCP calls even for the same portal and account", async () => {
     save("legacy-token", 77, "https://coursesold.uit.edu.vn");
     const workspace = workspacePath(42, "https://coursesold.uit.edu.vn", 77);

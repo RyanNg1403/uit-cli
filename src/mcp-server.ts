@@ -33,9 +33,11 @@ export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
 }
 
 function persistedConfigs(): Config[] {
-  if (process.env.UIT_TOKEN) return [getActiveConfig({ fresh: true }) as Config];
   const sessions = readSessionsFile();
   const configs: Config[] = [];
+  // Environment credentials remain the active CLI default, but must not hide a
+  // saved account that is explicitly encoded in a Studio course workspace.
+  if (process.env.UIT_TOKEN) configs.push(getActiveConfig({ fresh: true }) as Config);
   if (sessions.sso?.baseUrl && sessions.sso.sesskey && sessions.sso.userId && Array.isArray(sessions.sso.cookies)) {
     configs.push({
       authType: "sso",
@@ -371,7 +373,8 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   const commandLine = `command = ${JSON.stringify(command)}`;
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
   const lines = existing.split("\n");
-  const sectionStart = lines.findIndex((line) => /^\s*\[mcp_servers\.uit\]\s*(?:#.*)?$/i.test(line));
+  const uitSection = /^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$/i;
+  const sectionStart = lines.findIndex((line) => uitSection.test(line));
 
   if (sectionStart === -1) {
     const separator = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
@@ -439,7 +442,7 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
     return;
   }
   writeFileSync(configPath, updated, "utf8");
-  console.log(/\[mcp_servers\.uit\]/i.test(existing)
+  console.log(/^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]/im.test(existing)
     ? `Updated uit MCP server path in ~/.codex/config.toml to ${command}`
     : `Configured uit MCP server in ~/.codex/config.toml`);
 }

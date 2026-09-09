@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
 import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeFile, previewableMime, previewFile, resolveCourseResource } from "../src/desktop-service.js";
@@ -615,6 +615,25 @@ describe("deterministic materialization", () => {
 
     await expect(materializeFile(42, file.fileurl, file.filename, api, identity)).rejects.toThrow("symbolic links");
     expect(api.downloadFile).not.toHaveBeenCalled();
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("keeps a download pinned when its verified directory is swapped mid-write", async () => {
+    await home();
+    const api = client();
+    const identity = { baseUrl: site, userId: 7 };
+    const workspace = await courseWorkspace(42, "CS", site, 7);
+    const outside = join(state.home, "outside-race-target");
+    await mkdir(outside);
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => {
+      const materials = join(workspace.path, "materials");
+      const [hash] = await readdir(materials);
+      await rename(join(materials, hash), join(state.home, "displaced-hash-directory"));
+      await symlink(outside, join(materials, hash), "dir");
+      await writeFile(path, "complete");
+    });
+
+    await expect(materializeFile(42, file.fileurl, file.filename, api, identity)).rejects.toThrow("symbolic links");
     expect(await readdir(outside)).toEqual([]);
   });
 
