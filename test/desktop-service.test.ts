@@ -167,16 +167,20 @@ describe("desktop service", () => {
     expect(JSON.stringify(await listAnnouncements(42, api))).not.toContain("sesskey");
   });
 
-  it("does not silently discard forums whose HTML details and type are unavailable", async () => {
-    const api = { call: vi.fn().mockResolvedValue([{ cmid: 9, unavailable: { details: "Activity unreadable" } }]) } as unknown as ApiClient;
-    await expect(listAnnouncements(42, api)).rejects.toThrow("Announcement forum instance unavailable. Open the forum on the course site");
-    expect(api.call).toHaveBeenCalledOnce();
+  it("reads forums by module when their HTML details and type are unavailable", async () => {
+    const api = { call: vi.fn()
+      .mockResolvedValueOnce([{ cmid: 9, unavailable: { details: "Activity unreadable" } }])
+      .mockResolvedValue({ discussions: [] }) } as unknown as ApiClient;
+    await expect(listAnnouncements(42, api)).resolves.toEqual([]);
+    expect(api.call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { cmid: 9, page: 0, perpage: 100 });
   });
 
-  it("reports an unknown forum type even when its instance is available", async () => {
-    const api = { call: vi.fn().mockResolvedValue([{ id: 12, cmid: 9, unavailable: { details: "Activity unreadable" } }]) } as unknown as ApiClient;
-    await expect(listAnnouncements(42, api)).rejects.toThrow("Announcement forum type unavailable. Open the forum on the course site to read announcements.");
-    expect(api.call).toHaveBeenCalledOnce();
+  it("uses the module identity when an unresolved forum also exposes an instance", async () => {
+    const api = { call: vi.fn()
+      .mockResolvedValueOnce([{ id: 12, cmid: 9, unavailable: { details: "Activity unreadable" } }])
+      .mockResolvedValue({ discussions: [{ discussion: 4, subject: "Welcome" }] }) } as unknown as ApiClient;
+    await expect(listAnnouncements(42, api)).resolves.toMatchObject([{ id: 4, moduleId: 9, forumId: 12 }]);
+    expect(api.call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { cmid: 9, page: 0, perpage: 100 });
   });
 
   it("ignores known general forums and other courses even when their instances are missing", async () => {

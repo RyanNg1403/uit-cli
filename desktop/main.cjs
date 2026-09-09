@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, session, shell, screen, clipboard } = require("electron");
 const { homedir } = require("node:os");
-const { join, resolve, sep } = require("node:path");
-const { readFile, writeFile, rename, mkdir, unlink, readdir, stat } = require("node:fs/promises");
+const { extname, join, relative, resolve, sep } = require("node:path");
+const { readFile, writeFile, rename, mkdir, unlink, readdir, stat, lstat, realpath } = require("node:fs/promises");
 const { existsSync } = require("node:fs");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
@@ -56,6 +56,7 @@ const threadBindings = new Map();
 const approvals = new Map();
 const accountGenerations = new Map();
 const linkedCourses = new Map();
+const verifiedMaterialPaths = new Set();
 let linkedWrite = Promise.resolve();
 let portalErrors = [];
 let cachedModels = null;
@@ -286,6 +287,35 @@ function requireWorkspacePath(value, label = "Workspace path") {
   return path;
 }
 
+const OPENABLE_MATERIAL_EXTENSIONS = new Set([
+  ".pdf", ".txt", ".md", ".markdown", ".csv", ".json", ".xml",
+  ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff",
+  ".mp3", ".m4a", ".wav", ".mp4", ".mov", ".webm",
+  ".zip", ".7z", ".rar", ".tar", ".gz", ".h5p"
+]);
+
+async function requireOpenableMaterialPath(value) {
+  const path = requireWorkspacePath(value, "Material path");
+  const root = resolve(homedir(), ".uit", "courses");
+  const parts = relative(root, path).split(sep);
+  if (!verifiedMaterialPaths.has(path) || parts.length !== 6 || !/^user-[1-9]\d*$/.test(parts[1]) || !/^course-[1-9]\d*$/.test(parts[2]) ||
+      parts[3] !== "materials" || !/^[a-f0-9]{64}$/.test(parts[4]) || !OPENABLE_MATERIAL_EXTENSIONS.has(extname(parts[5]).toLowerCase())) {
+    throw new Error("Only verified, non-executable UIT material files can be opened.");
+  }
+  const info = await lstat(path);
+  if (info.isSymbolicLink() || !info.isFile() || await realpath(path) !== path) {
+    throw new Error("Only verified regular UIT material files can be opened.");
+  }
+  return path;
+}
+
+async function materializeVerified(...args) {
+  const path = resolve(await service.materializeFile(...args));
+  verifiedMaterialPaths.add(path);
+  return path;
+}
+
 function requireCourseFileUrl(value, baseUrl) {
   const fileUrl = new URL(requireString(value, "File URL"));
   if (!baseUrl || fileUrl.protocol !== "https:" || fileUrl.username || fileUrl.password || fileUrl.origin !== new URL(baseUrl).origin) {
@@ -382,9 +412,9 @@ async function restorePersistedSsoSession() {
     if (!saved || !saved.baseUrl || !saved.userId || !saved.sesskey) return;
 
     const authSession = session.fromPartition(SSO_PARTITION);
-    const existingCookies = await authSession.cookies.get({ url: saved.baseUrl });
-    if (!existingCookies.length && Array.isArray(saved.cookies) && saved.cookies.length > 0) {
+    if (Array.isArray(saved.cookies) && saved.cookies.length > 0) {
       for (const cookie of saved.cookies) {
+        await authSession.cookies.remove(saved.baseUrl, cookie.name).catch(() => undefined);
         await authSession.cookies.set({
           url: saved.baseUrl,
           name: cookie.name,
@@ -741,7 +771,7 @@ async function handleAgentRequest(request) {
       case "uit_read_resource": result = await service.resolveCourseResource(courseId, args, account.api); break;
       case "uit_download_resource": {
         const fileUrl = requireCourseFileUrl(args.fileUrl, account.baseUrl);
-        result = { path: await service.materializeFile(courseId, fileUrl, "resource", account.api, account) };
+        result = { path: await materializeVerified(courseId, fileUrl, "resource", account.api, account) };
         break;
       }
       case "uit_list_participants": {
@@ -987,7 +1017,7 @@ function registerIpc() {
       return service.getAssignmentSubmission(courseId, reference, session.api);
     },
     "course:forum": (_event, rawInput) => { const input = requireObject(rawInput, "Forum input"); const { courseId, session } = courseSession(input); return service.listForumDiscussions(courseId, requirePositiveId(input.moduleId, "Forum module"), session.api); },
-    "course:materialize": (_event, rawInput) => { const input = requireObject(rawInput, "Materialization input"); const { courseId, session } = courseSession(input); return service.materializeFile(courseId, requireCourseFileUrl(input.fileUrl, session.baseUrl), requireString(input.filename, "Filename"), session.api, session); },
+    "course:materialize": (_event, rawInput) => { const input = requireObject(rawInput, "Materialization input"); const { courseId, session } = courseSession(input); return materializeVerified(courseId, requireCourseFileUrl(input.fileUrl, session.baseUrl), requireString(input.filename, "Filename"), session.api, session); },
     "course:preview": (_event, rawInput) => { const input = requireObject(rawInput, "Preview input"); const { courseId, session } = courseSession(input); return service.previewFile(courseId, requireCourseFileUrl(input.fileUrl, session.baseUrl), requireString(input.filename, "Filename"), session.api); },
     "course:open": (_event, rawInput) => openCourseWebsite(rawInput),
     "workspace:create": async (_event, rawInput) => { const { courseId, course, session } = await verifiedCourse(rawInput); return service.courseWorkspace(courseId, course.shortname, session.baseUrl, session.userId); },
@@ -1113,8 +1143,8 @@ function registerIpc() {
       const rollout = await readThreadRollout(threadId, afterMtime);
       return rollout || { mtime: 0, messages: [] };
     },
-    "shell:open": (_event, target) => {
-      return shell.openPath(requireWorkspacePath(target));
+    "shell:open": async (_event, target) => {
+      return shell.openPath(await requireOpenableMaterialPath(target));
     },
     "shell:open-external": async (_event, rawUrl) => {
       const urlString = requireString(rawUrl, "URL");

@@ -316,6 +316,15 @@ describe("trusted course resource resolution", () => {
     await expect(resolveCourseResource(42, { kind: "announcement", id: 400 }, api)).resolves.toMatchObject({ unavailable: announcement.unavailable });
   });
 
+  it("reads an unresolved announcement forum through its course-module ID", async () => {
+    const api = client({
+      mod_forum_get_forums_by_courses: [{ cmid: 30, course: 42, unavailable: { details: "Instance and type hidden" } }],
+      mod_forum_get_forum_discussions: { discussions: [{ discussion: 400, subject: "Notice" }] }
+    });
+    await expect(listAnnouncements(42, api)).resolves.toMatchObject([{ id: 400, moduleId: 30 }]);
+    expect(api.call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { cmid: 30, page: 0, perpage: 100 });
+  });
+
   it.each([
     Object.assign(new Error("Unknown function"), { errorcode: "invalidfunction" }),
     new Error("This UIT site does not expose mod_assign_get_assignments to the SSO session. Open the activity on the course site for its full details.")

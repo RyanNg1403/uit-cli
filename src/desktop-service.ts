@@ -539,11 +539,12 @@ export async function listAnnouncements(courseId: number, api: ApiClient = defau
     const forumId = Number(forum.id);
     const cmid = Number(forum.cmid);
     const open = `Open ${credentialFreeUrl(forum.url) || "the forum on the course site"} to read announcements.`;
-    if (Number.isSafeInteger(forumId) && forumId > 0) {
-      if (!forum.type) throw new Error(`Announcement forum type unavailable. ${open}`);
+    if (forum.type === "news" && Number.isSafeInteger(forumId) && forumId > 0) {
       return { forum, key: { forumid: forumId }, forumId };
     }
-    if (forum.type === "news" && Number.isSafeInteger(cmid) && cmid > 0) return { forum, key: { cmid }, forumId: undefined };
+    if ((forum.type === "news" || !forum.type) && Number.isSafeInteger(cmid) && cmid > 0) {
+      return { forum, key: { cmid }, forumId: Number.isSafeInteger(forumId) && forumId > 0 ? forumId : undefined };
+    }
     throw new Error(`Announcement forum instance unavailable. ${open}`);
   });
   const groups = await Promise.all(readers.map(async ({ forum, key, forumId }) => {

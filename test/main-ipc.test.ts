@@ -21,21 +21,34 @@ function deferred<T = void>() {
   return { promise, resolve };
 }
 
-async function harness(saved: unknown[] = []) {
+async function harness(saved: unknown[] = [], options: {
+  configEnabled?: boolean;
+  sessions?: Record<string, unknown>;
+  existingCookies?: Array<Record<string, unknown>>;
+  probeIdentity?: { sesskey: string; userId: number };
+} = {}) {
+  const probeIdentity = options.probeIdentity;
   const handlers = new Map<string, (...args: any[]) => any>();
   const partitions = new Map<string, any>();
+  const partitionCookies = new Map<string, Array<Record<string, any>>>();
   const windows: any[] = [];
   const fs = {
-    readFile: vi.fn().mockResolvedValue(JSON.stringify(saved)),
+    readFile: vi.fn(async (file: string) => JSON.stringify(
+      path.resolve(String(file)) === path.join(home, ".uit", "sessions.json") ? options.sessions || {} : saved
+    )),
     mkdir: vi.fn().mockResolvedValue(undefined),
     writeFile: vi.fn().mockResolvedValue(undefined),
     rename: vi.fn().mockResolvedValue(undefined),
     unlink: vi.fn().mockResolvedValue(undefined),
     readdir: vi.fn().mockResolvedValue([]),
     stat: vi.fn().mockResolvedValue({ mtimeMs: 0 }),
+    lstat: vi.fn().mockResolvedValue({ isSymbolicLink: () => false, isFile: () => true }),
+    realpath: vi.fn(async (value: string) => value),
   };
   const service = {
-    configuredLegacySession: vi.fn(() => { throw new Error("Real config must not be read"); }),
+    configuredLegacySession: options.configEnabled
+      ? vi.fn(() => undefined)
+      : vi.fn(() => { throw new Error("Real config must not be read"); }),
     listCourses: vi.fn().mockResolvedValue([{ id: 1, shortname: "CS01", fullname: "Authoritative course" }]),
     lookupCourse: vi.fn().mockResolvedValue({ id: 807, shortname: "AI505.R11", fullname: "Thesis", discoveredVia: "url" }),
     getCourseContents: vi.fn().mockResolvedValue([{ id: 501, name: "Module" }]),
@@ -65,10 +78,21 @@ async function harness(saved: unknown[] = []) {
     disconnect: vi.fn(),
   });
   function partition(name: string) {
-    if (!partitions.has(name)) partitions.set(name, Object.assign(new EventEmitter(), {
-      setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(),
-      clearStorageData: vi.fn().mockResolvedValue(undefined),
-    }));
+    if (!partitions.has(name)) {
+      const records = [...(options.existingCookies || [])];
+      partitionCookies.set(name, records);
+      partitions.set(name, Object.assign(new EventEmitter(), {
+        setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(),
+        clearStorageData: vi.fn().mockResolvedValue(undefined),
+        cookies: {
+          get: vi.fn(async () => [...records]),
+          remove: vi.fn(async (_url: string, cookieName: string) => {
+            for (let index = records.length - 1; index >= 0; index -= 1) if (records[index].name === cookieName) records.splice(index, 1);
+          }),
+          set: vi.fn(async (cookie: Record<string, any>) => { records.push(cookie); })
+        }
+      }));
+    }
     return partitions.get(name);
   }
   class BrowserWindow extends EventEmitter {
@@ -80,13 +104,14 @@ async function harness(saved: unknown[] = []) {
       this.webContents = Object.assign(new EventEmitter(), {
         mainFrame: frame, getURL: () => frame.url, send: vi.fn(),
         session: partition(options.webPreferences.partition || "default"),
+        executeJavaScript: vi.fn().mockResolvedValue(probeIdentity),
         setWindowOpenHandler: vi.fn(),
       });
       windows.push(this);
     }
     isDestroyed() { return this.destroyed; }
     async loadFile() {}
-    async loadURL() {}
+    async loadURL(url: string) { this.webContents.mainFrame.url = url; }
     close() { this.destroyed = true; this.emit("closed"); }
   }
   let ready: () => Promise<void> = async () => {};
@@ -112,7 +137,7 @@ async function harness(saved: unknown[] = []) {
   };
   const context = createContext({
     URL, console, setTimeout, clearTimeout, __dirname: path.dirname(mainPath),
-    process: { env: { UIT_DISABLE_CONFIG: "1", UIT_TEST_PROFILE: profile }, platform: process.platform },
+    process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: process.platform },
     require: (name: string) => { if (!(name in modules)) throw new Error(`Unexpected require: ${name}`); return modules[name]; },
     importService: async (name: string) => { if (!(name in imports)) throw new Error(`Unexpected import: ${name}`); return imports[name]; },
     injected: { service, codex },
@@ -137,10 +162,30 @@ async function harness(saved: unknown[] = []) {
   const start = (input = {}) => invoke("agent:start", { ...reference, taskId: "task-1", message: "Explain @Assignment", ...input });
   const request = (input: any) => { context.request = input; return runInContext("handleAgentRequest(request)", context); };
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
-  return { context, app, window, windows, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell };
+  return { context, app, window, windows, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies };
 }
 
 describe("main IPC trust and routing", () => {
+  it("replaces stale partition cookies with a saved CLI SSO session", async () => {
+    const savedCookie = { name: "MoodleSession", value: "saved", domain: "courses.uit.edu.vn", path: "/", secure: true, httpOnly: true };
+    const h = await harness([], {
+      configEnabled: true,
+      sessions: { sso: { baseUrl: CURRENT, userId: 101, sesskey: "saved-key", cookies: [savedCookie] } },
+      existingCookies: [
+        { name: "MoodleSession", value: "stale" },
+        { name: "preference", value: "dark" }
+      ],
+      probeIdentity: { sesskey: "saved-key", userId: 101 }
+    });
+    const auth = h.partitions.get("persist:uit-sso");
+    expect(auth.cookies.remove).toHaveBeenCalledWith(CURRENT, "MoodleSession");
+    expect(auth.cookies.set).toHaveBeenCalledWith(expect.objectContaining({ name: "MoodleSession", value: "saved" }));
+    expect(h.partitionCookies.get("persist:uit-sso")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "MoodleSession", value: "saved" }),
+      expect.objectContaining({ name: "preference", value: "dark" })
+    ]));
+  });
+
   it("verifies and persists a missing course using the connected portal without downloads", async () => {
     const h = await harness(); h.connect();
     const result = await h.invoke("courses:link", { url: `${CURRENT}/course/view.php?id=807` });
@@ -318,6 +363,29 @@ describe("main IPC trust and routing", () => {
     }
     expect(h.shell.openExternal).toHaveBeenCalledTimes(1);
     expect(h.windows).toHaveLength(1);
+  });
+
+  it("opens only verified non-executable material citations", async () => {
+    const h = await harness(); h.connect();
+    const material = path.join(
+      home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
+      "materials", "a".repeat(64), "lecture.pdf"
+    );
+    h.service.materializeFile.mockResolvedValueOnce(material);
+    await h.invoke("course:materialize", {
+      ...reference,
+      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      filename: "lecture.pdf"
+    });
+    await h.invoke("shell:open", material);
+    expect(h.shell.openPath).toHaveBeenCalledWith(material);
+    for (const unsafe of [
+      path.join(home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1", "artifacts", "report.pdf"),
+      material.replace("lecture.pdf", "run.command")
+    ]) await expect(h.invoke("shell:open", unsafe)).rejects.toThrow("verified, non-executable");
+    h.fs.lstat.mockResolvedValueOnce({ isSymbolicLink: () => true, isFile: () => true });
+    await expect(h.invoke("shell:open", material)).rejects.toThrow("verified regular");
+    expect(h.shell.openPath).toHaveBeenCalledTimes(1);
   });
 });
 
