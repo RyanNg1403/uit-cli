@@ -32,7 +32,8 @@
     "lint": "eslint .",
     "package:check": "npm run build && node scripts/check-package.mjs",
     "typecheck": "tsc --noEmit",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "postinstall": "playwright install chromium"
   },
   "engines": {
     "node": ">=20.19.0"

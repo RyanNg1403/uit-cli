@@ -30,6 +30,7 @@ export interface LegacySessionData {
 export interface SessionsData {
   sso?: SsoSessionData | null;
   legacy?: LegacySessionData[] | null;
+  active?: { authType: "token" | "sso"; baseUrl: string } | null;
 }
 
 export interface Config {
@@ -127,7 +128,16 @@ function load(): Config {
   // 2. Read ~/.uit/sessions.json
   const sessions = readSessionsFile();
 
-  // 2a. Check SSO session
+  // 2a. Honor the last explicit CLI login when both session types exist.
+  if (sessions.active?.authType === "token") {
+    const record = (sessions.legacy || []).find((item) => item.baseUrl === sessions.active?.baseUrl);
+    if (record?.token) {
+      cfg = { authType: "token", token: record.token, baseUrl: record.baseUrl, userId: Number(record.userId) };
+      return cfg;
+    }
+  }
+
+  // 2b. Check SSO session
   if (
     sessions.sso &&
     sessions.sso.baseUrl &&
@@ -146,7 +156,7 @@ function load(): Config {
     return cfg;
   }
 
-  // 2b. Check Legacy token session
+  // 2c. Check Legacy token session
   if (sessions.legacy && sessions.legacy.length > 0) {
     const record = sessions.legacy[0];
     if (record && record.token) {
@@ -189,6 +199,7 @@ export function save(token: string, userId: number, baseUrl: string): string {
   const legacyList = (sessions.legacy || []).filter((item) => item.baseUrl !== cleanBaseUrl);
   legacyList.unshift({ baseUrl: cleanBaseUrl, userId, token });
   sessions.legacy = legacyList;
+  sessions.active = { authType: "token", baseUrl: cleanBaseUrl };
   writeSessionsFile(sessions);
   const path = getSessionsFilePath();
   console.error(`Saved to ${path}`);
@@ -204,6 +215,7 @@ export function save(token: string, userId: number, baseUrl: string): string {
 export function saveSsoSession(sessionData: SsoSessionData): string {
   const sessions = readSessionsFile();
   sessions.sso = sessionData;
+  sessions.active = { authType: "sso", baseUrl: sessionData.baseUrl.replace(/\/+$/, "") };
   writeSessionsFile(sessions);
   const path = getSessionsFilePath();
   console.error(`SSO session saved to ${path}`);
@@ -221,6 +233,7 @@ export function saveSsoSession(sessionData: SsoSessionData): string {
 export function deleteSsoSession(): void {
   const sessions = readSessionsFile();
   delete sessions.sso;
+  if (sessions.active?.authType === "sso") delete sessions.active;
   writeSessionsFile(sessions);
   cfg = undefined;
 }
@@ -230,8 +243,10 @@ export function deleteLegacySession(baseUrl?: string): void {
   if (baseUrl) {
     const clean = baseUrl.replace(/\/+$/, "");
     sessions.legacy = (sessions.legacy || []).filter((item) => item.baseUrl !== clean);
+    if (sessions.active?.authType === "token" && sessions.active.baseUrl === clean) delete sessions.active;
   } else {
     sessions.legacy = [];
+    if (sessions.active?.authType === "token") delete sessions.active;
   }
   writeSessionsFile(sessions);
   cfg = undefined;

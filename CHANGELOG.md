@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning. For new releases, update the version with `npm version patch`, `npm version minor`, or `npm version major`, then push the generated tag.
 
-## [1.2.0] - 2026-09-08
+## [1.2.0] - 2026-09-09
 
 ### Added
 
@@ -21,6 +21,7 @@ This project follows semantic versioning. For new releases, update the version w
 - Parallelized independent SSO course discovery requests.
 - Avoid repeated Codex rollout directory scans and unchanged history-file reads.
 - Unified active-session resolution across the CLI and MCP server.
+- Replaced legacy `.env` credential storage with `~/.uit/sessions.json`; users upgrading from 1.1 or earlier must sign in again.
 
 ### Fixed
 
@@ -28,6 +29,9 @@ This project follows semantic versioning. For new releases, update the version w
 - Prevented Moodle file metadata from escaping the selected download directory.
 - Made credential-file updates atomic and private.
 - Made packaged UIT Studio register a runnable embedded MCP command instead of a Node path trapped inside its application archive.
+- Made npm installations provision the Chromium runtime required by CLI SSO login.
+- Made an explicit token login remain active when an SSO session also exists.
+- Made CLI SSO course discovery report authentication, permission, and network failures instead of returning an empty list.
 
 ## [1.1.0] - 2026-06-27
 

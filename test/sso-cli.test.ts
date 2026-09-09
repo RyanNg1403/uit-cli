@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,7 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 import { createProgram, main } from "../src/cli.js";
-import { get, getActiveConfig, resetConfigCache, saveSsoSession, type SsoSessionData } from "../src/config.js";
+import { get, getActiveConfig, resetConfigCache, save, saveSsoSession, type SsoSessionData } from "../src/config.js";
 import { NodeSessionApiClient, createSessionApiClient } from "../src/api.js";
 import type { ApiClient } from "../src/types.js";
 
@@ -103,6 +103,31 @@ describe("SSO CLI workflow and session resolution", () => {
       delete process.env.UIT_BASE_URL;
       delete process.env.UIT_USER_ID;
     }
+  });
+
+  it("makes an explicit token login active when an SSO session already exists", () => {
+    saveSsoSession({
+      baseUrl: "https://courses.uit.edu.vn",
+      userId: 19589,
+      sesskey: "saved-sesskey",
+      cookies: [{ name: "MoodleSession", value: "saved-cookie" }]
+    });
+    save("replacement-token", 42, "https://courses.uit.edu.vn");
+
+    expect(getActiveConfig({ fresh: true })).toMatchObject({
+      authType: "token",
+      baseUrl: "https://courses.uit.edu.vn",
+      token: "replacement-token",
+      userId: 42
+    });
+  });
+
+  it("does not load the removed .env credential format", () => {
+    const configDir = join(tempDir, ".uit");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, ".env"), 'UIT_TOKEN="old-token"\nUIT_USER_ID=42\n', "utf8");
+
+    expect(() => getActiveConfig({ fresh: true })).toThrow("No active UIT session found");
   });
 
   it("handles uit login --sso with mock launcher", async () => {

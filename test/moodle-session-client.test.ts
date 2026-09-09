@@ -28,6 +28,26 @@ describe("Moodle session API", () => {
     expect(peak).toBe(5);
   });
 
+  it("propagates Node SSO authentication failures instead of returning an empty course list", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json([{
+      error: true,
+      exception: { errorcode: "invalidsesskey", message: "Session expired" }
+    }])));
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "expired", "MoodleSession=old");
+
+    await expect(api.call("core_enrol_get_users_courses")).rejects.toThrow("Session expired");
+  });
+
+  it("reports unavailable Node SSO discovery when every timeline method is unsupported", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json([{
+      error: true,
+      exception: { errorcode: "servicenotavailable", message: "Unavailable" }
+    }])));
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    await expect(api.call("core_enrol_get_users_courses")).rejects.toThrow("Course discovery is unavailable");
+  });
+
   it("normalizes Moodle bracket-array arguments for AJAX", () => {
     expect(JSON.parse(buildAjaxInfo("mod_assign_get_assignments", { "courseids[0]": 42, "courseids[2]": 99 }))).toEqual([
       { index: 0, methodname: "mod_assign_get_assignments", args: { courseids: [42, null, 99] } }

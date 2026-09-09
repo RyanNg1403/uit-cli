@@ -16,6 +16,12 @@ declare module "./types.js" {
 
 export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
 
+function unavailableSessionMethod(error: unknown): boolean {
+  const code = String((error as { errorcode?: string })?.errorcode || "");
+  if (/^(?:invalid_parameter_exception|invalidparameter|servicenotavailable|invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/i.test(code)) return true;
+  return /(?:unknown method|not available for ajax|not callable via ajax|cannot find.*function|web\s*service is not available)/i.test(String(error));
+}
+
 /** Public resource URLs must not carry session credentials or Moodle core_files keys. */
 export function credentialFreeUrl(value: unknown): string | undefined {
   try {
@@ -280,13 +286,17 @@ export class NodeSessionApiClient implements ApiClient {
           });
           const entries = Array.isArray(res) ? res : res?.courses;
           return Array.isArray(entries) ? entries : [];
-        } catch {
-          // Continue to other classifications
-          return [];
+        } catch (error) {
+          if (unavailableSessionMethod(error)) return null;
+          throw error;
         }
       }));
+      if (groups.every((entries) => entries === null)) {
+        throw new Error("Course discovery is unavailable for this UIT session.");
+      }
       // Merge in classification order so the same source keeps precedence.
       for (const entries of groups) {
+        if (!entries) continue;
         for (const item of entries) {
           const id = Number(item?.id);
           if (Number.isSafeInteger(id) && id > 0 && !courseMap.has(id)) {

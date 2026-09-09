@@ -19,7 +19,7 @@ const test = base.extend<{ desktop: { app: ElectronApplication; page: Page; prof
       UIT_TEST_PROFILE: profile, UIT_DISABLE_CONFIG: "1", UIT_TEST_HEADLESS: "1",
       CODEX_HOME: join(profile, "codex"),
     };
-    for (const name of ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR"]) {
+    for (const name of ["DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR"]) {
       if (process.env[name]) env[name] = process.env[name]!;
     }
     const app = await _electron.launch({ args: [mainPath, "--disable-background-networking", "--host-resolver-rules=MAP * ~NOTFOUND",
