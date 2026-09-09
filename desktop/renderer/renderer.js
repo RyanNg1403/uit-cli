@@ -1354,7 +1354,7 @@ function renderProjectOptions() {
   const query = $("#project-search").value.trim().toLocaleLowerCase();
   const creating = $("#project-picker").dataset.mode === "project";
   const available = creating ? state.courses.filter((course) => !state.projects.some((project) => courseKey(project) === courseKey(course))) : state.projects.filter(connected);
-  const filtered = available.filter((course) => (!creating || $("#project-year").value === "all" || projectYear(course) === $("#project-year").value) && `${course.fullname} ${course.shortname} ${siteLabel(course)} ${semesterOf(course).label}`.toLocaleLowerCase().includes(query));
+  const filtered = available.filter((course) => (!creating || projectYearMatches(course, $("#project-year").value)) && `${course.fullname} ${course.shortname} ${siteLabel(course)} ${semesterOf(course).label}`.toLocaleLowerCase().includes(query));
   const yearSections = new Map();
   for (const group of semesterGroups(filtered)) {
     let section = target;

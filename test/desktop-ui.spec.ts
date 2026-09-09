@@ -56,6 +56,16 @@ test("New project groups years clearly and filters the requested year", async ({
   await page.screenshot({ path: info.outputPath("project-years.png") });
 });
 
+test("academic-year ranges match each year offered by the project filter", async ({ page, boot }) => {
+  await boot();
+  expect(await page.evaluate(() => (globalThis as any).projectYearMatches({
+    semester: { id: "2025-2026", label: "2025-2026" }
+  }, "2025"))).toBe(true);
+  expect(await page.evaluate(() => (globalThis as any).projectYearMatches({
+    semester: { id: "2025-2026", label: "2025-2026" }
+  }, "2026"))).toBe(true);
+});
+
 test("all semesters default, complete grouped rail, semester filter and search", async ({ page, boot }, info) => {
   await boot();
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue("all");

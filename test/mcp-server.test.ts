@@ -89,6 +89,15 @@ describe("mcp-server workspace gating and tools", () => {
     expect(updated).toBe('[mcp_servers.uit]\ncommand = "uit-mcp"\nargs = ["mcp"]\n');
   });
 
+  it("replaces an entire multiline args array", () => {
+    const updated = upsertMcpConfig(
+      '[mcp_servers.uit]\ncommand = "old"\nargs = [\n  "mcp", # old argument\n  "--legacy"\n]\nenabled = true\n',
+      "uit-mcp",
+      ["mcp"]
+    );
+    expect(updated).toBe('[mcp_servers.uit]\ncommand = "uit-mcp"\nargs = ["mcp"]\nenabled = true\n');
+  });
+
   it("stops MCP updates before a TOML array table", () => {
     const updated = upsertMcpConfig(
       '[mcp_servers.uit]\n\n[[profiles]] # unrelated\ncommand = "profile-command"\nargs = ["profile-arg"]\n',

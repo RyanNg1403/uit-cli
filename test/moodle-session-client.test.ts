@@ -159,6 +159,21 @@ describe("Moodle session API", () => {
     ]);
   });
 
+  it("normalizes nested Moodle bracket paths for AJAX", () => {
+    expect(JSON.parse(buildAjaxInfo("core_user_get_users", {
+      "criteria[0][key]": "email",
+      "criteria[0][value]": "student@uit.edu.vn",
+      "preferences[2][name]": "theme"
+    }))).toEqual([{
+      index: 0,
+      methodname: "core_user_get_users",
+      args: {
+        criteria: [{ key: "email", value: "student@uit.edu.vn" }],
+        preferences: [null, null, { name: "theme" }]
+      }
+    }]);
+  });
+
   it("unwraps Moodle AJAX errors", () => {
     expect(unwrapAjaxResponse([{ error: false, data: { ok: true } }])).toEqual({ ok: true });
     expect(() => unwrapAjaxResponse([{ error: true, exception: "required_capability_exception" }])).toThrow("required_capability_exception");

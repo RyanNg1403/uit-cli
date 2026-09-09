@@ -3,16 +3,33 @@ import type { MoodleRecord } from "./types.js";
 export function normalizeArgs(params: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
   for (const [key, value] of Object.entries(params)) {
-    const match = /^(.*)\[(\d+)\]$/.exec(key);
-    if (!match) {
+    const root = /^([^[\]]+)/.exec(key)?.[1];
+    if (!root || root.length === key.length) {
       result[key] = value;
       continue;
     }
-    const [, name, indexText] = match;
-    const index = Number(indexText);
-    const values = Array.isArray(result[name]) ? result[name] : [];
-    values[index] = value;
-    result[name] = values;
+    const suffix = key.slice(root.length);
+    const brackets = [...suffix.matchAll(/\[([^[\]]+)\]/g)];
+    if (!brackets.length || brackets.map((match) => match[0]).join("") !== suffix) {
+      result[key] = value;
+      continue;
+    }
+    const path: Array<string | number> = [root, ...brackets.map((match) => /^\d+$/.test(match[1]) ? Number(match[1]) : match[1])];
+    if (path.some((part) => typeof part === "string" && ["__proto__", "prototype", "constructor"].includes(part))) {
+      Object.defineProperty(result, key, { value, enumerable: true, configurable: true, writable: true });
+      continue;
+    }
+    let target: any = result;
+    for (let index = 0; index < path.length; index += 1) {
+      const part = path[index];
+      if (index === path.length - 1) {
+        target[part] = value;
+        break;
+      }
+      const container = typeof path[index + 1] === "number" ? [] : {};
+      if (!target[part] || typeof target[part] !== "object") target[part] = container;
+      target = target[part];
+    }
   }
   return result;
 }

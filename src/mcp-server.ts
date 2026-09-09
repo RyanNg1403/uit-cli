@@ -369,6 +369,30 @@ exec node "${cliPath}" "$@"
   }
 }
 
+function tomlArrayEnd(lines: string[], start: number, limit: number): number {
+  let depth = 0;
+  let started = false;
+  let quote = "";
+  let escaped = false;
+  for (let index = start; index < limit; index += 1) {
+    const line = index === start ? lines[index].slice(lines[index].indexOf("=") + 1) : lines[index];
+    for (const character of line) {
+      if (escaped) { escaped = false; continue; }
+      if (quote) {
+        if (quote === '"' && character === "\\") escaped = true;
+        else if (character === quote) quote = "";
+        continue;
+      }
+      if (character === "#") break;
+      if (character === '"' || character === "'") { quote = character; continue; }
+      if (character === "[") { depth += 1; started = true; }
+      else if (character === "]" && depth > 0) depth -= 1;
+    }
+    if (started && depth === 0) return index + 1;
+  }
+  return start + 1;
+}
+
 export function upsertMcpConfig(existing: string, command: string, args: string[]): string {
   const commandLine = `command = ${JSON.stringify(command)}`;
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
@@ -394,27 +418,29 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   const commandIndex = lines.findIndex(
     (line, index) => index > sectionStart && index < sectionEnd && commandKey.test(line)
   );
-  const argsIndex = lines.findIndex(
-    (line, index) => index > sectionStart && index < sectionEnd && argsKey.test(line)
-  );
-
   if (commandIndex === -1) {
     lines.splice(sectionStart + 1, 0, commandLine);
-    sectionEnd += 1;
   } else {
     lines[commandIndex] = commandLine;
   }
 
-  const adjustedArgsIndex = argsIndex !== -1 && commandIndex === -1 && argsIndex > sectionStart
-    ? argsIndex + 1
-    : argsIndex;
-  if (adjustedArgsIndex === -1) {
+  sectionEnd = lines.length;
+  for (let index = sectionStart + 1; index < lines.length; index += 1) {
+    if (/^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(lines[index])) {
+      sectionEnd = index;
+      break;
+    }
+  }
+  const argsIndex = lines.findIndex(
+    (line, index) => index > sectionStart && index < sectionEnd && argsKey.test(line)
+  );
+  if (argsIndex === -1) {
     const currentCommandIndex = lines.findIndex(
       (line, index) => index > sectionStart && index < sectionEnd && commandKey.test(line)
     );
     lines.splice(currentCommandIndex + 1, 0, argsLine);
   } else {
-    lines[adjustedArgsIndex] = argsLine;
+    lines.splice(argsIndex, tomlArrayEnd(lines, argsIndex, sectionEnd) - argsIndex, argsLine);
   }
 
   return lines.join("\n");
