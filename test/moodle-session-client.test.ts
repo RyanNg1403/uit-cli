@@ -29,6 +29,23 @@ describe("Moodle session API", () => {
     expect(peak).toBe(5);
   });
 
+  it("paginates Node SSO timeline buckets until their cursor is exhausted", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const [{ args }] = JSON.parse(String(init.body));
+      if (args.classification !== "all") return Response.json([{ data: { courses: [], nextoffset: -1 } }]);
+      if (args.offset === 0) return Response.json([{ data: {
+        courses: Array.from({ length: 100 }, (_, index) => ({ id: index + 1 })),
+        nextoffset: "100"
+      } }]);
+      return Response.json([{ data: { courses: [{ id: 101 }], nextoffset: "-1" } }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    await expect(api.call<any[]>("core_enrol_get_users_courses")).resolves.toHaveLength(101);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
   it("propagates Node SSO authentication failures instead of returning an empty course list", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json([{
       error: true,
@@ -99,6 +116,40 @@ describe("Moodle session API", () => {
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=expired");
 
     await expect(api.call("core_course_get_contents", { courseid: 42 })).rejects.toThrow("session expired");
+  });
+
+  it("scrapes verified assignment metadata when Node SSO AJAX is unsupported", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/lib/ajax/")) return Response.json([{
+        error: true,
+        exception: { errorcode: "servicenotavailable", message: "Unavailable" }
+      }]);
+      if (url.includes("/course/view.php")) return new Response(`
+        <body class="course-42"><div class="course-content"><ul>
+          <li id="module-91" class="activity modtype_assign" data-activityname="Project">
+            <a class="aalink" href="/mod/assign/view.php?id=91">Project</a>
+          </li>
+        </ul></div></body>
+      `, { headers: { "content-type": "text/html" } });
+      return new Response(`
+        <body id="page-mod-assign-view">
+          <div data-assignmentid="701" data-duedate="1800000000"></div>
+          <div id="intro">Build the project <a href="/pluginfile.php/1/mod_assign/introattachment/0/spec.pdf">spec</a></div>
+        </body>
+      `, { headers: { "content-type": "text/html" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    const result = await api.call<any>("mod_assign_get_assignments", { "courseids[0]": 42 });
+    expect(result.courses[0].assignments).toMatchObject([{
+      id: 701,
+      cmid: 91,
+      name: "Project",
+      duedate: 1800000000,
+      introattachments: [{ filename: "spec.pdf" }]
+    }]);
   });
 
   it("normalizes Moodle bracket-array arguments for AJAX", () => {

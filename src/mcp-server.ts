@@ -172,6 +172,10 @@ export async function executeMcpTool(
   }
   const session = resolveAvailableSession(cwd);
   const courseId = Number(args.courseId);
+  const scopedCourseId = workspaceCourseId(cwd)!;
+  if (name !== "uit_courses" && courseId !== scopedCourseId) {
+    throw new Error(`This MCP server is scoped to course ${scopedCourseId}; cross-course access is not allowed.`);
+  }
 
   switch (name) {
     case "uit_courses": {

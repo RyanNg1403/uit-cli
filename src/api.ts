@@ -357,19 +357,86 @@ export class NodeSessionApiClient implements ApiClient {
     return [{ id: 0, name: "General", modules }];
   }
 
+  private async fetchAssignmentsHtml(params: Record<string, any>): Promise<MoodleRecord> {
+    const courseIds = [
+      ...(Array.isArray(params.courseids) ? params.courseids : []),
+      ...Object.entries(params).filter(([key]) => /^courseids\[\d+\]$/.test(key)).map(([, value]) => value)
+    ].map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (!courseIds.length) throw new Error("Assignment fallback requires at least one valid course ID.");
+    const courses = [];
+    for (const courseId of [...new Set(courseIds)]) {
+      const sections = await this.fetchCourseContentsHtml(courseId);
+      const modules = sections.flatMap((section) => section.modules || []).filter((module) => module.modname === "assign");
+      const assignments = await Promise.all(modules.map(async (module) => {
+        try {
+          const activityUrl = new URL(String(module.url || `/mod/assign/view.php?id=${module.id}`), this.baseUrl);
+          if (activityUrl.origin !== new URL(this.baseUrl).origin || !activityUrl.pathname.includes("/mod/assign/")) {
+            throw new Error("Moodle returned an invalid assignment URL.");
+          }
+          activityUrl.searchParams.set("forceview", "1");
+          const page = await this.fetchHtmlPage(activityUrl.toString());
+          const bodyType = /<body\b[^>]*id=["']page-mod-([a-z0-9_]+)-/i.exec(page.html)?.[1];
+          if (bodyType && bodyType !== "assign") throw new Error("Moodle returned a different activity type.");
+          const instance = Number(
+            /data-assignmentid=["'](\d+)["']/i.exec(page.html)?.[1] ||
+            /<input\b[^>]*name=["'](?:assignid|assignmentid)["'][^>]*value=["'](\d+)["']/i.exec(page.html)?.[1] ||
+            /itemmodule=assign(?:&amp;|&)iteminstance=(\d+)/i.exec(page.html)?.[1]
+          );
+          const intro = /<(?:div|section)\b[^>]*(?:id=["']intro["']|class=["'][^"']*\bactivity-description\b)[^>]*>([\s\S]*?)<\/(?:div|section)>/i.exec(page.html)?.[1] || module.description || "";
+          const attachments = [...page.html.matchAll(/<a\b[^>]*href\s*=\s*(["'])(.*?)\1[^>]*>/gi)]
+            .map((link) => fileRecord(link[2], page.url)).filter(Boolean);
+          const timestamp = (field: string): number | undefined => {
+            const match = new RegExp(`(?:data-${field}|name=["']${field}["'][^>]*value)=["'](\\d+)["']`, "i").exec(page.html);
+            const value = Number(match?.[1]);
+            return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+          };
+          return {
+            ...module,
+            cmid: Number(module.id),
+            ...(Number.isSafeInteger(instance) && instance > 0 ? { id: instance } : { unavailable: { instance: "Assignment instance ID unavailable." } }),
+            intro,
+            introattachments: attachments,
+            duedate: timestamp("duedate"),
+            cutoffdate: timestamp("cutoffdate"),
+            allowsubmissionsfromdate: timestamp("allowsubmissionsfromdate"),
+            url: page.url
+          };
+        } catch (error) {
+          return { ...module, cmid: Number(module.id), intro: module.description, unavailable: { details: String(error), instance: "Assignment instance ID unavailable." } };
+        }
+      }));
+      courses.push({ id: courseId, assignments });
+    }
+    return { courses, warnings: [] };
+  }
+
   async call<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
     if (name === "core_enrol_get_users_courses") {
       const courseMap = new Map<number, MoodleRecord>();
       const classifications = ["all", "inprogress", "past", "future", "hidden"];
       const groups = await Promise.all(classifications.map(async (classification) => {
         try {
-          const res = await this.callRaw<any>("core_course_get_enrolled_courses_by_timeline_classification", {
-            classification,
-            limit: 100,
-            offset: 0
-          });
-          const entries = Array.isArray(res) ? res : res?.courses;
-          return Array.isArray(entries) ? entries : [];
+          const collected: MoodleRecord[] = [];
+          let offset = 0;
+          for (let page = 0; page < 1000; page += 1) {
+            const res = await this.callRaw<any>("core_course_get_enrolled_courses_by_timeline_classification", { classification, limit: 100, offset });
+            const entries = Array.isArray(res) ? res : res?.courses;
+            if (!Array.isArray(entries)) throw new Error("Moodle returned an invalid course list.");
+            collected.push(...entries);
+            const cursor = res?.nextoffset;
+            let next: number;
+            if (cursor == null) {
+              if (entries.length < 100) break;
+              next = offset + entries.length;
+            } else {
+              next = Number(cursor);
+              if (next === 0 || next === -1) break;
+            }
+            if (!Number.isSafeInteger(next) || next <= offset) throw new Error(`Invalid or non-advancing course pagination for ${classification}.`);
+            if (page === 999) throw new Error(`Course pagination exceeded the safety limit for ${classification}.`);
+            offset = next;
+          }
+          return collected;
         } catch (error) {
           if (unavailableSessionMethod(error)) return null;
           throw error;
@@ -409,7 +476,7 @@ export class NodeSessionApiClient implements ApiClient {
         return await this.callRaw<T>(name, params);
       } catch (error) {
         if (!unavailableSessionMethod(error)) throw error;
-        return { courses: [], warnings: [] } as T;
+        return await this.fetchAssignmentsHtml(params) as T;
       }
     }
 

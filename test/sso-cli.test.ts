@@ -19,7 +19,7 @@ import { createProgram, main } from "../src/cli.js";
 import { get, getActiveConfig, resetConfigCache, save, saveSsoSession, type SsoSessionData } from "../src/config.js";
 import { NodeSessionApiClient, createSessionApiClient } from "../src/api.js";
 import { workspacePath } from "../src/desktop-service.js";
-import { resolveAvailableSession } from "../src/mcp-server.js";
+import { executeMcpTool, resolveAvailableSession } from "../src/mcp-server.js";
 import type { ApiClient } from "../src/types.js";
 
 const originalCwd = process.cwd();
@@ -141,6 +141,15 @@ describe("SSO CLI workflow and session resolution", () => {
       baseUrl: "https://courses.uit.edu.vn",
       userId: 19589
     });
+  });
+
+  it("rejects cross-course MCP calls even for the same portal and account", async () => {
+    save("legacy-token", 77, "https://coursesold.uit.edu.vn");
+    const workspace = workspacePath(42, "https://coursesold.uit.edu.vn", 77);
+
+    await expect(executeMcpTool("uit_course_contents", { courseId: 43 }, workspace)).rejects.toThrow(
+      "scoped to course 42"
+    );
   });
 
   it("does not load the removed .env credential format", () => {
