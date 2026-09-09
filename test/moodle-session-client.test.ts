@@ -17,16 +17,16 @@ describe("Moodle session API", () => {
       const [{ args }] = JSON.parse(String(init.body));
       await new Promise((resolve) => setTimeout(resolve, 5));
       active -= 1;
-      const id = ["all", "inprogress", "past", "future", "hidden"].indexOf(args.classification) + 1;
+      const id = ["allincludinghidden", "all", "inprogress", "past", "future", "hidden"].indexOf(args.classification) + 1;
       return Response.json([{ data: { courses: [{ id }] } }]);
     });
     vi.stubGlobal("fetch", fetchMock);
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
 
-    await expect(api.call("core_enrol_get_users_courses")).resolves.toHaveLength(5);
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    await expect(api.call("core_enrol_get_users_courses")).resolves.toHaveLength(6);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(fetchMock.mock.calls.every(([, init]) => init.signal instanceof AbortSignal)).toBe(true);
-    expect(peak).toBe(5);
+    expect(peak).toBe(6);
   });
 
   it("paginates Node SSO timeline buckets until their cursor is exhausted", async () => {
@@ -43,7 +43,7 @@ describe("Moodle session API", () => {
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
 
     await expect(api.call<any[]>("core_enrol_get_users_courses")).resolves.toHaveLength(101);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
   it("propagates Node SSO authentication failures instead of returning an empty course list", async () => {
@@ -83,7 +83,8 @@ describe("Moodle session API", () => {
       const url = String(input);
       if (url.includes("/lib/ajax/")) return Response.json([{
         error: true,
-        exception: { errorcode: "servicenotavailable", message: "Unavailable" }
+        exception: "moodle_exception",
+        message: "Method is not available for AJAX"
       }]);
       if (url.includes("/course/view.php")) return new Response(`
         <body class="course-42"><div class="course-content"><ul>

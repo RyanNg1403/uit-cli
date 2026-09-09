@@ -380,7 +380,7 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
 
   let sectionEnd = lines.length;
   for (let index = sectionStart + 1; index < lines.length; index += 1) {
-    if (/^\s*\[[^\]]+\]\s*(?:#.*)?$/.test(lines[index])) {
+    if (/^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(lines[index])) {
       sectionEnd = index;
       break;
     }

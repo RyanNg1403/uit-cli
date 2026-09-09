@@ -69,6 +69,16 @@ describe("mcp-server workspace gating and tools", () => {
     expect(updated).toContain('[mcp_servers.other] # keep\ncommand = "other"');
   });
 
+  it("stops MCP updates before a TOML array table", () => {
+    const updated = upsertMcpConfig(
+      '[mcp_servers.uit]\n\n[[profiles]] # unrelated\ncommand = "profile-command"\nargs = ["profile-arg"]\n',
+      "uit-mcp",
+      ["mcp"]
+    );
+    expect(updated).toContain('[mcp_servers.uit]\ncommand = "uit-mcp"\nargs = ["mcp"]\n\n[[profiles]] # unrelated');
+    expect(updated).toContain('command = "profile-command"\nargs = ["profile-arg"]');
+  });
+
   it("creates a separately named wrapper without following an npm-owned uit symlink", () => {
     const directory = mkdtempSync(join(tmpdir(), "uit-mcp-wrapper-"));
     try {

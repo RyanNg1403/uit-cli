@@ -18,7 +18,9 @@ export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
 
 function unavailableSessionMethod(error: unknown): boolean {
   const code = String((error as { errorcode?: string })?.errorcode || "");
-  if (code) return /^(?:invalid_parameter_exception|invalidparameter|servicenotavailable|invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/i.test(code);
+  if (code && !/^(?:moodle_exception|webservice_exception)$/i.test(code)) {
+    return /^(?:invalid_parameter_exception|invalidparameter|servicenotavailable|invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/i.test(code);
+  }
   return /(?:unknown method|not available for ajax|not callable via ajax|cannot find.*function|web\s*service is not available)/i.test(String(error));
 }
 
@@ -413,7 +415,7 @@ export class NodeSessionApiClient implements ApiClient {
   async call<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
     if (name === "core_enrol_get_users_courses") {
       const courseMap = new Map<number, MoodleRecord>();
-      const classifications = ["all", "inprogress", "past", "future", "hidden"];
+      const classifications = ["allincludinghidden", "all", "inprogress", "past", "future", "hidden"];
       const groups = await Promise.all(classifications.map(async (classification) => {
         try {
           const collected: MoodleRecord[] = [];
