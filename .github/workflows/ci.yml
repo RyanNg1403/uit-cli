@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -40,9 +43,6 @@ jobs:
 
       - name: Check installer
         run: npm run installer:check
-
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
 
       - name: Test desktop UI
         run: npx playwright test desktop-ui pdf-preview sidebar
