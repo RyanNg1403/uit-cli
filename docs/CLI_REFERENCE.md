@@ -49,7 +49,7 @@ uit login --url https://your-moodle-instance.com
 
 Prefer the interactive browser login (`uit login`) or interactive token prompt for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
 
-SSO sessions are saved to `~/.uit/sso-session.json` (chmod 600 on Unix) and shared with UIT Studio. Token credentials are saved to `~/.uit/.env`. A `.env` file in the working directory takes precedence over global configuration. Re-run `uit login` at any time to refresh or rotate the stored session.
+SSO and token sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix) and shared with UIT Studio. The user ID is discovered during login and stored with the session. Re-run `uit login` at any time to refresh or rotate it.
 
 > **Note:** `uit init` is fully preserved as a backwards-compatible alias for `uit login`.
 
@@ -390,14 +390,13 @@ Errors exit with code 1. The `hint` field is included when the CLI can suggest a
 
 | Variable | Description |
 |---|---|
-| `UIT_TOKEN` | Moodle API token |
-| `UIT_BASE_URL` | Moodle instance URL (default: `https://courses.uit.edu.vn`) |
-| `UIT_USER_ID` | Your Moodle user ID (auto-detected on login) |
+| `UIT_TOKEN` | Optional token override for scripts and CI |
+| `UIT_BASE_URL` | Site used with `UIT_TOKEN` (default: `https://courses.uit.edu.vn`) |
+| `UIT_USER_ID` | User ID used with `UIT_TOKEN`; normal login discovers this automatically |
 
 Session and credentials are read with the following precedence:
-1. `.env` in the working directory and parents (`UIT_TOKEN`)
-2. `~/.uit/sso-session.json` (active UIT SSO session created via `uit login` or UIT Studio)
-3. `~/.uit/.env` (global token session created via `uit login --token <token>`)
+1. `UIT_TOKEN` and its optional companion variables from the process environment
+2. `~/.uit/sessions.json` (created by `uit login`, `uit login --token`, or UIT Studio)
 
 ---
 
@@ -409,10 +408,9 @@ uit-cli/
     cli.ts        # command-line parser and 'uit' entry point
     commands.ts   # command implementations and output behavior
     api.ts        # Moodle REST client (call, upload, download)
-    config.ts     # .env file loader
+    config.ts     # shared session configuration
     output.ts     # output formatting and ID/URL helpers
   test/           # regression tests with mocked Moodle responses
   package.json    # npm package definition and 'uit' binary
   tsconfig.json   # TypeScript compiler configuration
-  .env.example    # credential template
 ```
