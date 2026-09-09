@@ -2,7 +2,8 @@ const { app, BrowserWindow, ipcMain, session, shell, screen, clipboard } = requi
 const { homedir } = require("node:os");
 const { extname, join, relative, resolve, sep } = require("node:path");
 const { readFile, writeFile, rename, mkdir, unlink, readdir, stat, lstat, realpath } = require("node:fs/promises");
-const { existsSync } = require("node:fs");
+const { createReadStream, existsSync } = require("node:fs");
+const { createHash } = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const execFileAsync = promisify(execFile);
@@ -56,7 +57,7 @@ const threadBindings = new Map();
 const approvals = new Map();
 const accountGenerations = new Map();
 const linkedCourses = new Map();
-const verifiedMaterialPaths = new Set();
+const verifiedMaterialPaths = new Map();
 let linkedWrite = Promise.resolve();
 let portalErrors = [];
 let cachedModels = null;
@@ -299,7 +300,8 @@ async function requireOpenableMaterialPath(value) {
   const path = requireWorkspacePath(value, "Material path");
   const root = resolve(homedir(), ".uit", "courses");
   const parts = relative(root, path).split(sep);
-  if (!verifiedMaterialPaths.has(path) || parts.length !== 6 || !/^user-[1-9]\d*$/.test(parts[1]) || !/^course-[1-9]\d*$/.test(parts[2]) ||
+  const expected = verifiedMaterialPaths.get(path);
+  if (!expected || parts.length !== 6 || !/^user-[1-9]\d*$/.test(parts[1]) || !/^course-[1-9]\d*$/.test(parts[2]) ||
       parts[3] !== "materials" || !/^[a-f0-9]{64}$/.test(parts[4]) || !OPENABLE_MATERIAL_EXTENSIONS.has(extname(parts[5]).toLowerCase())) {
     throw new Error("Only verified, non-executable UIT material files can be opened.");
   }
@@ -307,12 +309,34 @@ async function requireOpenableMaterialPath(value) {
   if (info.isSymbolicLink() || !info.isFile() || await realpath(path) !== path) {
     throw new Error("Only verified regular UIT material files can be opened.");
   }
+  const digest = await digestMaterialFile(path);
+  const current = await lstat(path);
+  const canonicalPath = await realpath(path).catch(() => "");
+  if (current.isSymbolicLink() || !current.isFile() || canonicalPath !== path || current.dev !== expected.dev || current.ino !== expected.ino || digest !== expected.digest) {
+    throw new Error("Only the original verified UIT material file can be opened.");
+  }
   return path;
+}
+
+async function digestMaterialFile(path) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
 }
 
 async function materializeVerified(...args) {
   const path = resolve(await service.materializeFile(...args));
-  verifiedMaterialPaths.add(path);
+  const info = await lstat(path);
+  if (info.isSymbolicLink() || !info.isFile() || await realpath(path) !== path) {
+    throw new Error("Only verified regular UIT material files can be opened.");
+  }
+  const digest = await digestMaterialFile(path);
+  const current = await lstat(path);
+  const canonicalPath = await realpath(path).catch(() => "");
+  if (current.isSymbolicLink() || !current.isFile() || canonicalPath !== path || current.dev !== info.dev || current.ino !== info.ino) {
+    throw new Error("The downloaded UIT material changed during verification.");
+  }
+  verifiedMaterialPaths.set(path, { dev: current.dev, ino: current.ino, digest });
   return path;
 }
 

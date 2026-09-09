@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { EventEmitter } from "node:events";
+import { Readable } from "node:stream";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,6 +29,9 @@ async function harness(saved: unknown[] = [], options: {
   probeIdentity?: { sesskey: string; userId: number };
 } = {}) {
   const probeIdentity = options.probeIdentity;
+  let materialContent = Buffer.from("verified material");
+  let materialDevice = 1;
+  let materialInode = 1;
   const handlers = new Map<string, (...args: any[]) => any>();
   const partitions = new Map<string, any>();
   const partitionCookies = new Map<string, Array<Record<string, any>>>();
@@ -42,7 +46,10 @@ async function harness(saved: unknown[] = [], options: {
     unlink: vi.fn().mockResolvedValue(undefined),
     readdir: vi.fn().mockResolvedValue([]),
     stat: vi.fn().mockResolvedValue({ mtimeMs: 0 }),
-    lstat: vi.fn().mockResolvedValue({ isSymbolicLink: () => false, isFile: () => true }),
+    lstat: vi.fn(async () => ({
+      dev: materialDevice, ino: materialInode, size: materialContent.length,
+      isSymbolicLink: () => false, isFile: () => true
+    })),
     realpath: vi.fn(async (value: string) => value),
   };
   const service = {
@@ -131,7 +138,7 @@ async function harness(saved: unknown[] = [], options: {
   const modules: Record<string, unknown> = {
     electron: { app, BrowserWindow, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
     "node:os": { homedir: () => home }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
-    "node:fs": { existsSync },
+    "node:fs": { createReadStream: vi.fn(() => Readable.from([materialContent])), existsSync },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
     "node:util": { promisify: (fn: any) => async (...args: any[]) => new Promise((res, rej) => fn(...args, (err: any, out: any) => err ? rej(err) : res(out))) },
   };
@@ -162,7 +169,10 @@ async function harness(saved: unknown[] = [], options: {
   const start = (input = {}) => invoke("agent:start", { ...reference, taskId: "task-1", message: "Explain @Assignment", ...input });
   const request = (input: any) => { context.request = input; return runInContext("handleAgentRequest(request)", context); };
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
-  return { context, app, window, windows, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies };
+  return {
+    context, app, window, windows, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
+    replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; }
+  };
 }
 
 describe("main IPC trust and routing", () => {
@@ -386,6 +396,24 @@ describe("main IPC trust and routing", () => {
     h.fs.lstat.mockResolvedValueOnce({ isSymbolicLink: () => true, isFile: () => true });
     await expect(h.invoke("shell:open", material)).rejects.toThrow("verified regular");
     expect(h.shell.openPath).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a regular file replacement at a verified material citation path", async () => {
+    const h = await harness(); h.connect();
+    const material = path.join(
+      home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
+      "materials", "a".repeat(64), "lecture.pdf"
+    );
+    h.service.materializeFile.mockResolvedValueOnce(material);
+    await h.invoke("course:materialize", {
+      ...reference,
+      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      filename: "lecture.pdf"
+    });
+    h.replaceMaterial("attacker replacement");
+
+    await expect(h.invoke("shell:open", material)).rejects.toThrow("original verified");
+    expect(h.shell.openPath).not.toHaveBeenCalled();
   });
 });
 

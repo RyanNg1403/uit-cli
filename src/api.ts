@@ -436,8 +436,10 @@ export class NodeSessionApiClient implements ApiClient {
               if (entries.length < 100) break;
               next = offset + entries.length;
             } else {
-              next = Number(cursor);
+              next = typeof cursor === "number" || (typeof cursor === "string" && /^-?\d+$/.test(cursor)) ? Number(cursor) : NaN;
               if (next === 0 || next === -1) break;
+              // Moodle can echo the requested offset on an empty terminal page.
+              if (next === offset && entries.length === 0) break;
             }
             if (!Number.isSafeInteger(next) || next <= offset) throw new Error(`Invalid or non-advancing course pagination for ${classification}.`);
             if (page === 999) throw new Error(`Course pagination exceeded the safety limit for ${classification}.`);

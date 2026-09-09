@@ -46,6 +46,20 @@ describe("Moodle session API", () => {
     expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 
+  it("treats an empty Node SSO page that echoes its offset as terminal", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const [{ args }] = JSON.parse(String(init.body));
+      if (args.classification !== "all") return Response.json([{ data: { courses: [], nextoffset: -1 } }]);
+      if (args.offset === 0) return Response.json([{ data: { courses: [{ id: 1 }], nextoffset: 1 } }]);
+      return Response.json([{ data: { courses: [], nextoffset: 1 } }]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    await expect(api.call<any[]>("core_enrol_get_users_courses")).resolves.toEqual([{ id: 1, categoryname: "" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+  });
+
   it("propagates Node SSO authentication failures instead of returning an empty course list", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json([{
       error: true,
