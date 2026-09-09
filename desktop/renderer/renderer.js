@@ -554,8 +554,16 @@ function renderCourseList() {
   const list = $("#course-grid");
   list.replaceChildren();
   if (!state.sessions.length) {
-    const empty = node("div", "empty");
-    empty.append(button("Connect UIT account", "primary-button", openLogin));
+    const empty = node("div", "empty course-onboarding");
+    const mascot = node("img", "course-onboarding-mascot");
+    mascot.src = "./assets/uit-dau-dau.svg";
+    mascot.alt = "Đậu Đậu, the UIT panda mascot";
+    empty.append(
+      mascot,
+      node("h2", "", "Welcome to UIT Studio"),
+      node("p", "", "Connect your UIT account to bring your courses, materials, and study workspace together."),
+      button("Connect UIT account", "primary-button", openLogin)
+    );
     list.append(empty); return;
   }
   const query = $("#course-search").value.trim().toLocaleLowerCase();

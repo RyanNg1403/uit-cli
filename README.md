@@ -100,41 +100,21 @@ npm run desktop
 
 Sign in directly using **UIT SSO** (single sign-on) or your **Legacy Moodle** student account. Sessions are stored securely on your local device.
 
-### Basic Usage & Features
+### What UIT Studio includes
 
-#### Codex AI Study Copilot
-Chat with an AI tutor that has direct context on your courses, lecture slides, and assignments. Switch models, fork study threads, and ask questions with real-time academic context.
+- A unified dashboard for current and legacy UIT Moodle portals.
+- Course materials with PDF, Word, image, text, and code previews.
+- Class members, lecturers, grades, feedback, and deadlines.
+- Codex study threads grounded in selected courses and resources.
+
+<p align="center">
+  <img src="assets/studio-courses.png" alt="UIT Studio courses dashboard" width="860">
+</p>
+
+Chat with Codex using direct context from your courses, lecture slides, and assignments, then continue the same thread in Codex CLI or the ChatGPT desktop app.
 
 <p align="center">
   <img src="assets/studio-chat.png" alt="Codex AI Workspace" width="860" style="border-radius: 8px;">
-</p>
-
-#### Dual Portals & Courses Dashboard
-Manage courses across both **courses.uit.edu.vn** (SSO) and **coursesold.uit.edu.vn** (Legacy) grouped cleanly by academic year with instant real-time search.
-
-<p align="center">
-  <img src="assets/studio-courses.png" alt="Courses Dashboard" width="860" style="border-radius: 8px;">
-</p>
-
-#### Course Materials, Previews & PDF Viewer
-Inspect lecture slides and documents directly in-app with built-in multi-page PDF rendering, Word previews, and download shortcuts.
-
-<p align="center">
-  <img src="assets/course-materials.png" alt="Materials & Document Previews" width="760" style="border-radius: 8px;">
-</p>
-
-#### Class Members & Lecturers
-Browse your class roster with lecturers pinned at the top, complete with teacher tags and instant search.
-
-<p align="center">
-  <img src="assets/course-members.png" alt="Class Members and Lecturers" width="760" style="border-radius: 8px;">
-</p>
-
-#### Grades & Feedback Breakdown
-Track course components, weights, raw marks, and instructor feedback alongside your calculated Course Total.
-
-<p align="center">
-  <img src="assets/course-grades.png" alt="Grades & Feedback" width="760" style="border-radius: 8px;">
 </p>
 
 ---

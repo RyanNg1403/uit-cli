@@ -53,6 +53,7 @@ test("real preload reports unauthenticated status, login forms and validation wi
   const { app, page, profile } = desktop;
   expect(await app.evaluate(({ app }) => app.getPath("userData"))).toBe(profile);
   expect(await page.evaluate(() => window.uit.session.status())).toMatchObject({ authenticated: false, sessions: [] });
+  await expect(page.getByRole("img", { name: "Đậu Đậu, the UIT panda mascot" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Connect UIT account", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();

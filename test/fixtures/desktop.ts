@@ -134,7 +134,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
 export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>; diagnostics: void }, { rendererURL: string }>({
   rendererURL: [async ({}, use) => {
     const root = new URL("../../desktop/renderer/", import.meta.url);
-    const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png" };
+    const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png", "/assets/uit-dau-dau.svg": "assets/uit-dau-dau.svg" };
     const server = createServer(async (request, response) => {
       const pathname = new URL(request.url!, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204).end(); return; }

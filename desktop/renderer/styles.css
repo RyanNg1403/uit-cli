@@ -392,6 +392,16 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .empty { padding: 48px 0; max-width: 520px; color: var(--muted); }
 .empty h2 { color: var(--text); font-size: 21px; margin-bottom: 10px; }
 .empty p { margin-bottom: 16px; }
+.course-onboarding { margin: clamp(16px, 6vh, 64px) auto 0; padding-inline: 24px; text-align: center; }
+.course-onboarding-mascot {
+  display: block;
+  width: clamp(112px, 16vw, 164px);
+  height: auto;
+  margin: 0 auto 18px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 12px 22px rgba(24, 31, 54, 0.14));
+}
+.course-onboarding p { max-width: 46ch; margin-inline: auto; }
 
 /* ═══════════════════════════════════════════════════
    COURSE DETAIL

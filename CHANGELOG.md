@@ -14,6 +14,7 @@ This project follows semantic versioning. For new releases, update the version w
 - Added linting, desktop UI coverage, Electron stability coverage, and npm package verification to CI.
 - Added free unsigned macOS packaging for Apple Silicon and Intel, with GitHub Release artifacts and SHA-256 checksums.
 - Added a repository-hosted installer for the CLI, UIT Studio, or both.
+- Added Đậu Đậu, the UIT panda mascot, to Studio's account onboarding state.
 
 ### Changed
 
