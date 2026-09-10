@@ -491,9 +491,9 @@ export class MoodleSessionApi implements ApiClient {
     throw new Error("SSO file uploads will be enabled with the assignment submission workflow.");
   }
 
-  async downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<void> {
+  async downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<{ sha256: string }> {
     const cookie = await this.transport.cookieHeader();
-    await writeCourseFile(await fetchCourseFile(this.baseUrl, fileUrl, { Cookie: cookie }), destPath, options);
+    return writeCourseFile(await fetchCourseFile(this.baseUrl, fileUrl, { Cookie: cookie }), destPath, options);
   }
 
   async readFile(fileUrl: string): Promise<{ data: Uint8Array; mimeType: string }> {

@@ -32,6 +32,7 @@ async function harness(saved: unknown[] = [], options: {
   let materialContent = Buffer.from("verified material");
   let materialDevice = 1;
   let materialInode = 1;
+  let copiedMaterial = Buffer.alloc(0);
   const handlers = new Map<string, (...args: any[]) => any>();
   const partitions = new Map<string, any>();
   const partitionCookies = new Map<string, Array<Record<string, any>>>();
@@ -51,6 +52,17 @@ async function harness(saved: unknown[] = [], options: {
       isSymbolicLink: () => false, isFile: () => true
     })),
     realpath: vi.fn(async (value: string) => value),
+    mkdtemp: vi.fn().mockResolvedValue(path.join(profile, "material-copy-1")),
+    rm: vi.fn().mockResolvedValue(undefined),
+    open: vi.fn(async (_file: string, flags: string | number) => flags === "wx" ? {
+      write: vi.fn(async (chunk: Uint8Array) => { copiedMaterial = Buffer.concat([copiedMaterial, Buffer.from(chunk)]); }),
+      sync: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined)
+    } : {
+      stat: vi.fn(async () => ({ dev: materialDevice, ino: materialInode, nlink: 1, isFile: () => true })),
+      createReadStream: vi.fn(() => Readable.from([materialContent])),
+      close: vi.fn().mockResolvedValue(undefined)
+    }),
   };
   const service = {
     configuredLegacySession: options.configEnabled
@@ -66,6 +78,11 @@ async function harness(saved: unknown[] = [], options: {
     resolveCourseResource: vi.fn().mockResolvedValue({ kind: "assignment", id: 601, description: "Authoritative reference" }),
     courseWorkspace: vi.fn().mockResolvedValue({ path: workspace }),
     materializeFile: vi.fn().mockResolvedValue(path.join(workspace, "materials", "slide.pdf")),
+    verifyMaterializedFile: vi.fn(async () => ({
+      dev: materialDevice,
+      ino: materialInode,
+      digest: crypto.createHash("sha256").update(materialContent).digest("hex")
+    })),
     previewFile: vi.fn().mockResolvedValue({ filename: "slide.pdf", mimeType: "application/pdf", data: "JVBERg==" }),
     clearCourseCache: vi.fn(),
     loginWithToken: vi.fn(),
@@ -137,8 +154,8 @@ async function harness(saved: unknown[] = [], options: {
   const existsSync = vi.fn().mockReturnValue(false);
   const modules: Record<string, unknown> = {
     electron: { app, BrowserWindow, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
-    "node:os": { homedir: () => home }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
-    "node:fs": { createReadStream: vi.fn(() => Readable.from([materialContent])), existsSync },
+    "node:os": { homedir: () => home, tmpdir: () => path.join(profile, "tmp") }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
+    "node:fs": { constants: { O_RDONLY: 0, O_NOFOLLOW: 0 }, existsSync },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
     "node:util": { promisify: (fn: any) => async (...args: any[]) => new Promise((res, rej) => fn(...args, (err: any, out: any) => err ? rej(err) : res(out))) },
   };
@@ -171,7 +188,8 @@ async function harness(saved: unknown[] = [], options: {
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
   return {
     context, app, window, windows, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
-    replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; }
+    replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; },
+    copiedMaterial: () => copiedMaterial
   };
 }
 
@@ -388,7 +406,8 @@ describe("main IPC trust and routing", () => {
       filename: "lecture.pdf"
     });
     await h.invoke("shell:open", material);
-    expect(h.shell.openPath).toHaveBeenCalledWith(material);
+    expect(h.shell.openPath).toHaveBeenCalledWith(path.join(profile, "material-copy-1", "lecture.pdf"));
+    expect(h.copiedMaterial().toString()).toBe("verified material");
     for (const unsafe of [
       path.join(home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1", "artifacts", "report.pdf"),
       material.replace("lecture.pdf", "run.command")
@@ -411,6 +430,27 @@ describe("main IPC trust and routing", () => {
       filename: "lecture.pdf"
     });
     h.replaceMaterial("attacker replacement");
+
+    await expect(h.invoke("shell:open", material)).rejects.toThrow("original verified");
+    expect(h.shell.openPath).not.toHaveBeenCalled();
+  });
+
+  it("rejects a material swapped after verification instead of opening its pathname", async () => {
+    const h = await harness(); h.connect();
+    const material = path.join(
+      home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
+      "materials", "a".repeat(64), "lecture.pdf"
+    );
+    h.service.materializeFile.mockResolvedValueOnce(material);
+    await h.invoke("course:materialize", {
+      ...reference,
+      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      filename: "lecture.pdf"
+    });
+    h.service.verifyMaterializedFile.mockImplementationOnce(async () => {
+      h.replaceMaterial("raced replacement");
+      return { dev: 1, ino: 1, digest: crypto.createHash("sha256").update("verified material").digest("hex") };
+    });
 
     await expect(h.invoke("shell:open", material)).rejects.toThrow("original verified");
     expect(h.shell.openPath).not.toHaveBeenCalled();

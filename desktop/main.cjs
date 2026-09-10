@@ -1,8 +1,8 @@
 const { app, BrowserWindow, ipcMain, session, shell, screen, clipboard } = require("electron");
-const { homedir } = require("node:os");
-const { extname, join, relative, resolve, sep } = require("node:path");
-const { readFile, writeFile, rename, mkdir, unlink, readdir, stat, lstat, realpath } = require("node:fs/promises");
-const { createReadStream, existsSync } = require("node:fs");
+const { homedir, tmpdir } = require("node:os");
+const { basename, extname, join, relative, resolve, sep } = require("node:path");
+const { readFile, writeFile, rename, mkdir, unlink, readdir, stat, lstat, realpath, mkdtemp, open, rm } = require("node:fs/promises");
+const { constants, existsSync } = require("node:fs");
 const { createHash } = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
@@ -58,6 +58,7 @@ const approvals = new Map();
 const accountGenerations = new Map();
 const linkedCourses = new Map();
 const verifiedMaterialPaths = new Map();
+const temporaryMaterialDirectories = new Set();
 let linkedWrite = Promise.resolve();
 let portalErrors = [];
 let cachedModels = null;
@@ -296,7 +297,7 @@ const OPENABLE_MATERIAL_EXTENSIONS = new Set([
   ".zip", ".7z", ".rar", ".tar", ".gz", ".h5p"
 ]);
 
-async function requireOpenableMaterialPath(value) {
+async function requireOpenableMaterialCopy(value) {
   const path = requireWorkspacePath(value, "Material path");
   const root = resolve(homedir(), ".uit", "courses");
   const parts = relative(root, path).split(sep);
@@ -309,34 +310,47 @@ async function requireOpenableMaterialPath(value) {
   if (info.isSymbolicLink() || !info.isFile() || await realpath(path) !== path) {
     throw new Error("Only verified regular UIT material files can be opened.");
   }
-  const digest = await digestMaterialFile(path);
-  const current = await lstat(path);
-  const canonicalPath = await realpath(path).catch(() => "");
-  if (current.isSymbolicLink() || !current.isFile() || canonicalPath !== path || current.dev !== expected.dev || current.ino !== expected.ino || digest !== expected.digest) {
+  const verified = await service.verifyMaterializedFile(path);
+  if (verified.dev !== expected.dev || verified.ino !== expected.ino || verified.digest !== expected.digest) {
     throw new Error("Only the original verified UIT material file can be opened.");
   }
-  return path;
-}
-
-async function digestMaterialFile(path) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return hash.digest("hex");
+  const source = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let directory;
+  try {
+    const sourceInfo = await source.stat();
+    if (!sourceInfo.isFile() || sourceInfo.nlink !== 1 || sourceInfo.dev !== expected.dev || sourceInfo.ino !== expected.ino) {
+      throw new Error("Only the original verified UIT material file can be opened.");
+    }
+    directory = await mkdtemp(join(tmpdir(), "uit-studio-material-"));
+    temporaryMaterialDirectories.add(directory);
+    const copyPath = join(directory, basename(path));
+    const target = await open(copyPath, "wx", 0o600);
+    const hash = createHash("sha256");
+    try {
+      for await (const chunk of source.createReadStream({ autoClose: false, start: 0 })) {
+        hash.update(chunk);
+        await target.write(chunk);
+      }
+      await target.sync();
+    } finally {
+      await target.close();
+    }
+    if (hash.digest("hex") !== expected.digest) throw new Error("The verified UIT material changed while opening.");
+    return copyPath;
+  } catch (error) {
+    if (directory) {
+      temporaryMaterialDirectories.delete(directory);
+      await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    await source.close();
+  }
 }
 
 async function materializeVerified(...args) {
   const path = resolve(await service.materializeFile(...args));
-  const info = await lstat(path);
-  if (info.isSymbolicLink() || !info.isFile() || await realpath(path) !== path) {
-    throw new Error("Only verified regular UIT material files can be opened.");
-  }
-  const digest = await digestMaterialFile(path);
-  const current = await lstat(path);
-  const canonicalPath = await realpath(path).catch(() => "");
-  if (current.isSymbolicLink() || !current.isFile() || canonicalPath !== path || current.dev !== info.dev || current.ino !== info.ino) {
-    throw new Error("The downloaded UIT material changed during verification.");
-  }
-  verifiedMaterialPaths.set(path, { dev: current.dev, ino: current.ino, digest });
+  verifiedMaterialPaths.set(path, await service.verifyMaterializedFile(path));
   return path;
 }
 
@@ -1168,7 +1182,7 @@ function registerIpc() {
       return rollout || { mtime: 0, messages: [] };
     },
     "shell:open": async (_event, target) => {
-      return shell.openPath(await requireOpenableMaterialPath(target));
+      return shell.openPath(await requireOpenableMaterialCopy(target));
     },
     "shell:open-external": async (_event, rawUrl) => {
       const urlString = requireString(rawUrl, "URL");
@@ -1240,5 +1254,9 @@ if ((process.argv || []).includes("--uit-mcp")) {
     if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   });
 
-  app.on("before-quit", () => { codex?.disconnect(); });
+  app.on("before-quit", () => {
+    codex?.disconnect();
+    for (const directory of temporaryMaterialDirectories) void rm(directory, { recursive: true, force: true });
+    temporaryMaterialDirectories.clear();
+  });
 }

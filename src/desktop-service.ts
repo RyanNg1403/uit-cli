@@ -881,6 +881,7 @@ async function ensureWorkspaceDirectories(root: string, children: string[]): Pro
 }
 
 const downloads = new Map<string, Promise<string>>();
+const materializedFiles = new Map<string, { dev: number; ino: number; digest: string }>();
 
 function openFilePath(fd: number): string {
   if (process.platform === "linux") return `/proc/self/fd/${fd}`;
@@ -890,6 +891,31 @@ function openFilePath(fd: number): string {
 
 function sameFile(left: { dev: number; ino: number }, right: { dev: number; ino: number }): boolean {
   return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function digestHandle(handle: Awaited<ReturnType<typeof open>>): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of handle.createReadStream({ autoClose: false, start: 0 })) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+export async function verifyMaterializedFile(path: string): Promise<{ dev: number; ino: number; digest: string }> {
+  const destination = resolve(path);
+  const expected = materializedFiles.get(destination);
+  if (!expected) throw new Error("This UIT material was not verified in the current session.");
+  const handle = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const info = await handle.stat();
+    const pathInfo = await lstat(destination);
+    const digest = await digestHandle(handle);
+    if (!info.isFile() || info.nlink !== 1 || !sameFile(info, pathInfo) ||
+        await realpath(destination).catch(() => "") !== destination || !sameFile(info, expected) || digest !== expected.digest) {
+      throw new Error("The downloaded UIT material has changed since verification.");
+    }
+    return expected;
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function materializeFile(courseId: number, fileUrl: string, _filename: string, api: ApiClient = defaultApiClient, identity?: CourseIdentity): Promise<string> {
@@ -910,38 +936,49 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
   const pending = (async () => {
     await ensureWorkspaceDirectories(root, ["materials", join("materials", hash)]);
     const directory = dirname(destination);
+    let destinationExists = false;
     try {
       const info = await lstat(destination);
       if (info.isSymbolicLink() || !info.isFile()) throw new Error("Course download destination is not a regular file.");
-      return destination;
+      destinationExists = true;
+      try {
+        await verifyMaterializedFile(destination);
+        return destination;
+      } catch {
+        // Unknown or modified cached files are recreated from the authenticated source.
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 
-    // Create without following the final component, then stream through the
-    // verified file descriptor. Even if an Agent swaps a parent directory after
-    // validation, authenticated bytes remain pinned to this exact new inode.
+    // Create or securely replace through a pinned descriptor. Even if an Agent
+    // swaps a parent after validation, authenticated bytes stay on this inode.
     const handle = await open(
       destination,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      constants.O_RDWR | constants.O_NOFOLLOW |
+        (destinationExists ? 0 : constants.O_CREAT | constants.O_EXCL),
       0o600
     );
     const openedInfo = await handle.stat();
     let complete = false;
     try {
       const pathInfo = await lstat(destination);
-      if (!sameFile(openedInfo, pathInfo) || await realpath(directory) !== directory) {
+      if (!openedInfo.isFile() || openedInfo.nlink !== 1 || !sameFile(openedInfo, pathInfo) || await realpath(directory) !== directory) {
         throw new Error("UIT workspace directories must not be symbolic links.");
       }
-      await api.downloadFile(file.fileurl, openFilePath(handle.fd), { atomic: false });
+      await handle.truncate(0);
+      const download = await api.downloadFile(file.fileurl, openFilePath(handle.fd), { atomic: false });
       const completedInfo = await lstat(destination).catch(() => undefined);
       if (!completedInfo || !sameFile(openedInfo, completedInfo) || await realpath(directory).catch(() => "") !== directory) {
         throw new Error("UIT workspace directories must not be symbolic links.");
       }
+      const digest = download?.sha256 || await digestHandle(handle);
+      materializedFiles.set(destination, { dev: openedInfo.dev, ino: openedInfo.ino, digest });
       complete = true;
       return destination;
     } finally {
       if (!complete) {
+        materializedFiles.delete(destination);
         await handle.truncate(0).catch(() => undefined);
         const currentInfo = await lstat(destination).catch(() => undefined);
         if (currentInfo && sameFile(openedInfo, currentInfo)) await rm(destination, { force: true }).catch(() => undefined);

@@ -627,6 +627,19 @@ describe("deterministic materialization", () => {
     expect(await readdir(outside)).toEqual([]);
   });
 
+  it("redownloads a cached material that was replaced or modified", async () => {
+    await home();
+    const api = client();
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "authenticated"); });
+    const identity = { baseUrl: site, userId: 7 };
+    const destination = await materializeFile(42, file.fileurl, file.filename, api, identity);
+    await writeFile(destination, "workspace replacement");
+
+    await expect(materializeFile(42, file.fileurl, file.filename, api, identity)).resolves.toBe(destination);
+    expect(await readFile(destination, "utf8")).toBe("authenticated");
+    expect(api.downloadFile).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a download pinned when its verified directory is swapped mid-write", async () => {
     await home();
     const api = client();

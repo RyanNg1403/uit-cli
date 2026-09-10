@@ -1,8 +1,8 @@
 import { createWriteStream, mkdirSync, openAsBlob } from "node:fs";
 import { rename, rm } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { get } from "./config.js";
 import { buildAjaxInfo, unwrapAjaxResponse } from "./ajax-helpers.js";
@@ -159,17 +159,25 @@ export async function readCourseFile(response: Response): Promise<{ data: Uint8A
   return { data: Buffer.concat(chunks, size), mimeType: (response.headers.get("content-type") || "application/octet-stream").split(";")[0].trim().toLowerCase() };
 }
 
-export async function writeCourseFile(response: Response, destPath: string, options: { atomic?: boolean } = {}): Promise<void> {
+export async function writeCourseFile(response: Response, destPath: string, options: { atomic?: boolean } = {}): Promise<{ sha256: string }> {
   if (!response.body) throw new Error("Empty course file response.");
+  const hash = createHash("sha256");
+  const hashingStream = new Transform({
+    transform(chunk, _encoding, callback) {
+      hash.update(chunk);
+      callback(null, chunk);
+    }
+  });
   if (options.atomic === false) {
-    await pipeline(Readable.fromWeb(response.body as any), createWriteStream(destPath));
-    return;
+    await pipeline(Readable.fromWeb(response.body as any), hashingStream, createWriteStream(destPath));
+    return { sha256: hash.digest("hex") };
   }
   mkdirSync(dirname(destPath) || ".", { recursive: true });
   const temporaryPath = `${destPath}.part-${randomUUID()}`;
   try {
-    await pipeline(Readable.fromWeb(response.body as any), createWriteStream(temporaryPath, { flags: "wx" }));
+    await pipeline(Readable.fromWeb(response.body as any), hashingStream, createWriteStream(temporaryPath, { flags: "wx" }));
     await rename(temporaryPath, destPath);
+    return { sha256: hash.digest("hex") };
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
     throw error;
@@ -228,8 +236,8 @@ export function createTokenApiClient(baseUrl: string, token: string): ApiClient 
     return data as MoodleRecord;
   };
 
-  const downloadWithToken = async (fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<void> => {
-    await writeCourseFile(await fetchCourseFile(normalizedBaseUrl, fileUrl, {}, token), destPath, options);
+  const downloadWithToken = async (fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<{ sha256: string }> => {
+    return writeCourseFile(await fetchCourseFile(normalizedBaseUrl, fileUrl, {}, token), destPath, options);
   };
 
   return {
@@ -246,7 +254,7 @@ export async function uploadFile(filepath: string): Promise<MoodleRecord> {
   return defaultApiClient.uploadFile(filepath);
 }
 
-export async function downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<void> {
+export async function downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<{ sha256: string } | void> {
   return defaultApiClient.downloadFile(fileUrl, destPath, options);
 }
 
@@ -492,8 +500,8 @@ export class NodeSessionApiClient implements ApiClient {
     return this.callRaw<T>(name, params);
   }
 
-  async downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<void> {
-    await writeCourseFile(
+  async downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<{ sha256: string }> {
+    return writeCourseFile(
       await fetchCourseFile(this.baseUrl, fileUrl, { Cookie: this.cookieHeader }),
       destPath,
       options
