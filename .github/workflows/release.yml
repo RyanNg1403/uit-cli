@@ -27,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "20.19"
+          node-version: "24"
           cache: npm
 
       - name: Verify tag matches package version
@@ -66,7 +66,7 @@ jobs:
           done
 
       - name: Upload release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: uit-studio-macos-${{ matrix.arch }}
           path: release-assets/*
@@ -83,7 +83,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "20.19"
+          node-version: "24"
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
 
@@ -120,7 +120,7 @@ jobs:
         run: npm run package:check
 
       - name: Download macOS release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: uit-studio-macos-*
           path: release-assets
