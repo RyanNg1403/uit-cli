@@ -1132,6 +1132,33 @@ test("completed conversation persists, stream output deduplicates and offline re
   for (const method of ["agent.start", "agent.send", "workspace.create"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
+test("rollout sync repairs matching items and keeps distinct messages with overlapping text", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await page.getByLabel("Message Codex").fill("Start externally");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start"))[0].input;
+  const params = { taskId: input.taskId, threadId: `thread-${input.taskId}`, turnId: `turn-${input.taskId}` };
+  await emit(page, "item/completed", { ...params, item: { id: "answer", type: "agentMessage", text: "OK" } });
+  await emit(page, "turn/completed", { ...params, turn: { id: params.turnId, status: "completed" } });
+
+  await page.evaluate(() => {
+    window.uit.agent.readRollout = async () => ({
+      mtime: Date.now(),
+      messages: [
+        { id: "answer", turnId: "external-turn", role: "assistant", text: "Complete answer" },
+        { id: "another-answer", turnId: "external-turn", role: "assistant", text: "OK, completed" }
+      ]
+    });
+    window.dispatchEvent(new Event("focus"));
+  });
+
+  await expect(page.locator("#agent-messages .assistant")).toHaveCount(2);
+  await expect(page.locator("#agent-messages .assistant").nth(0)).toContainText("Complete answer");
+  await expect(page.locator("#agent-messages .assistant").nth(1)).toContainText("OK, completed");
+});
+
 test("global agent exit interrupts busy threads without losing their independent drafts", async ({ page, boot }) => {
   await boot();
   await openCourse(page);

@@ -1470,11 +1470,23 @@ async function syncThreadRollout(thread = activeThread()) {
       thread.lastRolloutMtime = result.mtime;
       let updated = false;
       for (const rm of result.messages) {
-        const existing = thread.messages.some((m) => m.text && (m.text === rm.text || rm.text.includes(m.text) || m.text.includes(rm.text)));
-        if (!existing && rm.text) {
+        if (!rm.text) continue;
+        const existing = rm.id
+          ? thread.messages.find((m) => m.itemId === rm.id || m.rolloutId === rm.id)
+          : thread.messages.find((m) => m.role === rm.role && m.text === rm.text);
+        if (existing) {
+          if (existing.text !== rm.text || existing.status !== "completed") {
+            existing.text = rm.text;
+            existing.status = "completed";
+            updated = true;
+          }
+          if (rm.id) existing.rolloutId = rm.id;
+        } else {
           thread.messages.push({
             role: rm.role,
             text: rm.text,
+            rolloutId: rm.id,
+            turnId: rm.turnId,
             kind: rm.role === "assistant" ? "markdown" : undefined,
             status: "completed",
             label: rm.role === "assistant" ? "Codex (external)" : undefined,

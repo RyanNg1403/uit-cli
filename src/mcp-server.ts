@@ -383,6 +383,8 @@ exec node "${cliPath}" "$@"
   }
 }
 
+const MCP_PARENT_KEY = String.raw`(?:mcp_servers|"mcp_servers"|'mcp_servers')`;
+
 function tomlArrayEnd(lines: string[], start: number, limit: number): number {
   let depth = 0;
   let started = false;
@@ -411,7 +413,7 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   const commandLine = `command = ${JSON.stringify(command)}`;
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
   const lines = existing.split("\n");
-  const uitSection = /^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$/;
+  const uitSection = new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$`);
   const commandKey = /^\s*(?:command|"command"|'command')\s*=/;
   const argsKey = /^\s*(?:args|"args"|'args')\s*=/;
   const sectionStart = lines.findIndex((line) => uitSection.test(line));
@@ -501,7 +503,7 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
     return;
   }
   writeFileAtomically(configPath, updated, statSync(configPath).mode & 0o777);
-  console.log(/^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]/m.test(existing)
+  console.log(new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]`, "m").test(existing)
     ? `Updated uit MCP server path in ~/.codex/config.toml to ${command}`
     : `Configured uit MCP server in ~/.codex/config.toml`);
 }
