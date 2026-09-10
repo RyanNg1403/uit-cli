@@ -84,6 +84,18 @@ test("12-page PDF scrolls forward, back and last with bounded canvases, text and
   expect(await page.evaluate(() => (window as any).__pdfStats.canvases.every((canvas: HTMLCanvasElement) => canvas.width === 0 && canvas.height === 0))).toBe(true);
 });
 
+test("rejects PDFs whose page count would create an unsafe placeholder DOM", async ({ page, boot }) => {
+  await boot();
+  await page.evaluate((data) => {
+    window.uit.courses.preview = async () => ({ mimeType: "application/pdf", data: btoa(data) });
+  }, pdfFixture(10, 10, 2001));
+  await openCourse(page);
+  await page.locator("#contents-panel .resource-open").filter({ hasText: "slide.pdf" }).click();
+  await expect(page.locator("#reader-body [role=alert]")).toContainText("Preview could not be loaded");
+  await expect(page.locator(".pdf-page")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as any).__pdfStats.terminated)).toBe(1);
+});
+
 test("closing during PDF.js import prevents a late worker or reader", async ({ page, boot }) => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });

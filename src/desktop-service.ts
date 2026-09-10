@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
@@ -797,6 +798,8 @@ async function courseFile(courseId: number, fileUrl: string, api: ApiClient): Pr
 }
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const MAX_DOCX_ENTRIES = 2048;
+const MAX_DOCX_EXPANDED_BYTES = 50 * 1024 * 1024;
 const PREVIEW_IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif"]);
 // Only these formats preview in UIT Studio. Everything else is download-only,
 // so binary formats never reach the reader and its error panel.
@@ -818,6 +821,85 @@ export function previewableMime(mimeType: string, filename: string): boolean {
     // Converted documents arrive as plain text; only trust them by extension.
     (mimeType === "text/plain" && (ext === ".md" || ext === ".markdown" || ext === ".py" || ext === ".docx"));
 }
+
+interface DocxEntry { method: number; compressedSize: number; expandedSize: number; dataOffset: number }
+
+function docxEntries(data: Buffer): DocxEntry[] {
+  const minimum = Math.max(0, data.length - 65_557);
+  let end = -1;
+  for (let offset = data.length - 22; offset >= minimum; offset -= 1) {
+    if (data.readUInt32LE(offset) === 0x06054b50 && offset + 22 + data.readUInt16LE(offset + 20) === data.length) {
+      end = offset;
+      break;
+    }
+  }
+  if (end < 0) throw new Error("Invalid DOCX archive.");
+  if (data.readUInt16LE(end + 4) !== 0 || data.readUInt16LE(end + 6) !== 0) throw new Error("Multi-disk DOCX archives are not supported.");
+  const diskCount = data.readUInt16LE(end + 8);
+  const count = data.readUInt16LE(end + 10);
+  const centralSize = data.readUInt32LE(end + 12);
+  const centralOffset = data.readUInt32LE(end + 16);
+  if (diskCount !== count || count > MAX_DOCX_ENTRIES || count === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff) {
+    throw new Error("DOCX archive is too complex to preview safely.");
+  }
+  if (centralOffset + centralSize > end) throw new Error("Invalid DOCX archive directory.");
+  const entries: DocxEntry[] = [];
+  let cursor = centralOffset;
+  let expandedTotal = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (cursor + 46 > end || data.readUInt32LE(cursor) !== 0x02014b50) throw new Error("Invalid DOCX archive entry.");
+    const flags = data.readUInt16LE(cursor + 8);
+    const method = data.readUInt16LE(cursor + 10);
+    const compressedSize = data.readUInt32LE(cursor + 20);
+    const expandedSize = data.readUInt32LE(cursor + 24);
+    const nameLength = data.readUInt16LE(cursor + 28);
+    const extraLength = data.readUInt16LE(cursor + 30);
+    const commentLength = data.readUInt16LE(cursor + 32);
+    const localOffset = data.readUInt32LE(cursor + 42);
+    if ((flags & 1) !== 0 || ![0, 8].includes(method) || [compressedSize, expandedSize, localOffset].includes(0xffffffff)) {
+      throw new Error("Unsupported DOCX archive entry.");
+    }
+    expandedTotal += expandedSize;
+    if (expandedTotal > MAX_DOCX_EXPANDED_BYTES) throw new Error("DOCX preview expands beyond the 50 MB safety limit.");
+    if (localOffset + 30 > centralOffset || data.readUInt32LE(localOffset) !== 0x04034b50) throw new Error("Invalid DOCX archive entry location.");
+    if (data.readUInt16LE(localOffset + 8) !== method || (data.readUInt16LE(localOffset + 6) & 1) !== 0) {
+      throw new Error("Mismatched DOCX archive entry.");
+    }
+    const localNameLength = data.readUInt16LE(localOffset + 26);
+    const localExtraLength = data.readUInt16LE(localOffset + 28);
+    const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+    if (dataOffset + compressedSize > centralOffset) throw new Error("Invalid DOCX archive entry size.");
+    entries.push({ method, compressedSize, expandedSize, dataOffset });
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  if (cursor !== centralOffset + centralSize) throw new Error("Invalid DOCX archive directory size.");
+  return entries;
+}
+
+async function verifyDocxExpansion(data: Buffer): Promise<void> {
+  let expandedTotal = 0;
+  for (const entry of docxEntries(data)) {
+    if (entry.method === 0) {
+      if (entry.compressedSize !== entry.expandedSize) throw new Error("Invalid stored DOCX entry size.");
+      expandedTotal += entry.expandedSize;
+      continue;
+    }
+    const expanded = await new Promise<number>((resolve, reject) => {
+      const inflater = createInflateRaw();
+      let size = 0;
+      inflater.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (expandedTotal + size > MAX_DOCX_EXPANDED_BYTES) inflater.destroy(new Error("DOCX preview expands beyond the 50 MB safety limit."));
+      });
+      inflater.once("error", reject);
+      inflater.once("end", () => resolve(size));
+      inflater.end(data.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize));
+    });
+    if (expanded !== entry.expandedSize) throw new Error("DOCX archive entry has an invalid expanded size.");
+    expandedTotal += expanded;
+  }
+}
+
 export async function previewFile(courseId: number, fileUrl: string, _filename: string, api: ApiClient = defaultApiClient): Promise<{ mimeType: string; data: string; filename: string }> {
   const file = await courseFile(courseId, fileUrl, api);
   if (file.filesize > MAX_PREVIEW_BYTES) throw new Error("Preview is limited to 25 MB. Download this file explicitly instead.");
@@ -833,8 +915,11 @@ export async function previewFile(courseId: number, fileUrl: string, _filename: 
   }
   // Word documents preview as extracted plain text, never executed content.
   if (mimeType === DOCX_MIME) {
+    const archive = Buffer.from(result.data);
+    await verifyDocxExpansion(archive);
     const { default: mammoth } = await import("mammoth");
-    const { value } = await mammoth.extractRawText({ buffer: Buffer.from(result.data) });
+    const { value } = await mammoth.extractRawText({ buffer: archive });
+    if (Buffer.byteLength(value) > MAX_PREVIEW_BYTES) throw new Error("DOCX preview text exceeds the 25 MB safety limit.");
     return { mimeType: "text/plain", data: Buffer.from(value).toString("base64"), filename: file.filename };
   }
   return { mimeType, data: Buffer.from(result.data).toString("base64"), filename: file.filename };

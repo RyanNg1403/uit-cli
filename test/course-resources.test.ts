@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { deflateRawSync } from "node:zlib";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
 import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeFile, previewableMime, previewFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
@@ -13,6 +14,32 @@ const file = { filename: "lecture.pdf", fileurl: `${site}/pluginfile.php/1/lectu
 const secondFile = { ...file, fileurl: `${site}/pluginfile.php/2/lecture.pdf` };
 const assignmentFile = { ...file, filename: "project.txt", fileurl: `${site}/pluginfile.php/3/project.txt`, mimetype: "text/plain" };
 const announcementFile = { ...file, filename: "notice.txt", fileurl: `${site}/pluginfile.php/4/notice.txt`, mimetype: "text/plain" };
+
+function zipEntry(contents: Buffer, expandedSize = contents.length): Buffer {
+  const name = Buffer.from("word/document.xml");
+  const compressed = deflateRawSync(contents);
+  const local = Buffer.alloc(30 + name.length);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(8, 8);
+  local.writeUInt32LE(compressed.length, 18);
+  local.writeUInt32LE(expandedSize, 22);
+  local.writeUInt16LE(name.length, 26);
+  name.copy(local, 30);
+  const central = Buffer.alloc(46 + name.length);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(compressed.length, 20);
+  central.writeUInt32LE(expandedSize, 24);
+  central.writeUInt16LE(name.length, 28);
+  name.copy(central, 46);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(local.length + compressed.length, 16);
+  return Buffer.concat([local, compressed, central, end]);
+}
 
 function client(overrides: Record<string, any> = {}): ApiClient {
   const responses: Record<string, any> = {
@@ -402,9 +429,18 @@ describe("in-memory preview", () => {
   it("converts word documents to plain text for preview", async () => {
     const docx = { filename: "essay.docx", fileurl: `${site}/pluginfile.php/5/essay.docx`, filesize: 8, mimetype: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type: "file" };
     const api = client({ core_course_get_contents: [{ name: "Week 1", modules: [{ id: 10, name: "Docs", modname: "resource", contents: [docx] }] }] });
-    vi.mocked(api.readFile!).mockResolvedValue({ data: Buffer.from("PK"), mimeType: docx.mimetype });
+    vi.mocked(api.readFile!).mockResolvedValue({ data: zipEntry(Buffer.from("document")), mimeType: docx.mimetype });
     await expect(previewFile(42, docx.fileurl, "ignored", api)).resolves.toEqual({ mimeType: "text/plain", data: Buffer.from("Converted docx").toString("base64"), filename: "essay.docx" });
     expect(api.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects DOCX archives with oversized or dishonest expansion metadata", async () => {
+    const docx = { filename: "essay.docx", fileurl: `${site}/pluginfile.php/5/essay.docx`, filesize: 8, mimetype: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type: "file" };
+    const api = client({ core_course_get_contents: [{ modules: [{ id: 10, modname: "resource", contents: [docx] }] }] });
+    vi.mocked(api.readFile!).mockResolvedValueOnce({ data: zipEntry(Buffer.from("tiny"), 51 * 1024 * 1024), mimeType: docx.mimetype });
+    await expect(previewFile(42, docx.fileurl, docx.filename, api)).rejects.toThrow("50 MB");
+    vi.mocked(api.readFile!).mockResolvedValueOnce({ data: zipEntry(Buffer.alloc(1024), 1), mimeType: docx.mimetype });
+    await expect(previewFile(42, docx.fileurl, docx.filename, api)).rejects.toThrow("invalid expanded size");
   });
 
   it("rejects unsupported formats, oversized payloads, and foreign files", async () => {

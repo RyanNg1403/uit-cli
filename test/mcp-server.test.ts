@@ -81,6 +81,13 @@ describe("mcp-server workspace gating and tools", () => {
     expect(updated).toContain('command = "uit-mcp"\nargs = ["mcp"]');
   });
 
+  it("preserves a case-distinct TOML table and creates the lowercase UIT server", () => {
+    const existing = '[mcp_servers.UIT]\ncommand = "other"\nargs = ["other"]\n';
+    const updated = upsertMcpConfig(existing, "uit-mcp", ["mcp"]);
+    expect(updated).toContain(existing);
+    expect(updated).toContain('[mcp_servers.uit]\ncommand = "uit-mcp"\nargs = ["mcp"]');
+  });
+
   it("replaces quoted option keys without adding equivalent duplicates", () => {
     const updated = upsertMcpConfig(
       "[mcp_servers.uit]\n'command' = \"old\"\n\"args\" = [\"old\"]\n",
@@ -107,6 +114,14 @@ describe("mcp-server workspace gating and tools", () => {
     );
     expect(updated).toContain('[mcp_servers.uit]\ncommand = "uit-mcp"\nargs = ["mcp"]\n\n[[profiles]] # unrelated');
     expect(updated).toContain('command = "profile-command"\nargs = ["profile-arg"]');
+  });
+
+  it("preserves a case-distinct MCP table and creates the lowercase UIT table", () => {
+    const existing = '[mcp_servers.UIT]\ncommand = "unrelated"\nargs = ["keep"]\n';
+    const updated = upsertMcpConfig(existing, "uit-mcp", ["mcp"]);
+
+    expect(updated).toContain(existing);
+    expect(updated).toContain("[mcp_servers.uit]\ncommand = \"uit-mcp\"\nargs = [\"mcp\"]");
   });
 
   it("creates a separately named wrapper without following an npm-owned uit symlink", () => {

@@ -1,4 +1,6 @@
 // No viewer, annotation layer, scripting manager, or document URLs enter this engine.
+const MAX_PDF_PAGES = 2000;
+
 export function createPdfPreview(container, bytes) {
   const root = document.createElement("section");
   root.className = "pdf-preview";
@@ -204,6 +206,9 @@ export function createPdfPreview(container, bytes) {
       bytes = null;
       const loaded = await loadingTask.promise;
       if (disposed) return;
+      if (!Number.isSafeInteger(loaded.numPages) || loaded.numPages < 1 || loaded.numPages > MAX_PDF_PAGES) {
+        throw new Error(`PDF preview supports 1 to ${MAX_PDF_PAGES} pages.`);
+      }
       pdf = loaded;
       const first = await pdf.getPage(1);
       if (disposed) return;

@@ -425,6 +425,62 @@ export class NodeSessionApiClient implements ApiClient {
     return { courses, warnings: [] };
   }
 
+  private async fetchCourseModuleHtml(params: Record<string, any>): Promise<MoodleRecord> {
+    const cmid = Number(params.cmid);
+    if (!Number.isSafeInteger(cmid) || cmid <= 0) throw new Error("Invalid course module ID.");
+    const requestedCourse = Number(params.courseid);
+    const courses = Number.isSafeInteger(requestedCourse) && requestedCourse > 0
+      ? [{ id: requestedCourse }]
+      : await this.call<MoodleRecord[]>("core_enrol_get_users_courses");
+    let module: MoodleRecord | undefined;
+    for (const course of courses) {
+      const courseId = Number(course.id);
+      if (!Number.isSafeInteger(courseId) || courseId <= 0) continue;
+      const sections = await this.fetchCourseContentsHtml(courseId);
+      module = sections.flatMap((section) => section.modules || []).find((item) => Number(item.id) === cmid);
+      if (module) break;
+    }
+    if (!module) throw new Error("Course module was not found in accessible courses.");
+
+    if (module.modname === "assign") {
+      const assignments = await this.fetchAssignmentsHtml({ courseids: [Number(module.course)] });
+      const assignment = assignments.courses?.flatMap((course: MoodleRecord) => course.assignments || [])
+        .find((item: MoodleRecord) => Number(item.cmid) === cmid);
+      if (assignment) {
+        const { id: instance, ...details } = assignment;
+        return { cm: { ...module, ...details, ...(instance ? { instance } : {}) }, warnings: [] };
+      }
+    }
+
+    if (module.modname === "forum") {
+      const activityUrl = new URL(String(module.url || `/mod/forum/view.php?id=${cmid}`), this.baseUrl);
+      if (activityUrl.origin !== new URL(this.baseUrl).origin || !activityUrl.pathname.includes("/mod/forum/")) {
+        throw new Error("Moodle returned an invalid forum URL.");
+      }
+      activityUrl.searchParams.set("forceview", "1");
+      const page = await this.fetchHtmlPage(activityUrl.toString());
+      const contextId = Number(/"contextInstanceId"\s*:\s*(\d+)/i.exec(page.html)?.[1]);
+      const courseId = Number(/"courseId"\s*:\s*(\d+)/i.exec(page.html)?.[1]);
+      if (contextId && contextId !== cmid) throw new Error("Moodle returned a different course module.");
+      if (courseId && courseId !== Number(module.course)) throw new Error("Moodle returned a different course.");
+      const bodyType = /<body\b[^>]*id=["']page-mod-([a-z0-9_]+)-/i.exec(page.html)?.[1];
+      if (bodyType && bodyType !== "forum") throw new Error("Moodle returned a different activity type.");
+      const candidates = [
+        ...page.html.matchAll(/data-forumid=["'](\d+)["']/gi),
+        ...page.html.matchAll(/<input\b[^>]*name=["'](?:forum|forumid)["'][^>]*value=["'](\d+)["']/gi),
+        ...page.html.matchAll(/\/mod\/forum\/[^"']*(?:[?&]|&amp;)(?:f|forum|forumid)=(\d+)/gi),
+        ...page.html.matchAll(/\/mod\/forum\/subscribe\.php[^"']*(?:[?&]|&amp;)id=(\d+)/gi)
+      ].map((match) => Number(match[1])).filter((id) => Number.isSafeInteger(id) && id > 0);
+      const instance = candidates[0];
+      module = {
+        ...module,
+        ...(instance ? { instance } : { unavailable: { instance: "The HTML page does not expose the forum instance ID." } }),
+        type: /\bforumtype-([a-z0-9_-]+)/i.exec(page.html)?.[1]
+      };
+    }
+    return { cm: module, warnings: [] };
+  }
+
   async call<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
     if (name === "core_enrol_get_users_courses") {
       const courseMap = new Map<number, MoodleRecord>();
@@ -506,6 +562,15 @@ export class NodeSessionApiClient implements ApiClient {
       } catch (error) {
         if (!unavailableSessionMethod(error)) throw error;
         return await this.fetchAssignmentsHtml(params) as T;
+      }
+    }
+
+    if (name === "core_course_get_course_module") {
+      try {
+        return await this.callRaw<T>(name, params);
+      } catch (error) {
+        if (!unavailableSessionMethod(error)) throw error;
+        return await this.fetchCourseModuleHtml(params) as T;
       }
     }
 

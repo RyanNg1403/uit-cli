@@ -141,6 +141,40 @@ describe("Moodle session API", () => {
     await expect(api.call("core_course_get_contents", { courseid: 42 })).rejects.toThrow("session expired");
   });
 
+  it("resolves a forum course module from verified Node SSO pages when AJAX is unsupported", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/lib/ajax/")) {
+        const [{ methodname, args }] = JSON.parse(String(init?.body));
+        if (methodname === "core_course_get_course_module") {
+          return Response.json([{ error: true, exception: { errorcode: "servicenotavailable" } }]);
+        }
+        if (methodname === "core_enrol_get_users_courses") return Response.json([{ data: [{ id: 42 }] }]);
+        if (args.classification) return Response.json([{ data: { courses: [], nextoffset: 0 } }]);
+      }
+      if (url.includes("/course/view.php")) return new Response(`
+        <body class="course-42"><div class="course-content"><ul>
+          <li id="module-92" class="activity modtype_forum" data-activityname="Announcements">
+            <a href="/mod/forum/view.php?id=92">Announcements</a>
+          </li>
+        </ul></div></body>
+      `, { headers: { "content-type": "text/html" } });
+      if (url.includes("/mod/forum/view.php")) return new Response(`
+        <body id="page-mod-forum-view" class="forumtype-news">
+          <script>M.cfg = {"courseId":42,"contextInstanceId":92};</script>
+          <input type="hidden" name="forum" value="702">
+        </body>
+      `, { headers: { "content-type": "text/html" } });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    await expect(api.call("core_course_get_course_module", { cmid: 92 })).resolves.toMatchObject({
+      cm: { id: 92, course: 42, modname: "forum", instance: 702, type: "news" }
+    });
+  });
+
   it("scrapes verified assignment metadata when Node SSO AJAX is unsupported", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);

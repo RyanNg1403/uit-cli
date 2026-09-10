@@ -411,7 +411,7 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   const commandLine = `command = ${JSON.stringify(command)}`;
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
   const lines = existing.split("\n");
-  const uitSection = /^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$/i;
+  const uitSection = /^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$/;
   const commandKey = /^\s*(?:command|"command"|'command')\s*=/;
   const argsKey = /^\s*(?:args|"args"|'args')\s*=/;
   const sectionStart = lines.findIndex((line) => uitSection.test(line));
@@ -501,7 +501,7 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
     return;
   }
   writeFileAtomically(configPath, updated, statSync(configPath).mode & 0o777);
-  console.log(/^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]/im.test(existing)
+  console.log(/^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]/m.test(existing)
     ? `Updated uit MCP server path in ~/.codex/config.toml to ${command}`
     : `Configured uit MCP server in ~/.codex/config.toml`);
 }
