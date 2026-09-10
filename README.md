@@ -20,6 +20,8 @@ Fast, scriptable terminal client for browsing courses, checking assignments, dow
 npm install -g uit-cli
 ```
 
+UIT CLI supports Node.js 20.19 or later.
+
 On macOS and Linux, the free installer is also available. It uses npm internally, so Node.js 20.19 or later is still required:
 
 ```bash
