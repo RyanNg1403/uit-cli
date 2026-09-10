@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createInterface } from "node:readline/promises";
@@ -30,6 +30,24 @@ interface CommandContext {
 
 export function createContext(api: ApiClient = defaultApiClient): CommandContext {
   return { api };
+}
+
+/** Build a destination from untrusted Moodle path metadata without escaping root. */
+export function courseDownloadPath(root: string, filepath: unknown, filename: unknown): string {
+  const absoluteRoot = resolve(root);
+  const directoryParts = String(filepath || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .map(sanitize)
+    .filter((part) => part && part !== "." && part !== "..");
+  const safeFilename = sanitize(basename(String(filename || "").replace(/\\/g, "/")));
+  if (!safeFilename || /^\.+$/.test(safeFilename)) throw new Error("Course file has an invalid filename.");
+  const destination = resolve(absoluteRoot, ...directoryParts, safeFilename);
+  if (destination !== absoluteRoot && !destination.startsWith(`${absoluteRoot}${sep}`)) {
+    throw new Error("Course file destination escapes the download directory.");
+  }
+  return destination;
 }
 
 function formatSize(size: number): string {
@@ -736,10 +754,7 @@ export async function cmdDownload(
         : (mod.contents || []).filter((file: MoodleRecord) => file.type === "file");
       for (const file of files) {
         if (args.file && !String(file.filename).toLowerCase().includes(args.file.toLowerCase())) continue;
-        const filepath = String(file.filepath || "/").replace(/^\/+|\/+$/g, "");
-        const dest = filepath
-          ? join(destRoot, sectionName, filepath, file.filename)
-          : join(destRoot, sectionName, file.filename);
+        const dest = courseDownloadPath(join(destRoot, sectionName), file.filepath, file.filename);
 
         if (existsSync(dest) && !args.force) {
           const record: MoodleRecord = { file: file.filename, status: "skipped", path: dest };

@@ -1,209 +1,121 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="uit-cli" width="620">
+  <img src="assets/logo.svg" alt="UIT CLI & UIT Studio" width="460">
 </p>
 
 <p align="center">
-  Access your UIT course materials faster — from your terminal or through AI agents.<br>
-  Download lectures, check deadlines, read announcements, submit assignments, and more.<br>
-  Built on <a href="https://docs.moodle.org/dev/Web_service_API_functions">Moodle Web Services</a> — works with any Moodle instance.
-</p>
-
-<p align="center">
-  <code>npm install -g uit-cli</code>&nbsp;&nbsp;then&nbsp;&nbsp;<code>uit init</code>.
-</p>
-
-<p align="center">
-  <img src="assets/demo.gif" alt="uit-cli demo" width="780">
+  <strong>The modern command-line tool and AI desktop workspace for UIT Moodle LMS.</strong>
 </p>
 
 ---
 
-## Quick start
+## 1. UIT CLI
+
+Fast, scriptable terminal client for browsing courses, checking assignments, downloading materials, and tracking grades.
+
+### Installation
+
+`npm` installs the CLI and MCP server only; UIT Studio is distributed separately.
 
 ```bash
 npm install -g uit-cli
-uit init                    # prompts for student ID/password and stores a Moodle token locally
-uit courses --current       # verify it works
 ```
 
-`uit init` uses your password once to request a Moodle Mobile web-service token. The password is not saved; only the returned token is written to `~/.uit/.env` on your machine.
-
-Nothing is sent to any third-party server. Credentials and tokens stay local; the CLI talks directly from your machine to the Moodle server configured by `UIT_BASE_URL`.
-
-<details>
-<summary>Prefer pasting a token manually?</summary>
-
-Get your token by visiting this URL in a browser while logged in:
-
-```
-https://courses.uit.edu.vn/login/token.php?username=YOUR_STUDENT_ID&password=YOUR_PASSWORD&service=moodle_mobile_app
-```
+On macOS and Linux, the free installer is also available. It uses npm internally, so Node.js 20.19 or later is still required:
 
 ```bash
-uit init --token <your-token>
-# Positional token form is still supported:
-# uit init <your-token>
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
 ```
-</details>
 
-<details>
-<summary>Build from source</summary>
+To work from source instead:
 
 ```bash
-git clone https://github.com/RyanNg1403/uit-cli.git && cd uit-cli
-npm install
-npm run build
+git clone https://github.com/RyanNg1403/uit-cli.git
+cd uit-cli
+npm ci
 npm link
-
-# Or run without linking globally:
-npm run dev -- courses --current
 ```
-</details>
 
-Requires Node.js 20 or newer. Works on macOS, Linux, and Windows.
+### Login
+
+`uit login` supports both **UIT SSO** and **Moodle API tokens**:
+
+```bash
+# Recommended: Sign in via UIT SSO in browser (default)
+uit login
+
+# Or sign in via Moodle API token
+uit login --token <your_token>
+```
+
+*Tip: If you already signed in via **UIT Studio**, your SSO session is automatically shared with the CLI.*
+
+### Basic Usage
+
+| Command | Description |
+| :--- | :--- |
+| `uit courses` | List enrolled courses with course IDs |
+| `uit contents <course_id>` | Browse sections, lecture slides, and files |
+| `uit deadlines` | View assignment deadlines and submission status |
+| `uit grades <course_id>` | Check grades, weights, and teacher feedback |
+| `uit download <course_id>` | Download course materials and lecture slides |
+
+<p align="center">
+  <img src="assets/demo.gif" alt="UIT CLI Demo" width="860">
+</p>
 
 ---
 
-## How IDs Flow
+## 2. UIT Studio
 
-```
-courses   -> course_id  -> contents / download / announcements / deadlines / grades
-contents  -> module_id  -> view
-view      -> assign_id  -> submit / status
-          -> discussion_id -> view-discussion
-view-discussion -> post_id -> reply
-deadlines -> assign_id  -> view / submit / status
-```
+The native desktop workspace combining Moodle course management with an intelligent Codex AI study copilot.
 
-For flags, output formats, and detailed behavior of each command, see the [CLI Reference](docs/CLI_REFERENCE.md).
+### Installation & Launch
 
----
+UIT Studio is currently distributed for macOS on Apple Silicon and Intel Macs. The downloadable builds are unsigned to keep distribution free, so macOS may block the first launch. If it does, open **System Settings → Privacy & Security** and choose **Open Anyway** for UIT Studio.
 
-## Examples
-
-For every command, add `--json` before the command name to get structured output:
+Install UIT Studio into `~/Applications`:
 
 ```bash
-uit --json courses --current
-uit --json view 428837
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
 ```
 
-<details>
-<summary>Browse and drill down into a course</summary>
+Install both UIT CLI and UIT Studio:
 
 ```bash
-uit contents 19207                   # see sections, modules, files
-uit view 428837                      # inspect an assignment — shows description, due date, status
-uit view 432640                      # inspect a lesson — shows instructions, URLs
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --all
 ```
-</details>
 
-<details>
-<summary>Download course materials</summary>
+The installer detects the Mac architecture and verifies the release archive's SHA-256 checksum. You can also download the unsigned DMG directly from the [latest GitHub release](https://github.com/RyanNg1403/uit-cli/releases/latest).
+
+To launch from source instead, install Node.js 20.19 or later and run:
 
 ```bash
-uit download 19207                   # everything in the course (incl. H5P packages)
-uit download 19207 --module 428955   # one specific module
-uit download 19207 --file "Crypto"   # files matching a name
-uit download 19207 --extract         # also unpack .h5p packages into their media
+git clone https://github.com/RyanNg1403/uit-cli.git
+cd uit-cli
+npm ci
+npm run desktop
 ```
 
-Interactive H5P lessons (the `h5pactivity` type) download as their `.h5p` package — a ZIP holding the slides, images, and lesson data. Add `--extract` to unpack the media too.
-</details>
+### Login
 
-<details>
-<summary>See upcoming work</summary>
+Sign in directly using **UIT SSO** (single sign-on) or your **Legacy Moodle** student account. Sessions are stored securely on your local device.
 
-```bash
-uit events                           # assignments, quizzes, calendar events
-uit events -n 50                     # more events
-uit events --course-id 19207         # filter to one course
-```
-</details>
+### What UIT Studio includes
 
-<details>
-<summary>Assignment workflow</summary>
+- A unified dashboard for current and legacy UIT Moodle portals.
+- Course materials with PDF, Word, image, text, and code previews.
+- Class members, lecturers, grades, feedback, and deadlines.
+- Codex study threads grounded in selected courses and resources.
 
-```bash
-uit deadlines                        # what's due?
-uit view 428837                      # read the assignment description
-uit submit 101617 ./report.pdf       # submit
-uit status 101617                    # check result
-```
-</details>
+<p align="center">
+  <img src="assets/studio-courses.png" alt="UIT Studio courses dashboard" width="860">
+</p>
 
-<details>
-<summary>Read announcements and forum threads</summary>
+Chat with Codex using direct context from your courses, lecture slides, and assignments, then continue the same thread in Codex CLI or the ChatGPT desktop app.
 
-```bash
-uit announcements 19438 --full       # read announcements with full content
-uit view-discussion 77900            # read a specific forum thread
-```
-</details>
-
-<details>
-<summary>Jump to browser from any ID</summary>
-
-```bash
-uit open 428837                      # opens the module page
-uit open --course 19207              # opens the course page
-uit open --discussion 77900          # opens the discussion thread
-```
-</details>
-
-<details>
-<summary>Paste Moodle URLs directly — no need to extract IDs</summary>
-
-```bash
-uit view 'https://courses.uit.edu.vn/mod/assign/view.php?id=428837'
-uit contents 'https://courses.uit.edu.vn/course/view.php?id=19207'
-uit view-discussion 'https://courses.uit.edu.vn/mod/forum/discuss.php?d=77900'
-```
-</details>
-
----
-
-## Configuration
-
-`uit init` saves credentials to `~/.uit/.env`. You can also place a `.env` file in your project directory (takes precedence). See `.env.example`.
-
-By default, `uit init` prompts for your student ID and password, requests a Moodle Mobile web-service token from `/login/token.php`, and stores only the returned token. If you already have a token, use `uit init --token <token>`. The older positional form, `uit init <token>`, still works.
-
-## Development
-
-```bash
-npm run build       # compile TypeScript into dist/
-npm test            # run the regression suite
-npm run typecheck   # type-check without emitting files
-```
-
-The npm package exposes the `uit` binary from `dist/cli.js`.
-
-## Releasing
-
-Releases are tag-driven. After changes are merged to `main`:
-
-```bash
-git switch main
-git pull origin main
-npm version patch   # or minor / major
-git push origin main --follow-tags
-```
-
-Pushing the `v*` tag runs GitHub Actions, publishes to npm, and creates a GitHub Release. The repository must have an npm automation token saved as the `NPM_TOKEN` GitHub secret.
-
----
-
-## Security and ethics
-
-This tool uses Moodle's official [Web Services API](https://moodledev.io/docs/apis/subsystems/external) — the same interface the Moodle Mobile app uses. It does not scrape, bypass authentication, or exploit any vulnerability. All data accessed is scoped to what your account already has permission to see through the web interface.
-
-UIT-CLI has no backend service. Your student ID, password, Moodle token, downloaded files, and submitted files stay on your local machine except for direct requests from your machine to the Moodle server.
-
-- Keep your API token private — treat it like a password. Never commit `.env` files or share your token.
-- Rotate your token if you suspect it has been compromised by running `uit init` again.
-- Prefer the interactive `uit init` prompt over `uit init --password ...`; command-line passwords can be saved in shell history.
-- This tool does not escalate privileges — it cannot access anything your account cannot access on the website.
+<p align="center">
+  <img src="assets/studio-chat.png" alt="Codex AI Workspace" width="860" style="border-radius: 8px;">
+</p>
 
 ---
 

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; frame-src blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none';" />
+    <title>UIT Studio</title>
+    <script src="./appearance.js"></script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="app" id="app">
+      <aside class="sidebar" id="sidebar" aria-label="Workspace navigation">
+        <div class="brand"><img class="brand-logo" src="assets/uit-logo.png" alt="UIT - University of Information Technology" title="UIT Studio"><button id="close-sidebar" class="icon-button mobile-only" aria-label="Close navigation">&times;</button></div>
+        <nav class="primary-nav" aria-label="Primary">
+          <button class="nav-item" data-view="courses"><span aria-hidden="true">&#9776;</span>Courses</button>
+          <button class="nav-item" data-view="agent"><span class="nav-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd" aria-hidden="true"><path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"/></svg></span>Codex<span class="codex-dot" id="codex-dot" aria-hidden="true"></span></button>
+        </nav>
+        <button class="project-create" id="new-project" hidden><svg class="action-icon" aria-hidden="true" viewBox="0 0 20 20"><path d="M2 5h6l2 2h8v10H2V5ZM12 9v6M9 12h6"/></svg>New project</button>
+        <nav id="course-nav" class="course-nav" aria-label="Courses and threads"></nav>
+        <footer class="sidebar-foot">
+          <label class="appearance-field" for="appearance"><span>Appearance</span><select id="appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+          <p id="appearance-status" class="fine-print" role="status"></p>
+          <button id="account-button" class="account-button"><span aria-hidden="true">&#9675;</span><span id="account-label">Connect accounts</span></button>
+        </footer>
+      </aside>
+      <div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-label="Navigation width" aria-controls="sidebar" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="480" aria-valuenow="248"></div>
+      <button id="sidebar-scrim" class="sidebar-scrim" aria-label="Close navigation" hidden></button>
+      <main class="main" id="main" tabindex="-1">
+        <header class="topbar"><button id="menu-toggle" class="icon-button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">&#9776;</button><span id="page-title">Courses</span></header>
+        <div id="app-error" class="error-banner" role="alert" hidden></div>
+        <section id="view-courses" class="view" aria-label="Courses">
+          <div class="page-heading"><h1>Your courses</h1><div class="course-heading-actions"><button id="refresh-courses" class="secondary-button icon-action" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89M13.5 1.5v3h-3"/></svg></button></div></div>
+          <div class="course-filters"><label class="search-field"><span class="sr-only">Search courses</span><input id="course-search" type="search" placeholder="Search courses" /></label><label class="semester-field"><span class="sr-only">Semester</span><select id="semester-select" aria-label="Semester"></select></label></div>
+          <div id="course-grid" class="course-list" aria-live="polite"><p class="empty">Loading accounts...</p></div>
+        </section>
+        <section id="view-course" class="view" aria-label="Course resources" hidden>
+          <button id="back-courses" class="text-button back-button">&larr; All courses</button>
+          <div id="course-detail"></div>
+        </section>
+        <section id="view-agent" class="conversation" aria-label="Codex thread" hidden>
+          <header class="thread-header">
+            <div class="thread-heading">
+              <h1 id="agent-task-title">Codex</h1>
+              <span class="thread-course-meta" aria-label="Thread course" hidden></span>
+            </div>
+            <div class="thread-actions" id="thread-actions" hidden>
+              <span id="thread-lock-badge" class="thread-lock-badge" hidden title="Thread is locked by another session (Codex CLI or Desktop App)">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M4.5 6V4a3.5 3.5 0 0 1 7 0v2h1a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h1zm1.5 0h4V4a2 2 0 0 0-4 0v2z"/></svg>
+                Read-only (locked externally)
+              </span>
+              <div class="thread-menu-wrap" id="thread-resume-wrap">
+                <button id="thread-resume-btn" class="secondary-button thread-action-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Resume thread in external Codex tool">
+                  <span>Open in</span>
+                  <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+                </button>
+                <div id="thread-resume-menu" class="thread-resume-menu" role="menu" hidden>
+                  <button id="resume-codex-cli" class="thread-menu-item" type="button" role="menuitem">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" fill-rule="evenodd" aria-hidden="true"><path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"/></svg>
+                    <div class="menu-item-text">
+                      <strong>Codex CLI</strong>
+                      <span>Show command to resume in terminal</span>
+                    </div>
+                  </button>
+                  <div id="cli-command-row" class="cli-command-row" hidden>
+                    <div class="cli-cmd-box">
+                      <code id="cli-cmd-text" class="cli-cmd-text" title="Click to copy">codex resume ...</code>
+                      <button id="copy-cli-cmd-btn" class="cli-copy-btn" type="button" title="Copy command" aria-label="Copy command">
+                        <svg class="copy-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect>
+                          <path d="M10.5 5.5V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h2.5"></path>
+                        </svg>
+                        <svg class="check-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                          <polyline points="3.5 8.5 6.5 11.5 12.5 4.5"></polyline>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <button id="resume-codex-app" class="thread-menu-item" type="button" role="menuitem">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1683a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4947zm-9.66-4.1354a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1402-1.6564zm-1.1213-9.5898a4.4755 4.4755 0 0 1 2.346-1.9729v.1656l.0047 5.5164a.7948.7948 0 0 0 .3927.6813l5.8428 3.3685-2.02 1.1683a.0804.0804 0 0 1-.071 0l-4.8303-2.7914a4.4992 4.4992 0 0 1-1.6649-6.1359zm15.864 4.5516-5.8428-3.3685 2.02-1.1683a.0804.0804 0 0 1 .071 0l4.8303 2.7914a4.4992 4.4992 0 0 1-.6766 8.1042v-5.6772a.79.79 0 0 0-.4019-.6816zm2.0107-3.0231-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 7.8174V5.485a.0804.0804 0 0 1 .0332-.0615l4.8817-2.8198a4.4992 4.4992 0 0 1 6.4273 4.6738zM8.008 12.8638a1.7695 1.7695 0 1 1 2.4178-2.4178 1.7695 1.7695 0 0 1-2.4178 2.4178zm-2.8858-6.1264 2.02-1.1683a.0804.0804 0 0 1 .071 0l4.8303 2.7914a4.4992 4.4992 0 0 1-.6766 8.1042v-5.6772a.79.79 0 0 0-.4019-.6816L8.008 12.8638a1.7695 1.7695 0 0 0-2.8858-6.1264z"/></svg>
+                    <div class="menu-item-text">
+                      <strong>ChatGPT Desktop App</strong>
+                      <span>Open thread in ChatGPT Desktop</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </header>
+          <div id="agent-workspace" class="workspace-path" hidden></div>
+          <div id="agent-messages" class="messages" tabindex="0" aria-label="Conversation"></div>
+          <button id="jump-to-latest" class="jump-to-latest secondary-button" type="button" aria-controls="agent-messages" hidden>Jump to latest</button>
+          <div id="agent-approvals" class="approvals" aria-live="polite"></div>
+          <footer class="composer">
+            <form id="agent-form">
+              <div id="composer-context" class="composer-context" hidden></div>
+              <div id="resource-chips" class="resource-chips" aria-label="Attached resources"></div>
+              <label class="sr-only" for="agent-input">Message Codex</label>
+              <textarea id="agent-input" rows="3" placeholder="Do anything..." aria-describedby="agent-status" aria-controls="mention-list" aria-expanded="false"></textarea>
+              <div id="mention-list" class="mention-list" role="listbox" aria-label="Mention course resources" hidden></div>
+              <div class="composer-actions">
+                <button id="attach-resource" class="icon-button" type="button" aria-label="Attach course resource" title="Attach course resource"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
+                <span class="composer-spacer"></span>
+                <button id="model-picker" class="composer-pill" type="button" aria-haspopup="dialog" title="Model and reasoning effort">Auto</button>
+                <button id="stop-agent" class="send-button" type="button" hidden aria-label="Stop" title="Stop"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg></button>
+                <button id="send-agent" class="send-button" type="submit" aria-label="Send" title="Send"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              </div>
+              <div id="model-menu" class="model-menu" role="dialog" aria-label="Model and reasoning effort" hidden></div>
+            </form>
+            <div class="composer-foot"><span id="agent-status" role="status">Ready</span></div>
+          </footer>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <dialog id="login-modal" class="login-modal" aria-labelledby="login-title">
+      <img class="login-logo" src="assets/uit-logo.png" alt="UIT - University of Information Technology">
+      <header class="dialog-heading"><h2 id="login-title">Course accounts</h2><button id="close-login" class="icon-button" aria-label="Close accounts">&times;</button></header>
+      <div id="session-summary" class="session-summary">
+        <section id="sso-section" class="portal-card">
+          <div class="portal-card-top">
+            <div class="portal-card-heading">
+              <strong class="portal-name">UIT SSO</strong>
+              <span class="portal-domain">courses.uit.edu.vn</span>
+            </div>
+            <span id="sso-pill" class="status-pill disconnected">Not connected</span>
+          </div>
+          <p id="sso-status" class="account-meta"></p>
+          <div class="portal-card-actions">
+            <button id="sso-login" class="primary-button" type="button">Continue with UIT SSO</button>
+            <button id="sso-disconnect" class="text-button danger-text" type="button" hidden>Disconnect</button>
+          </div>
+        </section>
+        <section id="legacy-section" class="portal-card">
+          <div class="portal-card-top">
+            <div class="portal-card-heading">
+              <strong class="portal-name">Student ID</strong>
+              <span class="portal-domain">coursesold.uit.edu.vn</span>
+            </div>
+            <span id="legacy-pill" class="status-pill disconnected">Not connected</span>
+          </div>
+          <p id="legacy-status" class="account-meta"></p>
+          <div class="portal-card-actions">
+            <button id="legacy-relogin" class="secondary-button" type="button" hidden>Re-login</button>
+            <button id="legacy-disconnect" class="text-button danger-text" type="button" hidden>Disconnect</button>
+          </div>
+          <form id="login-form">
+            <label class="field">Portal<select id="course-site" name="baseUrl"><option value="https://coursesold.uit.edu.vn">Undergraduate</option><option value="https://coursesold.uit.edu.vn/sdh">Graduate</option></select></label>
+            <label class="field">Student ID<input name="username" autocomplete="username" required /></label>
+            <label class="field">Password<input name="password" type="password" autocomplete="current-password" required /></label>
+            <button id="legacy-submit" class="secondary-button" type="submit">Connect</button>
+          </form>
+        </section>
+      </div>
+      <details id="discovery-details" hidden><summary>Course discovery diagnostics</summary><p class="muted">Source counts only. No tokens, cookies, or course content.</p><button id="refresh-discovery" class="secondary-button">Refresh discovery</button><pre id="discovery-report">Refresh courses to collect source counts.</pre></details>
+      <p id="login-error" class="form-error" role="alert"></p><p id="login-status" class="muted" role="status"></p>
+      <div class="login-modal-footer">
+        <button id="logout-button" class="text-button">Disconnect all portals</button>
+      </div>
+    </dialog>
+    <dialog id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description">
+      <h2 id="delete-title">Delete permanently?</h2>
+      <p id="delete-description" class="muted"></p>
+      <footer class="dialog-actions"><button id="cancel-delete" class="secondary-button" type="button">Cancel</button><button id="confirm-delete" class="danger-button" type="button">Delete permanently</button></footer>
+    </dialog>
+    <dialog id="resource-reader" class="resource-reader" aria-labelledby="reader-title">
+      <header class="dialog-heading"><div><p id="reader-kind" class="eyebrow"></p><h2 id="reader-title"></h2></div><button id="close-reader" class="icon-button" aria-label="Close preview">&times;</button></header>
+      <div id="reader-body" class="reader-body"></div><p id="reader-status" class="muted" role="status"></p>
+      <footer class="reader-actions"><button id="reader-moodle" class="secondary-button">Open in Moodle</button><button id="reader-download" class="secondary-button">Download</button><button id="reader-thread" class="primary-button">New Thread</button></footer>
+    </dialog>
+    <dialog id="resource-menu" class="resource-menu" aria-labelledby="resource-menu-title"><h2 id="resource-menu-title">Resource actions</h2><div role="menu" aria-label="Resource actions"><button id="resource-new-thread" role="menuitem">New Thread</button><button id="resource-menu-download" role="menuitem" hidden>Download</button></div><button id="close-resource-menu" class="text-button">Cancel</button></dialog>
+    <dialog id="project-picker" aria-labelledby="project-picker-title"><header class="dialog-heading"><h2 id="project-picker-title">Choose a project</h2><button id="close-project-picker" class="icon-button" aria-label="Cancel new thread">&times;</button></header><div class="project-filters"><label class="field">Search projects<input id="project-search" type="search" placeholder="Course name, code, or portal" /></label><label class="field" id="project-year-field">Academic year<select id="project-year"><option value="all">All years</option></select></label></div><div id="project-options" class="project-options"></div></dialog>
+    <dialog id="rename-dialog" aria-labelledby="rename-title"><form id="rename-form"><h2 id="rename-title">Rename thread</h2><label class="field">Thread name<input id="thread-name" maxlength="160" required /></label><div class="dialog-actions"><button id="cancel-rename" type="button" class="secondary-button">Cancel</button><button class="primary-button" type="submit">Save name</button></div></form></dialog>
+    <script src="./sidebar.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

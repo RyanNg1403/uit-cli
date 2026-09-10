@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#24283b"/>
+      <stop offset="1" stop-color="#16161e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="266" y1="278" x2="790" y2="752" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5b9cf5"/>
+      <stop offset="1" stop-color="#56d6d6"/>
+    </linearGradient>
+  </defs>
+  <rect x="52" y="52" width="920" height="920" rx="220" fill="url(#background)"/>
+  <rect x="82" y="82" width="860" height="860" rx="192" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="12"/>
+  <path d="M278 310 474 506 278 702" fill="none" stroke="url(#accent)" stroke-linecap="round" stroke-linejoin="round" stroke-width="86"/>
+  <path d="M494 710h252" fill="none" stroke="#56d6d6" stroke-linecap="round" stroke-width="86"/>
+  <text x="512" y="884" fill="#ffffff" fill-opacity="0.86" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="108" font-weight="700" letter-spacing="18" text-anchor="middle">UIT</text>
+</svg>

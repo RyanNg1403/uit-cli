@@ -9,3 +9,7 @@ node_modules/
 coverage/
 .env
 .uit.json
+test-results/
+playwright-report/
+release/
+.opencode/

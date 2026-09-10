@@ -1,0 +1,24 @@
+appId: vn.edu.uit.studio
+productName: UIT Studio
+asar: true
+extraMetadata:
+  main: desktop/main.cjs
+directories:
+  output: release
+files:
+  - desktop/**/*
+  - dist/**/*
+  - package.json
+  - "!node_modules/commander/**/*"
+  - "!node_modules/playwright/**/*"
+  - "!node_modules/playwright-core/**/*"
+mac:
+  category: public.app-category.education
+  icon: assets/icon.icns
+  identity: null
+  target:
+    - zip
+    - dmg
+  artifactName: UIT-Studio-macos-${arch}.${ext}
+dmg:
+  title: UIT Studio
