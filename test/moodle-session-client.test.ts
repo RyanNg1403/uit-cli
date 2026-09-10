@@ -14,24 +14,31 @@ describe("Moodle session API", () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       active += 1;
       peak = Math.max(peak, active);
-      const [{ args }] = JSON.parse(String(init.body));
+      const [{ methodname, args }] = JSON.parse(String(init.body));
       await new Promise((resolve) => setTimeout(resolve, 5));
       active -= 1;
+      if (methodname === "core_enrol_get_users_courses") {
+        return Response.json([{ data: [{ id: 807, fullname: "Thesis" }] }]);
+      }
       const id = ["allincludinghidden", "all", "inprogress", "past", "future", "hidden"].indexOf(args.classification) + 1;
       return Response.json([{ data: { courses: [{ id }] } }]);
     });
     vi.stubGlobal("fetch", fetchMock);
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
 
-    await expect(api.call("core_enrol_get_users_courses")).resolves.toHaveLength(6);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    await expect(api.call("core_enrol_get_users_courses")).resolves.toEqual([
+      { id: 807, fullname: "Thesis", categoryname: "" },
+      ...Array.from({ length: 6 }, (_, index) => ({ id: index + 1, categoryname: "" }))
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(fetchMock.mock.calls.every(([, init]) => init.signal instanceof AbortSignal)).toBe(true);
-    expect(peak).toBe(6);
+    expect(peak).toBe(7);
   });
 
   it("paginates Node SSO timeline buckets until their cursor is exhausted", async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       const [{ args }] = JSON.parse(String(init.body));
+      if (!args.classification) return Response.json([{ data: [] }]);
       if (args.classification !== "all") return Response.json([{ data: { courses: [], nextoffset: -1 } }]);
       if (args.offset === 0) return Response.json([{ data: {
         courses: Array.from({ length: 100 }, (_, index) => ({ id: index + 1 })),
@@ -43,12 +50,13 @@ describe("Moodle session API", () => {
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
 
     await expect(api.call<any[]>("core_enrol_get_users_courses")).resolves.toHaveLength(101);
-    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 
   it("treats an empty Node SSO page that echoes its offset as terminal", async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       const [{ args }] = JSON.parse(String(init.body));
+      if (!args.classification) return Response.json([{ data: [] }]);
       if (args.classification !== "all") return Response.json([{ data: { courses: [], nextoffset: -1 } }]);
       if (args.offset === 0) return Response.json([{ data: { courses: [{ id: 1 }], nextoffset: 1 } }]);
       return Response.json([{ data: { courses: [], nextoffset: 1 } }]);
@@ -57,7 +65,7 @@ describe("Moodle session API", () => {
     const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
 
     await expect(api.call<any[]>("core_enrol_get_users_courses")).resolves.toEqual([{ id: 1, categoryname: "" }]);
-    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 
   it("propagates Node SSO authentication failures instead of returning an empty course list", async () => {

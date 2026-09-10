@@ -429,7 +429,17 @@ export class NodeSessionApiClient implements ApiClient {
     if (name === "core_enrol_get_users_courses") {
       const courseMap = new Map<number, MoodleRecord>();
       const classifications = ["allincludinghidden", "all", "inprogress", "past", "future", "hidden"];
-      const groups = await Promise.all(classifications.map(async (classification) => {
+      const primary = (async (): Promise<MoodleRecord[] | null> => {
+        try {
+          const entries = await this.callRaw<unknown>(name, params);
+          if (!Array.isArray(entries)) throw new Error("Moodle returned an invalid course list.");
+          return entries;
+        } catch (error) {
+          if (unavailableSessionMethod(error)) return null;
+          throw error;
+        }
+      })();
+      const timelineGroups = classifications.map(async (classification) => {
         try {
           const collected: MoodleRecord[] = [];
           let offset = 0;
@@ -458,11 +468,13 @@ export class NodeSessionApiClient implements ApiClient {
           if (unavailableSessionMethod(error)) return null;
           throw error;
         }
-      }));
+      });
+      const groups = await Promise.all([primary, ...timelineGroups]);
       if (groups.every((entries) => entries === null)) {
         throw new Error("Course discovery is unavailable for this UIT session.");
       }
-      // Merge in classification order so the same source keeps precedence.
+      // Match Studio: primary enrolment metadata wins, then timeline buckets
+      // fill any courses omitted from that source.
       for (const entries of groups) {
         if (!entries) continue;
         for (const item of entries) {

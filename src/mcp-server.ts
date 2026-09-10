@@ -1,7 +1,21 @@
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { existsSync, lstatSync, readFileSync, renameSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fchmodSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ApiClient } from "./types.js";
 import { createTokenApiClient, createSessionApiClient } from "./api.js";
@@ -446,6 +460,23 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
   return lines.join("\n");
 }
 
+export function writeFileAtomically(path: string, content: string, mode = 0o600): void {
+  const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`;
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(temporary, "wx", mode);
+    writeFileSync(descriptor, content, "utf8");
+    fchmodSync(descriptor, mode);
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+    renameSync(temporary, path);
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    rmSync(temporary, { force: true });
+  }
+}
+
 export function installMcpServer(options: { command?: string; args?: string[] } = {}): void {
   const configPath = join(homedir(), ".codex", "config.toml");
   const binPath = options.command ? undefined : ensureLocalBinWrapper();
@@ -458,7 +489,7 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
     if (!existsSync(codexDir)) {
       mkdirSync(codexDir, { recursive: true });
     }
-    writeFileSync(configPath, configured(""), "utf8");
+    writeFileAtomically(configPath, configured(""));
     console.log(`Created ~/.codex/config.toml and added [mcp_servers.uit]`);
     return;
   }
@@ -469,7 +500,7 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
     console.log(`uit MCP server is already configured in ~/.codex/config.toml`);
     return;
   }
-  writeFileSync(configPath, updated, "utf8");
+  writeFileAtomically(configPath, updated, statSync(configPath).mode & 0o777);
   console.log(/^\s*\[\s*mcp_servers\s*\.\s*(?:uit|"uit"|'uit')\s*\]/im.test(existing)
     ? `Updated uit MCP server path in ~/.codex/config.toml to ${command}`
     : `Configured uit MCP server in ~/.codex/config.toml`);

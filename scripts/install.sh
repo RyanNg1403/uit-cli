@@ -81,7 +81,25 @@ install_studio() {
   fi
 
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/uit-studio.XXXXXX")"
-  trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+  replacement_directory=""
+  target_application=""
+  backup_application=""
+  replacement_started=0
+  cleanup() {
+    status=$?
+    trap - EXIT HUP INT TERM
+    if [ "$replacement_started" -eq 1 ] && [ -n "$backup_application" ] && [ -e "$backup_application" ]; then
+      [ -z "$target_application" ] || rm -rf "$target_application"
+      mv "$backup_application" "$target_application" || :
+    fi
+    [ -z "$replacement_directory" ] || rm -rf "$replacement_directory"
+    rm -rf "$temporary_directory"
+    exit "$status"
+  }
+  trap cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   printf 'Downloading UIT Studio for macOS (%s)...\n' "$architecture"
   curl --fail --silent --show-error --location \
@@ -100,19 +118,23 @@ install_studio() {
 
   applications_directory="${UIT_INSTALL_APPLICATIONS_DIR:-$HOME/Applications}"
   target_application="$applications_directory/UIT Studio.app"
-  backup_application="$temporary_directory/UIT Studio.previous.app"
   mkdir -p "$applications_directory"
+  replacement_directory="$(mktemp -d "$applications_directory/.uit-studio-install.XXXXXX")"
+  staged_application="$replacement_directory/UIT Studio.app"
+  backup_application="$replacement_directory/UIT Studio.previous.app"
+
+  # Complete the potentially slow copy before touching an existing install.
+  ditto "$source_application" "$staged_application" \
+    || fail "UIT Studio could not be staged. The previous installation was not changed."
 
   if [ -e "$target_application" ]; then
+    replacement_started=1
     mv "$target_application" "$backup_application"
   fi
-  if ! ditto "$source_application" "$target_application"; then
-    rm -rf "$target_application"
-    if [ -e "$backup_application" ]; then
-      mv "$backup_application" "$target_application"
-    fi
+  if ! mv "$staged_application" "$target_application"; then
     fail "UIT Studio could not be installed. The previous installation was restored."
   fi
+  replacement_started=0
 
   printf '\nUIT Studio was installed at %s\n' "$target_application"
   printf 'This free build is unsigned. If macOS blocks the first launch, use Open Anyway in System Settings > Privacy & Security.\n'

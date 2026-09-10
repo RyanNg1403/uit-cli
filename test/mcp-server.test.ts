@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
@@ -7,6 +7,7 @@ import {
   executeMcpTool,
   isInsideUitWorkspace,
   upsertMcpConfig,
+  writeFileAtomically,
   UIT_MCP_TOOLS
 } from "../src/mcp-server.js";
 
@@ -121,6 +122,23 @@ describe("mcp-server workspace gating and tools", () => {
       expect(lstatSync(join(directory, "uit")).isSymbolicLink()).toBe(true);
       expect(readFileSync(cli, "utf8")).toBe("export const intact = true;\n");
       expect(readFileSync(wrapper, "utf8")).toContain("# Managed by uit-cli");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("atomically replaces configuration content while preserving its mode", () => {
+    const directory = mkdtempSync(join(tmpdir(), "uit-mcp-config-"));
+    try {
+      const config = join(directory, "config.toml");
+      writeFileSync(config, "original\n", { mode: 0o640 });
+      chmodSync(config, 0o640);
+
+      writeFileAtomically(config, "updated\n", statSync(config).mode & 0o777);
+
+      expect(readFileSync(config, "utf8")).toBe("updated\n");
+      expect(statSync(config).mode & 0o777).toBe(0o640);
+      expect(readdirSync(directory)).toEqual(["config.toml"]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
