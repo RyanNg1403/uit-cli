@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { courses, CURRENT, LEGACY } from "./fixtures/desktop";
 
-const mainPath = fileURLToPath(new URL("../desktop/main.cjs", import.meta.url));
-const preloadPath = fileURLToPath(new URL("../desktop/preload.cjs", import.meta.url));
+const mainPath = fileURLToPath(new URL("../desktop-build/main.js", import.meta.url));
+const preloadPath = fileURLToPath(new URL("../desktop-build/preload.cjs", import.meta.url));
 
 const test = base.extend<{ desktop: { app: ElectronApplication; page: Page; profile: string } }>({
   desktop: async ({}, use, info) => {

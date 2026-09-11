@@ -1,6 +1,6 @@
 {
   "name": "uit-cli",
-  "version": "1.2.3",
+  "version": "1.3.0",
   "description": "CLI for courses.uit.edu.vn (Moodle)",
   "license": "MIT",
   "productName": "UIT Studio",
@@ -20,10 +20,10 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",
-    "desktop:build": "npm run build",
-    "desktop": "npm run desktop:build && electron desktop/main.cjs",
+    "desktop:build": "npm run build && node scripts/build-desktop.mjs",
+    "desktop": "npm run desktop:build && electron desktop-build/main.js",
     "desktop:package": "npm run desktop:build && electron-builder --mac zip dmg --publish never",
-    "desktop:check": "npm run desktop:build && node --check desktop/main.cjs && node --check desktop/preload.cjs && node --check desktop/renderer/renderer.js && node --check desktop/renderer/appearance.js",
+    "desktop:check": "npm run desktop:build && node --check desktop-build/main.js && node --check desktop-build/preload.cjs && node --check desktop-build/renderer/renderer.js && node --check desktop-build/renderer/appearance.js",
     "installer:check": "sh -n scripts/install.sh && scripts/install.sh --help >/dev/null",
     "runtime:prepare": "node scripts/prepare-runtime-package.mjs",
     "standalone:package": "npm run build && scripts/package-standalone.sh macos $(node -p 'process.arch')",
@@ -33,9 +33,9 @@
     "test:electron": "npm run desktop:build && playwright test electron-stability --workers=1",
     "lint": "eslint .",
     "package:check": "npm run build && node scripts/check-package.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run build && tsc --noEmit && tsc -p tsconfig.desktop-main.json --noEmit && tsc -p tsconfig.desktop-preload.json --noEmit",
     "prepack": "npm run build",
-    "studio:check": "npm run build && npm run runtime:prepare && node scripts/check-studio-package.mjs"
+    "studio:check": "npm run desktop:build && npm run runtime:prepare && node scripts/check-studio-package.mjs"
   },
   "engines": {
     "node": ">=20.19.0"

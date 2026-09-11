@@ -11,7 +11,7 @@ import { pdfFixture } from "./fixtures/pdf";
 test.describe.configure({ mode: "serial", retries: 0, timeout: 420_000 });
 
 test("one hidden Electron process survives an offline navigation and PDF soak", async ({}, info) => {
-  const mainPath = fileURLToPath(new URL("../desktop/main.cjs", import.meta.url));
+  const mainPath = fileURLToPath(new URL("../desktop-build/main.js", import.meta.url));
   // Refuse to launch an older main that would put a visible window on the desktop.
   expect(await readFile(mainPath, "utf8"), "Main must support UIT_TEST_HEADLESS before this test can launch").toContain("UIT_TEST_HEADLESS");
   await mkdir(info.outputDir, { recursive: true });

@@ -6,8 +6,9 @@ import { Readable } from "node:stream";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import ts from "typescript";
 
-const mainPath = fileURLToPath(new URL("../desktop/main.cjs", import.meta.url));
+const mainPath = fileURLToPath(new URL("../desktop/main.ts", import.meta.url));
 const CURRENT = "https://courses.uit.edu.vn";
 const LEGACY = "https://coursesold.uit.edu.vn";
 const reference = { courseId: 1, baseUrl: CURRENT, userId: 101 };
@@ -27,6 +28,7 @@ async function harness(saved: unknown[] = [], options: {
   sessions?: Record<string, unknown>;
   existingCookies?: Array<Record<string, unknown>>;
   probeIdentity?: { sesskey: string; userId: number };
+  platform?: NodeJS.Platform;
 } = {}) {
   const probeIdentity = options.probeIdentity;
   let materialContent = Buffer.from("verified material");
@@ -164,7 +166,8 @@ async function harness(saved: unknown[] = [], options: {
   }
   let ready: () => Promise<void> = async () => {};
   const app = Object.assign(new EventEmitter(), {
-    setPath: vi.fn(), getPath: vi.fn(() => profile), quit: vi.fn(),
+    setPath: vi.fn(), setName: vi.fn(), setAppUserModelId: vi.fn(), getPath: vi.fn(() => profile), quit: vi.fn(),
+    dock: { setIcon: vi.fn() },
     whenReady: () => ({ then: (callback: () => Promise<void>) => { ready = callback; return { catch: vi.fn() }; } }),
   });
   const shell = { openPath: vi.fn(), openExternal: vi.fn().mockResolvedValue(undefined) };
@@ -181,17 +184,27 @@ async function harness(saved: unknown[] = [], options: {
     "node:os": { homedir: () => home, tmpdir: () => path.join(profile, "tmp") }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
     "node:fs": { constants: { O_RDONLY: 0, O_NOFOLLOW: 0 }, existsSync },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
+    "node:url": { fileURLToPath },
     "node:util": { promisify: (fn: any) => async (...args: any[]) => new Promise((res, rej) => fn(...args, (err: any, out: any) => err ? rej(err) : res(out))) },
   };
+  for (const value of Object.values(imports)) {
+    if (value && typeof value === "object") Object.defineProperty(value, "__esModule", { value: true });
+  }
+  Object.assign(modules, imports);
   const context = createContext({
+    exports: {}, module: { exports: {} },
     URL, console, setTimeout, clearTimeout, __dirname: path.dirname(mainPath),
-    process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: process.platform },
+    process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: options.platform || process.platform },
     require: (name: string) => { if (!(name in modules)) throw new Error(`Unexpected require: ${name}`); return modules[name]; },
     importService: async (name: string) => { if (!(name in imports)) throw new Error(`Unexpected import: ${name}`); return imports[name]; },
     injected: { service, codex },
   });
   // Redirect only dynamic imports; execute the actual main functions without Electron or disk/network access.
-  runInContext(readFileSync(mainPath, "utf8").replace(/\bimport\(/g, "importService("), context, { filename: mainPath });
+  const sourceMain = readFileSync(mainPath, "utf8").replaceAll("import.meta.url", JSON.stringify(pathToFileURL(mainPath).href));
+  const compiledMain = ts.transpileModule(sourceMain, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true }
+  }).outputText;
+  runInContext(compiledMain, context, { filename: mainPath });
   await ready();
   const window = windows[0];
   const event = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
@@ -218,6 +231,17 @@ async function harness(saved: unknown[] = [], options: {
 }
 
 describe("main IPC trust and routing", () => {
+  it.each(["darwin", "linux", "win32"] as const)("uses the mascot icon for shell-launched Studio on %s", async (platform) => {
+    const h = await harness([], { platform });
+    const icon = path.join(path.dirname(mainPath), "renderer", "assets", "uit-dau-dau-icon.png");
+    expect(h.app.setName).toHaveBeenCalledWith("UIT Studio");
+    expect(h.window.options.icon).toBe(icon);
+    if (platform === "darwin") expect(h.app.dock.setIcon).toHaveBeenCalledWith(icon);
+    else expect(h.app.dock.setIcon).not.toHaveBeenCalled();
+    if (platform === "win32") expect(h.app.setAppUserModelId).toHaveBeenCalledWith("vn.edu.uit.studio");
+    else expect(h.app.setAppUserModelId).not.toHaveBeenCalled();
+  });
+
   it("replaces stale partition cookies with a saved CLI SSO session", async () => {
     const savedCookie = { name: "MoodleSession", value: "saved", domain: "courses.uit.edu.vn", path: "/", secure: true, httpOnly: true };
     const h = await harness([], {
