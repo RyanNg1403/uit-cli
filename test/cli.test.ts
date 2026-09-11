@@ -54,15 +54,16 @@ afterEach(() => {
 });
 
 describe("CLI command flows", () => {
-  it("shows token login without exposing an arbitrary Moodle URL", async () => {
+  it("shows supported login methods without exposing token or arbitrary URL options", async () => {
     const program = createProgram(mockApi({}));
     const initCommand = program.commands.find((command) => command.name() === "init");
     const loginCommand = program.commands.find((command) => command.name() === "login");
 
-    expect(initCommand?.helpInformation()).toContain("--token <token>");
+    expect(initCommand?.helpInformation()).not.toContain("--token");
     expect(initCommand?.helpInformation()).not.toContain("--url");
     expect(loginCommand?.helpInformation()).toContain("--legacy");
     expect(loginCommand?.helpInformation()).toContain("--sso");
+    expect(loginCommand?.helpInformation()).not.toContain("--token");
     expect(loginCommand?.helpInformation()).not.toContain("--url");
   });
 

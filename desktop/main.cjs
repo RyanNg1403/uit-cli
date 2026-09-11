@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, shell, screen, clipboard } = require("electron");
+const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, screen, clipboard } = require("electron");
 const { homedir, tmpdir } = require("node:os");
 const { basename, extname, join, relative, resolve, sep } = require("node:path");
 const { readFile, writeFile, rename, mkdir, unlink, readdir, stat, lstat, realpath, mkdtemp, open, rm } = require("node:fs/promises");
@@ -50,6 +50,7 @@ let mainWindow;
 let windowCreation;
 let MoodleSessionApi;
 let ssoWindow;
+let ssoSessionView;
 let ssoSession;
 let pendingSsoLogin;
 const legacySessions = new Map();
@@ -71,6 +72,41 @@ const SSO_PARTITION = "persist:uit-sso";
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
 const TRUSTED_RENDERER_PROTOCOL = "file:";
 const SSO_ALLOWED_HOSTS = new Set(["courses.uit.edu.vn", "sso.uit.edu.vn"]);
+
+function createSsoSessionView(baseUrl) {
+  const view = new WebContentsView({
+    webPreferences: {
+      partition: SSO_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  const contents = view.webContents;
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const rejectUntrustedNavigation = (event, url) => {
+    if (!isAllowedSsoNavigation(url, baseUrl)) event.preventDefault();
+  };
+  contents.on("will-navigate", rejectUntrustedNavigation);
+  contents.on("will-redirect", rejectUntrustedNavigation);
+  return view;
+}
+
+function closeSsoSessionView(view) {
+  if (!view?.webContents || view.webContents.isDestroyed?.()) return;
+  try { view.webContents.close({ waitForBeforeUnload: false }); } catch (_) {}
+}
+
+function restoreMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    if (mainWindow.isMinimized?.()) mainWindow.restore();
+    if (mainWindow.isVisible && !mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  } catch (error) {
+    console.error("Could not restore UIT Studio after SSO:", error.message);
+  }
+}
 
 async function loadService() {
   if (service) return;
@@ -469,23 +505,15 @@ async function restorePersistedSsoSession() {
       }
     }
 
-    const probeWindow = new BrowserWindow({
-      show: false,
-      title: "UIT SSO Session",
-      webPreferences: {
-        partition: SSO_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true
-      }
-    });
+    const probeView = createSsoSessionView(saved.baseUrl);
+    let accepted = false;
 
     const probeResult = await Promise.race([
       (async () => {
-        await probeWindow.loadURL(`${saved.baseUrl}/my/`);
-        const currentUrl = probeWindow.webContents.getURL();
+        await probeView.webContents.loadURL(`${saved.baseUrl}/my/`);
+        const currentUrl = probeView.webContents.getURL();
         if (currentUrl.includes("/login")) throw new Error("Session expired");
-        const identity = await probeWindow.webContents.executeJavaScript(`(()=>{
+        const identity = await probeView.webContents.executeJavaScript(`(()=>{
           const cfg = globalThis.M?.cfg || {};
           return { sesskey: String(cfg.sesskey || ""), userId: Number(cfg.userId || cfg.userid || 0) };
         })()`, true).catch(() => undefined);
@@ -496,11 +524,12 @@ async function restorePersistedSsoSession() {
     ]).catch(() => null);
 
     if (probeResult && probeResult.sesskey && probeResult.userId === saved.userId) {
-      ssoWindow = probeWindow;
+      const sessionView = probeView;
+      ssoSessionView = sessionView;
       const transport = {
-        execute: (script) => ssoWindow.webContents.executeJavaScript(script, true),
+        execute: (script) => sessionView.webContents.executeJavaScript(script, true),
         cookieHeader: async () => {
-          const cookies = await ssoWindow.webContents.session.cookies.get({ url: saved.baseUrl });
+          const cookies = await sessionView.webContents.session.cookies.get({ url: saved.baseUrl });
           return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
         }
       };
@@ -510,7 +539,7 @@ async function restorePersistedSsoSession() {
         sesskey: probeResult.sesskey,
         api: new MoodleSessionApi(saved.baseUrl, probeResult.sesskey, transport)
       };
-      const cookies = await ssoWindow.webContents.session.cookies.get({ url: saved.baseUrl });
+      const cookies = await sessionView.webContents.session.cookies.get({ url: saved.baseUrl });
       await persistSsoSession({
         baseUrl: saved.baseUrl,
         userId: probeResult.userId,
@@ -518,9 +547,11 @@ async function restorePersistedSsoSession() {
         cookies: cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly })),
         savedAt: Date.now()
       });
+      accepted = true;
     } else {
-      if (!probeWindow.isDestroyed()) probeWindow.close();
+      closeSsoSessionView(probeView);
     }
+    if (!accepted) closeSsoSessionView(probeView);
   } catch (error) {
     console.error("Could not auto-restore SSO session:", error.message);
   }
@@ -635,13 +666,18 @@ async function readThreadRollout(threadId, afterMtime = 0) {
 
 async function clearSsoSession({ clearStorage = false } = {}) {
   const window = ssoWindow;
-  const authSession = window && !window.isDestroyed() ? window.webContents.session : session.fromPartition(SSO_PARTITION);
+  const view = ssoSessionView;
+  const authSession = window && !window.isDestroyed()
+    ? window.webContents.session
+    : view?.webContents?.session || session.fromPartition(SSO_PARTITION);
   const pending = pendingSsoLogin;
   pendingSsoLogin = undefined;
   ssoSession = undefined;
   ssoWindow = undefined;
+  ssoSessionView = undefined;
   if (pending) pending.reject(new Error("UIT SSO was cancelled."));
   if (window && !window.isDestroyed()) window.close();
+  closeSsoSessionView(view);
   if (clearStorage) {
     await deletePersistedSsoSession();
     await authSession.clearStorageData({
@@ -650,59 +686,96 @@ async function clearSsoSession({ clearStorage = false } = {}) {
   }
 }
 
-function readSsoIdentity() {
-  if (!ssoWindow || ssoWindow.isDestroyed()) return Promise.resolve(undefined);
-  return ssoWindow.webContents.executeJavaScript(`(()=>{
-    const cfg = globalThis.M?.cfg || {};
-    return { sesskey: String(cfg.sesskey || ""), userId: Number(cfg.userId || cfg.userid || 0) };
-  })()`, true).catch(() => undefined);
+async function transferSsoSession(login, expectedUserId, closedWindow = false) {
+  const baseUrl = login.baseUrl;
+  const base = new URL(baseUrl);
+  let holder;
+  let transferTimer;
+  try {
+    holder = createSsoSessionView(baseUrl);
+    const load = holder.webContents.loadURL(`${baseUrl}/my/`);
+    await Promise.race([
+      load,
+      new Promise((_, reject) => { transferTimer = setTimeout(() => reject(new Error("The UIT SSO session transfer timed out.")), 15000); })
+    ]);
+    const holderUrl = new URL(holder.webContents.getURL());
+    if (holderUrl.origin !== base.origin || holderUrl.pathname.startsWith("/login")) throw new Error("The UIT SSO session could not be transferred.");
+    const holderIdentity = await holder.webContents.executeJavaScript(`(()=>{
+      const cfg = globalThis.M?.cfg || {};
+      return { sesskey: String(cfg.sesskey || ""), userId: Number(cfg.userId || cfg.userid || 0) };
+    })()`, true).catch(() => undefined);
+    if (!holderIdentity?.sesskey || !Number.isInteger(holderIdentity.userId) || holderIdentity.userId <= 0 || expectedUserId !== undefined && holderIdentity.userId !== expectedUserId) {
+      throw new Error("The UIT SSO session could not be transferred.");
+    }
+    const sessionView = holder;
+    const transport = {
+      execute: (script) => sessionView.webContents.executeJavaScript(script, true),
+      cookieHeader: async () => {
+        const cookies = await sessionView.webContents.session.cookies.get({ url: baseUrl });
+        return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+      }
+    };
+    const cookies = await sessionView.webContents.session.cookies.get({ url: baseUrl });
+    await persistSsoSession({
+      baseUrl,
+      userId: holderIdentity.userId,
+      sesskey: holderIdentity.sesskey,
+      cookies: cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly })),
+      savedAt: Date.now()
+    });
+    ssoSessionView = sessionView;
+    ssoSession = {
+      baseUrl,
+      userId: holderIdentity.userId,
+      sesskey: holderIdentity.sesskey,
+      api: new MoodleSessionApi(baseUrl, holderIdentity.sesskey, transport)
+    };
+    holder = undefined;
+    if (pendingSsoLogin === login) {
+      pendingSsoLogin = undefined;
+      restoreMainWindow();
+      login.resolve({ authenticated: true, authMode: "sso", baseUrl, userId: holderIdentity.userId });
+    }
+  } catch (error) {
+    closeSsoSessionView(holder);
+    login.completing = false;
+    if (pendingSsoLogin === login) {
+      pendingSsoLogin = undefined;
+      ssoSession = undefined;
+      restoreMainWindow();
+      login.reject(new Error(closedWindow ? "UIT SSO window was closed before login completed." : error?.message || "Could not establish the UIT SSO session."));
+    }
+  } finally {
+    clearTimeout(transferTimer);
+  }
 }
 
 async function tryCompleteSso() {
   const login = pendingSsoLogin;
-  if (!login || !ssoWindow || ssoWindow.isDestroyed()) return;
-  const baseUrl = login.baseUrl;
+  const loginWindow = ssoWindow;
+  if (!login || login.completing || !loginWindow || loginWindow.isDestroyed()) return;
   let current;
   try {
-    current = new URL(ssoWindow.webContents.getURL());
+    current = new URL(loginWindow.webContents.getURL());
   } catch {
     return;
   }
-  const base = new URL(baseUrl);
-  if (current.origin !== base.origin || current.pathname.startsWith("/login")) return;
-  const identity = await readSsoIdentity();
-  if (!identity?.sesskey || !Number.isInteger(identity.userId) || identity.userId <= 0) return;
-  const transport = {
-    execute: (script) => ssoWindow.webContents.executeJavaScript(script, true),
-    cookieHeader: async () => {
-      const cookies = await ssoWindow.webContents.session.cookies.get({ url: baseUrl });
-      return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
-    }
-  };
-  if (pendingSsoLogin !== login) return;
-  ssoSession = {
-    baseUrl,
-    userId: identity.userId,
-    sesskey: identity.sesskey,
-    api: new MoodleSessionApi(baseUrl, identity.sesskey, transport)
-  };
-  try {
-    const cookies = await ssoWindow.webContents.session.cookies.get({ url: baseUrl });
-    await persistSsoSession({
-      baseUrl,
-      userId: identity.userId,
-      sesskey: identity.sesskey,
-      cookies: cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly })),
-      savedAt: Date.now()
-    });
-  } catch (err) {
-    console.error("Failed to persist SSO session:", err.message);
-  }
-  // did-navigate and did-finish-load can fire together. Only the first
-  // completion owns the pending promise; later callbacks must be ignored.
-  pendingSsoLogin = undefined;
-  ssoWindow.hide();
-  login.resolve({ authenticated: true, authMode: "sso", baseUrl, userId: identity.userId });
+  const base = new URL(login.baseUrl);
+  if (current.origin !== base.origin) return;
+  const identity = await loginWindow.webContents.executeJavaScript(`(()=>{
+    const cfg = globalThis.M?.cfg || {};
+    return { sesskey: String(cfg.sesskey || ""), userId: Number(cfg.userId || cfg.userid || 0) };
+  })()`, true).catch(() => undefined);
+  const expectedUserId = identity && Number.isInteger(identity.userId) && identity.userId > 0 ? identity.userId : undefined;
+  // Moodle can finish OAuth on /login/index.php before forwarding to the
+  // destination. Only treat that URL as complete when it exposes an identity.
+  if (current.pathname.startsWith("/login") && expectedUserId === undefined) return;
+  if (pendingSsoLogin !== login || ssoWindow !== loginWindow) return;
+  // Completion pages can close their opener immediately after redirect.
+  login.completing = true;
+  if (ssoWindow === loginWindow) ssoWindow = undefined;
+  if (!loginWindow.isDestroyed()) loginWindow.close();
+  await transferSsoSession(login, expectedUserId);
 }
 
 async function startSsoLogin(rawBaseUrl) {
@@ -713,6 +786,8 @@ async function startSsoLogin(rawBaseUrl) {
     ssoWindow?.focus();
     return pendingSsoLogin.promise;
   }
+  closeSsoSessionView(ssoSessionView);
+  ssoSessionView = undefined;
   // A failed OAuth attempt can leave an invalid Moodle/Keycloak transaction in
   // the persistent partition. Starting from a clean transaction avoids the
   // ERR_TOO_MANY_REDIRECTS loop seen after an interrupted sign-in.
@@ -734,7 +809,6 @@ async function startSsoLogin(rawBaseUrl) {
   clearTimeout(clearTimer);
   if (storageReset === undefined) console.error("Timed out while resetting the UIT SSO browser session; continuing with a fresh login window.");
   ssoWindow = new BrowserWindow({
-    parent: mainWindow,
     width: 980,
     height: 760,
     minWidth: 720,
@@ -757,21 +831,27 @@ async function startSsoLogin(rawBaseUrl) {
   ssoWindow.webContents.on("will-navigate", rejectUntrustedNavigation);
   ssoWindow.webContents.on("will-redirect", rejectUntrustedNavigation);
   const promise = new Promise((resolve, reject) => {
-    pendingSsoLogin = { baseUrl, resolve, reject };
+    pendingSsoLogin = { baseUrl, resolve, reject, completing: false };
     const timeout = setTimeout(() => {
       if (!pendingSsoLogin) return;
       pendingSsoLogin = undefined;
       reject(new Error("UIT SSO timed out. Please try again."));
       if (ssoWindow && !ssoWindow.isDestroyed()) ssoWindow.close();
       ssoWindow = undefined;
+      restoreMainWindow();
     }, 5 * 60 * 1000);
     ssoWindow.once("closed", () => {
       clearTimeout(timeout);
-      if (pendingSsoLogin) {
-        const rejectLogin = pendingSsoLogin.reject;
-        pendingSsoLogin = undefined;
+      restoreMainWindow();
+      if (pendingSsoLogin?.completing) {
         ssoWindow = undefined;
-        rejectLogin(new Error("UIT SSO window was closed before login completed."));
+        return;
+      }
+      if (pendingSsoLogin) {
+        const login = pendingSsoLogin;
+        login.completing = true;
+        ssoWindow = undefined;
+        void transferSsoSession(login, undefined, true);
       } else {
         ssoWindow = undefined;
       }
@@ -790,6 +870,8 @@ async function startSsoLogin(rawBaseUrl) {
       ? new Error("UIT SSO encountered a redirect loop. The SSO session was reset; please try again.")
       : error);
     if (ssoWindow && !ssoWindow.isDestroyed()) ssoWindow.close();
+    ssoWindow = undefined;
+    restoreMainWindow();
   });
   return promise;
 }

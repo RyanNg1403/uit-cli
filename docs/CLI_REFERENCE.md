@@ -24,7 +24,7 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ---
 
-## `uit login [token]` (or `uit init`)
+## `uit login` (or `uit init`)
 
 Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` restores the v1.0/v1.1 Student ID/password flow for the old Moodle portal.
 
@@ -37,11 +37,6 @@ uit login --sso
 
 # Legacy Moodle: prompts for Student ID and password, then stores the returned token:
 uit login --legacy
-
-# Legacy Moodle with an existing API token:
-uit login --token <token>
-# Positional token form is also supported:
-# uit login <token>
 
 # Non-interactive legacy token setup:
 uit login --legacy --username YOUR_STUDENT_ID --password YOUR_PASSWORD
@@ -398,7 +393,7 @@ Errors exit with code 1. The `hint` field is included when the CLI can suggest a
 
 Session and credentials are read with the following precedence:
 1. `UIT_TOKEN` and its optional companion variables from the process environment
-2. `~/.uit/sessions.json` (created by `uit login`, `uit login --legacy`, `uit login --token`, or UIT Studio)
+2. `~/.uit/sessions.json` (created by `uit login`, `uit login --legacy`, or UIT Studio)
 
 ---
 

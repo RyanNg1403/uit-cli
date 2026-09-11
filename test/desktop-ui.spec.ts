@@ -24,12 +24,16 @@ async function branchThread(page: Page) {
 test("Codex has one creation entry per action and no scattered guidance", async ({ page, boot }, info) => {
   await boot();
   await page.locator('[data-view="agent"]').click();
-  await expect(page.getByRole("button", { name: "New thread", exact: true })).toHaveCount(0);
+  await expect(page.locator("#agent-messages").getByRole("button", { name: "New Thread", exact: true })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "New project", exact: true })).toHaveCount(1);
-  await expect(page.locator("#view-agent button:visible")).toHaveCount(0);
+  await expect(page.locator("#view-agent button:visible")).toHaveCount(1);
   await expect(page.locator("#view-agent select")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeHidden();
-  await expect(page.locator(".suggestions, .topbar-note, .keyboard-hint, #course-lock-note")).toHaveCount(0);
+  await expect(page.locator(".topbar-note, .keyboard-hint, #course-lock-note")).toHaveCount(0);
+  await expect(page.locator("#agent-messages .agent-empty-mascot")).toHaveCount(1);
+  await expect(page.locator("#agent-messages")).not.toContainText("No thread selected");
+  await expect(page.locator(".thread-header")).toBeHidden();
+  await expect(page.locator("#agent-task-title")).toHaveText("");
   await page.screenshot({ path: info.outputPath("codex-empty-clean.png") });
   await page.locator("#new-project").click();
   await page.locator(".project-option").filter({ has: page.getByText(courses[0].fullname, { exact: true }) }).click();
@@ -37,12 +41,64 @@ test("Codex has one creation entry per action and no scattered guidance", async 
   await expect(page.locator("#course-nav .project")).toContainText("CS01");
   await expect(page.locator(".project-new-thread")).toHaveCount(1);
   await expect(page.locator("#agent-messages")).toBeEmpty();
-  await expect(page.locator("#page-title")).toHaveText("Codex");
-  await expect(page.locator("#page-title .page-title-mascot")).toHaveCount(0);
+  await expect(page.locator("#page-title")).toHaveAttribute("aria-label", "Codex home");
+  await expect(page.locator("#page-title .codex-page-icon")).toHaveCount(1);
   await expect(page.locator(".nav-item[data-view=agent] .nav-logo img")).toHaveAttribute("src", /uit-dau-dau\.svg/);
   await expect(page.locator(".thread-agent-identity")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeVisible();
   await page.screenshot({ path: info.outputPath("codex-thread-clean.png") });
+});
+
+test("empty Codex state centers the mascot and offers every connected course", async ({ page, boot }) => {
+  await boot({
+    storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[0]], threads: [] })
+  });
+  await page.locator('[data-view="agent"]').click();
+
+  const messages = page.locator("#agent-messages");
+  const empty = messages.locator(".thread-empty");
+  const mascot = empty.locator(".agent-empty-mascot");
+  await expect(mascot).toBeVisible();
+  await expect(empty.getByRole("button", { name: "New Thread", exact: true })).toBeVisible();
+  const [messagesBox, mascotBox] = await Promise.all([messages.boundingBox(), mascot.boundingBox()]);
+  expect(messagesBox).not.toBeNull();
+  expect(mascotBox).not.toBeNull();
+  expect(Math.abs((mascotBox!.x + mascotBox!.width / 2) - (messagesBox!.x + messagesBox!.width / 2))).toBeLessThan(1);
+
+  await empty.getByRole("button", { name: "New Thread", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Choose a project", exact: true })).toBeVisible();
+  await expect(page.locator(".project-option")).toHaveCount(19);
+  await page.locator(".project-option").filter({ hasText: courses[18].fullname }).click();
+  await expect(page.locator("#project-picker")).toBeHidden();
+  await expect(page.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(18));
+  await expect(page.getByLabel("Message Codex")).toBeVisible();
+});
+
+test("Codex icon returns to the persistent empty agent home", async ({ page, boot }) => {
+  await boot({
+    storage: JSON.stringify({
+      version: 1,
+      activeId: "thread-1",
+      projects: [courses[0]],
+      threads: [{
+        id: "thread-1", title: "Existing thread", owner: { baseUrl: CURRENT, userId: 101 }, course: courses[0],
+        draft: "", resources: [], prompted: true, messages: [{ role: "assistant", text: "Existing answer" }]
+      }]
+    })
+  });
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#agent-messages")).toContainText("Existing answer");
+  await expect(page.getByLabel("Codex home")).toBeVisible();
+  await expect(page.getByLabel("Codex home").locator(".codex-page-icon")).toHaveCount(1);
+
+  await page.getByLabel("Codex home").click();
+  await expect(page.locator("#agent-messages .agent-empty-mascot")).toBeVisible();
+  await expect(page.locator("#agent-messages")).not.toContainText("Existing answer");
+  await expect(page.locator("#agent-messages").getByRole("button", { name: "New Thread", exact: true })).toBeVisible();
+  await page.locator('[data-view="courses"]').click();
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#agent-messages .agent-empty-mascot")).toBeVisible();
+  await expect(page.getByLabel("Message Codex")).toBeHidden();
 });
 
 test("mascot sprites animate efficiently for onboarding and active agent work", async ({ page, boot }) => {
@@ -65,8 +121,8 @@ test("mascot sprites animate efficiently for onboarding and active agent work", 
   await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await page.getByLabel("Message Codex").fill("Check the working mascot");
   await page.locator("#send-agent").click();
-  await expect(page.locator("#page-title")).toHaveText("Codex");
-  await expect(page.locator("#page-title .mascot-agent")).toHaveCount(0);
+  await expect(page.locator("#page-title")).toHaveAttribute("aria-label", "Codex home");
+  await expect(page.locator("#page-title .codex-page-icon")).toHaveCount(1);
   const workingStatus = page.locator("#agent-turn-status");
   await expect(workingStatus).toBeVisible();
   await expect(workingStatus).toContainText("Codex is working");
@@ -1950,21 +2006,22 @@ test("agent messages have no redundant role labels, project Open in Courses, thi
     })
   });
 
-  // 1. Agent view uses a plain Codex title; the mascot is reserved for active work.
+  // 1. Agent view uses the clickable Codex SVG home icon.
   await page.locator('.nav-item[data-view="agent"]').click();
   const pageTitle = page.locator("#page-title");
-  await expect(pageTitle).not.toHaveClass(/page-title-logo/);
-  await expect(pageTitle).toHaveText("Codex");
-  await expect(pageTitle.locator(".mascot-agent")).toHaveCount(0);
+  await expect(pageTitle).toHaveClass(/page-title-action/);
+  await expect(pageTitle).toHaveAttribute("aria-label", "Codex home");
+  await expect(pageTitle.locator(".codex-page-icon")).toHaveCount(1);
 
   // Switch to Courses view: #page-title displays "Courses" text
   await page.locator('.nav-item[data-view="courses"]').click();
-  await expect(pageTitle).not.toHaveClass(/page-title-logo/);
+  await expect(pageTitle).not.toHaveClass(/page-title-action/);
   await expect(pageTitle).toHaveText("Courses");
 
   // Switch back to agent view
   await page.locator('.nav-item[data-view="agent"]').click();
-  await expect(pageTitle).toHaveText("Codex");
+  await expect(pageTitle).toHaveClass(/page-title-action/);
+  await expect(pageTitle.locator(".codex-page-icon")).toHaveCount(1);
 
   // 2. New project button has equal margin top and bottom
   const newProjectBtn = page.locator("#new-project");

@@ -37,6 +37,7 @@ async function harness(saved: unknown[] = [], options: {
   const partitions = new Map<string, any>();
   const partitionCookies = new Map<string, Array<Record<string, any>>>();
   const windows: any[] = [];
+  const views: any[] = [];
   const fs = {
     readFile: vi.fn(async (file: string) => JSON.stringify(
       path.resolve(String(file)) === path.join(home, ".uit", "sessions.json") ? options.sessions || {} : saved
@@ -134,9 +135,32 @@ async function harness(saved: unknown[] = [], options: {
       windows.push(this);
     }
     isDestroyed() { return this.destroyed; }
+    isVisible() { return true; }
+    isMinimized() { return false; }
+    show() {}
+    focus() {}
+    restore() {}
     async loadFile() {}
     async loadURL(url: string) { this.webContents.mainFrame.url = url; }
     close() { this.destroyed = true; this.emit("closed"); }
+  }
+  class WebContentsView extends EventEmitter {
+    webContents: any;
+    destroyed = false;
+    constructor(public options: any) {
+      super();
+      const frame = { url: "about:blank" };
+      this.webContents = Object.assign(new EventEmitter(), {
+        mainFrame: frame, getURL: () => frame.url,
+        session: partition(options.webPreferences.partition || "default"),
+        loadURL: vi.fn(async (url: string) => { frame.url = url; }),
+        executeJavaScript: vi.fn().mockResolvedValue(probeIdentity),
+        setWindowOpenHandler: vi.fn(),
+        isDestroyed: () => this.destroyed,
+        close: vi.fn(() => { this.destroyed = true; })
+      });
+      views.push(this);
+    }
   }
   let ready: () => Promise<void> = async () => {};
   const app = Object.assign(new EventEmitter(), {
@@ -153,7 +177,7 @@ async function harness(saved: unknown[] = [], options: {
   const clipboard = { writeText: vi.fn(), readText: vi.fn() };
   const existsSync = vi.fn().mockReturnValue(false);
   const modules: Record<string, unknown> = {
-    electron: { app, BrowserWindow, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
+    electron: { app, BrowserWindow, WebContentsView, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
     "node:os": { homedir: () => home, tmpdir: () => path.join(profile, "tmp") }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
     "node:fs": { constants: { O_RDONLY: 0, O_NOFOLLOW: 0 }, existsSync },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
@@ -187,7 +211,7 @@ async function harness(saved: unknown[] = [], options: {
   const request = (input: any) => { context.request = input; return runInContext("handleAgentRequest(request)", context); };
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
   return {
-    context, app, window, windows, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
+    context, app, window, windows, views, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
     replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; },
     copiedMaterial: () => copiedMaterial
   };
@@ -212,6 +236,8 @@ describe("main IPC trust and routing", () => {
       expect.objectContaining({ name: "MoodleSession", value: "saved" }),
       expect.objectContaining({ name: "preference", value: "dark" })
     ]));
+    expect(h.windows).toHaveLength(1);
+    expect(h.views).toHaveLength(1);
   });
 
   it("verifies and persists a missing course using the connected portal without downloads", async () => {
@@ -306,6 +332,58 @@ describe("main IPC trust and routing", () => {
     expect(h.windows).toHaveLength(2);
     h.windows[1].close();
     await expect(login).rejects.toThrow("window was closed");
+  });
+
+  it("closes the visible SSO window after transferring the session to a view", async () => {
+    const h = await harness([], { probeIdentity: { sesskey: "interactive-key", userId: 101 } });
+    const login = h.invoke("session:sso-login", { baseUrl: CURRENT });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const authWindow = h.windows[1];
+    authWindow.webContents.mainFrame.url = `${CURRENT}/my/`;
+    authWindow.webContents.emit("did-navigate", {}, `${CURRENT}/my/`);
+
+    await expect(login).resolves.toMatchObject({ authenticated: true, authMode: "sso", baseUrl: CURRENT, userId: 101 });
+    expect(authWindow.destroyed).toBe(true);
+    expect(authWindow.options).not.toHaveProperty("parent");
+    expect(h.windows.filter((window) => !window.destroyed)).toHaveLength(1);
+    expect(h.views).toHaveLength(1);
+    expect(h.views[0].destroyed).toBe(false);
+    await expect(h.invoke("session:status")).resolves.toMatchObject({
+      authenticated: true,
+      authMode: "sso",
+      sessions: [{ baseUrl: CURRENT, authMode: "sso", userId: 101 }]
+    });
+
+    await h.invoke("session:logout", { baseUrl: CURRENT });
+    expect(h.views[0].destroyed).toBe(true);
+    expect(h.windows.filter((window) => !window.destroyed)).toHaveLength(1);
+  });
+
+  it("recovers when the SSO completion page closes its opener before navigation events finish", async () => {
+    const h = await harness([], { probeIdentity: { sesskey: "closed-opener-key", userId: 101 } });
+    const login = h.invoke("session:sso-login", { baseUrl: CURRENT });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const authWindow = h.windows[1];
+    authWindow.webContents.mainFrame.url = `${CURRENT}/my/`;
+    authWindow.close();
+
+    await expect(login).resolves.toMatchObject({ authenticated: true, authMode: "sso", baseUrl: CURRENT, userId: 101 });
+    expect(h.views).toHaveLength(1);
+    expect(h.views[0].destroyed).toBe(false);
+    await expect(h.invoke("session:status")).resolves.toMatchObject({ authenticated: true, authMode: "sso" });
+  });
+
+  it("accepts an authenticated Moodle callback that still uses the login path", async () => {
+    const h = await harness([], { probeIdentity: { sesskey: "login-callback-key", userId: 101 } });
+    const login = h.invoke("session:sso-login", { baseUrl: CURRENT });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const authWindow = h.windows[1];
+    authWindow.webContents.mainFrame.url = `${CURRENT}/login/index.php?loginredirect=1`;
+    authWindow.webContents.emit("did-finish-load", {}, `${CURRENT}/login/index.php?loginredirect=1`);
+
+    await expect(login).resolves.toMatchObject({ authenticated: true, authMode: "sso", baseUrl: CURRENT, userId: 101 });
+    expect(authWindow.destroyed).toBe(true);
+    expect(h.views).toHaveLength(1);
   });
 
   it("persists legacy session on login and removes on logout when config is enabled", async () => {
