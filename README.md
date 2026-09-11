@@ -8,32 +8,18 @@
 
 ---
 
+## Installation matrix
+
+| Product | npm | curl | Node requirement | Supported platforms |
+| :--- | :--- | :--- | :--- | :--- |
+| UIT CLI | `npm install -g uit-cli` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh` | 20.19+ for npm; none for curl | npm: macOS, Linux, Windows · curl: macOS arm64, Linux x64/arm64 |
+| UIT Studio | `npm install -g uit-studio` then `uit-studio` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh -s -- --studio` | 20.19+ for npm; none for curl | macOS arm64 (Apple Silicon) only |
+
+Install both npm packages together with `npm install -g uit-cli uit-studio`, or use `--all` with the curl installer on macOS arm64. The CLI includes the MCP server (`uit mcp`); Studio includes its MCP runtime internally.
+
 ## 1. UIT CLI
 
 Fast, scriptable terminal client for browsing courses, checking assignments, downloading materials, and tracking grades.
-
-### Installation
-
-On Apple Silicon macOS or Linux, install the standalone CLI and MCP server without Node.js:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
-```
-
-Alternatively, install from npm:
-
-```bash
-npm install -g uit-cli
-```
-
-The CLI package does not install the desktop app or a bundled Chromium browser. SSO opens an installed Google Chrome window; the CLI captures the session in its own controlled browser context. If you also want UIT Studio, install its separate npm package:
-
-```bash
-npm install -g uit-studio
-uit-studio
-```
-
-The standalone curl installer supports Apple Silicon macOS and Linux x64/arm64 without a preinstalled Node.js runtime. UIT CLI supports Node.js 20.19 or later when installed from npm (or on other Unix-like systems where the installer falls back to npm).
 
 To work from source instead:
 
@@ -78,25 +64,9 @@ uit login --token <your_token>
 
 The native desktop workspace combining Moodle course management with an intelligent Codex AI study copilot.
 
-### Installation & Launch
+### Launch
 
-UIT Studio is currently distributed for Apple Silicon Macs (arm64) only. The downloadable builds are unsigned to keep distribution free, so macOS may block the first launch. If it does, open **System Settings → Privacy & Security** and choose **Open Anyway** for UIT Studio.
-
-Install UIT Studio into `~/Applications` from the macOS release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
-```
-
-Install both UIT CLI and UIT Studio:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --all
-```
-
-The installer detects the Mac architecture and verifies the release archive's SHA-256 checksum. You can also download the unsigned DMG directly from the [latest GitHub release](https://github.com/RyanNg1403/uit-cli/releases/latest).
-
-For an npm-managed installation, use the dedicated Studio package instead:
+The npm package launches with `uit-studio`. The curl installer places the unsigned Apple Silicon app in `~/Applications` and verifies its SHA-256 checksum. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**. You can also download the [latest GitHub release](https://github.com/RyanNg1403/uit-cli/releases/latest).
 
 ```bash
 npm install -g uit-studio
