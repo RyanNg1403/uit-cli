@@ -51,7 +51,7 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
   log.pid = child.pid!;
   const lifecycle = (event: string, detail?: unknown) => {
     log.lifecycle.push({ event, detail, intentional, atMs: performance.now() - started });
-    if (!intentional) log.failures.push(`Unexpected ${event}`);
+    if (!intentional) log.failures.push(`Unexpected ${event}${detail === undefined ? "" : `: ${JSON.stringify(detail)}`}`);
   };
   child.on("exit", (code, signal) => lifecycle("process-exit", { code, signal }));
   child.on("error", (error) => log.failures.push(`Process error: ${error.message}`));
@@ -81,7 +81,7 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
       let windowCount = initialWindows.length;
       initialWindows.forEach(watch);
       app.on("browser-window-created", (_event, window) => {
-        if (windowCount++ > 0) record("extra-window");
+        if (windowCount++ > 0) record("extra-window", { title: window.getTitle(), visible: window.isVisible() });
         watch(window);
       });
       const blockNetwork = (target: Electron.Session) => {
