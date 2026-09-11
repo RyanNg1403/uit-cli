@@ -172,7 +172,7 @@ function load(): Config {
     }
   }
 
-  throw new CliError("No active UIT session found. Run: uit login (or uit login --token <token>)");
+  throw new CliError("No active UIT session found. Run: uit login (SSO) or uit login --legacy");
 }
 
 /** Resolve the same active session configuration for CLI, MCP, and desktop callers. */

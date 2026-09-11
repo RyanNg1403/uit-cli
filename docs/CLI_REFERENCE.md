@@ -26,26 +26,30 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ## `uit login [token]` (or `uit init`)
 
-Sign in to UIT Moodle. Supports both **UIT SSO** (recommended, opens interactive browser) and **Moodle API tokens**.
+Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` restores the v1.0/v1.1 Student ID/password flow for the old Moodle portal.
 
 ```bash
 # Recommended: Sign in via UIT SSO in browser (default)
 uit login
 
-# Sign in with an existing Moodle API token:
+# Explicit SSO:
+uit login --sso
+
+# Legacy Moodle: prompts for Student ID and password, then stores the returned token:
+uit login --legacy
+
+# Legacy Moodle with an existing API token:
 uit login --token <token>
 # Positional token form is also supported:
 # uit login <token>
 
-# Interactive token prompt (prompts for student ID and password):
-uit login --username YOUR_STUDENT_ID
+# Non-interactive legacy token setup:
+uit login --legacy --username YOUR_STUDENT_ID --password YOUR_PASSWORD
 
-# Non-interactive token setup:
-uit login --username YOUR_STUDENT_ID --password YOUR_PASSWORD
 
 ```
 
-Prefer the interactive browser login (`uit login`) or interactive token prompt for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
+Prefer the interactive browser login (`uit login`) or `uit login --legacy` for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
 
 SSO and token sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix) and shared with UIT Studio. The user ID is discovered during login and stored with the session. Re-run `uit login` at any time to refresh or rotate it.
 
@@ -394,7 +398,7 @@ Errors exit with code 1. The `hint` field is included when the CLI can suggest a
 
 Session and credentials are read with the following precedence:
 1. `UIT_TOKEN` and its optional companion variables from the process environment
-2. `~/.uit/sessions.json` (created by `uit login`, `uit login --token`, or UIT Studio)
+2. `~/.uit/sessions.json` (created by `uit login`, `uit login --legacy`, `uit login --token`, or UIT Studio)
 
 ---
 

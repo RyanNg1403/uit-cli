@@ -16,7 +16,7 @@ export async function defaultSsoLauncher(baseUrl: string): Promise<SsoSessionDat
     throw new CliError(
       `Could not open Google Chrome for SSO login: ${(error as Error).message}\n` +
       `Install Google Chrome, run UIT Studio on your desktop, or use ` +
-      `'uit login --token <token>'.`
+      `'uit login --legacy' for the Student ID/password flow.`
     );
   }
 

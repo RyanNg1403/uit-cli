@@ -28,10 +28,13 @@ import { runMcpServer, installMcpServer } from "./mcp-server.js";
 import { cmdLoginSso, type SsoLoginLauncher } from "./sso-login.js";
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
+const LEGACY_SITE_BASE_URL = "https://coursesold.uit.edu.vn";
 
 export const WORKFLOW = `
 workflow:
-  uit login [token]                    -> sign in via UIT SSO or token (or uit init)
+  uit login                            -> sign in via UIT SSO (default)
+  uit login --legacy                   -> sign in to legacy Moodle with Student ID/password
+  uit login --token <token>            -> use an existing legacy Moodle token
   uit courses --current                -> get course IDs
   uit contents  <course_id>            -> browse modules (shows module IDs)
   uit view      <id>                   -> inspect any module (accepts module_id or assign_id)
@@ -98,7 +101,7 @@ function printLanding(): void {
   console.log(LOGO);
   console.log("  CLI for courses.uit.edu.vn — Moodle LMS at UIT");
   console.log();
-  console.log("  \u001b[1mSign in:\u001b[0m        uit login (or uit login --token <token>)");
+  console.log("  \u001b[1mSign in:\u001b[0m        uit login (SSO) or uit login --legacy");
   console.log("  \u001b[1mGet started:\u001b[0m    uit courses --current");
   console.log("  \u001b[1mBrowse:\u001b[0m         uit contents <course_id>");
   console.log("  \u001b[1mInspect:\u001b[0m        uit view <module_id>");
@@ -130,15 +133,29 @@ export function createProgram(
 
   program
     .command("login")
-    .description("Sign in to UIT Moodle via UIT SSO or API token")
+    .description("Sign in via UIT SSO (default) or legacy Moodle")
     .argument("[token]", "Moodle API token (for token-based login)")
-    .option("--sso", "Sign in via UIT SSO in browser window", true)
-    .option("--token <token>", "Sign in using a Moodle API token")
-    .option("-u, --username <username>", "Student ID for interactive token setup")
-    .option("-p, --password <password>", "Password for non-interactive token setup")
+    .option("--sso", "Sign in via UIT SSO in browser window")
+    .option("--legacy", "Sign in to legacy Moodle with Student ID/password")
+    .option("--token <token>", "Use an existing legacy Moodle API token")
+    .option("-u, --username <username>", "Student ID for legacy token setup")
+    .option("-p, --password <password>", "Password for non-interactive legacy token setup")
     .action(async (token, opts) => {
-      if (opts.token || token || opts.username || opts.password) {
-        await cmdInit({ token: opts.token || token, url: CURRENT_SITE_BASE_URL, username: opts.username, password: opts.password });
+      const explicitToken = opts.token || token;
+      const hasLegacyCredentials = Boolean(explicitToken || opts.username || opts.password);
+      if (opts.legacy && opts.sso) {
+        throw new CliError("Choose one login method: --sso or --legacy.");
+      }
+      if (opts.sso && hasLegacyCredentials) {
+        throw new CliError("--sso cannot be combined with a token, --username, or --password.");
+      }
+      if (opts.legacy || hasLegacyCredentials) {
+        await cmdInit({
+          token: explicitToken,
+          url: LEGACY_SITE_BASE_URL,
+          username: opts.username,
+          password: opts.password
+        });
         return;
       }
       await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
@@ -146,18 +163,28 @@ export function createProgram(
 
   program
     .command("init")
-    .description("Set up credentials (~/.uit/sessions.json)")
+    .description("Set up legacy credentials (~/.uit/sessions.json); use --sso for UIT SSO")
     .argument("[token]", "Moodle API token from /login/token.php")
     .option("--sso", "Sign in via UIT SSO (opens browser window)")
-    .option("--token <token>", "Use an existing Moodle API token instead of prompting for login")
-    .option("-u, --username <username>", "Student ID for interactive token setup")
-    .option("-p, --password <password>", "Password for non-interactive token setup")
+    .option("--token <token>", "Use an existing legacy Moodle API token instead of prompting for login")
+    .option("-u, --username <username>", "Student ID for legacy token setup")
+    .option("-p, --password <password>", "Password for non-interactive legacy token setup")
     .action(async (token, opts) => {
+      const explicitToken = opts.token || token;
+      const hasLegacyCredentials = Boolean(explicitToken || opts.username || opts.password);
+      if (opts.sso && hasLegacyCredentials) {
+        throw new CliError("--sso cannot be combined with a token, --username, or --password.");
+      }
       if (opts.sso) {
         await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
         return;
       }
-      await cmdInit({ token: opts.token || token, url: CURRENT_SITE_BASE_URL, username: opts.username, password: opts.password });
+      await cmdInit({
+        token: explicitToken,
+        url: LEGACY_SITE_BASE_URL,
+        username: opts.username,
+        password: opts.password
+      });
     });
 
   program

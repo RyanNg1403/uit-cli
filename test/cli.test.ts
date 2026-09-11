@@ -61,6 +61,8 @@ describe("CLI command flows", () => {
 
     expect(initCommand?.helpInformation()).toContain("--token <token>");
     expect(initCommand?.helpInformation()).not.toContain("--url");
+    expect(loginCommand?.helpInformation()).toContain("--legacy");
+    expect(loginCommand?.helpInformation()).toContain("--sso");
     expect(loginCommand?.helpInformation()).not.toContain("--url");
   });
 
