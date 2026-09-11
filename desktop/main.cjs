@@ -47,6 +47,7 @@ if (process.env.UIT_TEST_PROFILE) app.setPath("userData", resolve(process.env.UI
 let service;
 let codex;
 let mainWindow;
+let windowCreation;
 let MoodleSessionApi;
 let ssoWindow;
 let ssoSession;
@@ -1227,7 +1228,19 @@ function registerIpc() {
   }
 }
 
-async function createWindow() {
+function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) return Promise.resolve(mainWindow);
+  if (!windowCreation) {
+    const pending = createWindowInternal();
+    const tracked = pending.finally(() => {
+      if (windowCreation === tracked) windowCreation = undefined;
+    });
+    windowCreation = tracked;
+  }
+  return windowCreation;
+}
+
+async function createWindowInternal() {
   await loadService();
   registerIpc();
   const primaryDisplay = screen?.getPrimaryDisplay?.();
