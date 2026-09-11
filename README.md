@@ -8,15 +8,6 @@
 
 ---
 
-## Installation matrix
-
-| Product | npm | curl | Node requirement | Supported platforms |
-| :--- | :--- | :--- | :--- | :--- |
-| UIT CLI | `npm install -g uit-cli` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh` | 20.19+ for npm; none for curl | npm: macOS, Linux, Windows · curl: macOS arm64, Linux x64/arm64 |
-| UIT Studio | `npm install -g uit-studio` then `uit-studio` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh -s -- --studio` | 20.19+ for npm; none for curl | macOS arm64 (Apple Silicon) only |
-
-Install both npm packages together with `npm install -g uit-cli uit-studio`, or use `--all` with the curl installer on macOS arm64. The CLI includes the MCP server (`uit mcp`); Studio includes its MCP runtime internally.
-
 ## 1. UIT CLI
 
 Fast, scriptable terminal client for browsing courses, checking assignments, downloading materials, and tracking grades.
@@ -50,11 +41,15 @@ The native desktop workspace combining Moodle course management with an intellig
 
 ### Launch
 
-The npm package launches with `uit-studio`. The curl installer places the unsigned Apple Silicon app in `~/Applications` and verifies its SHA-256 checksum. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**. You can also download the [latest GitHub release](https://github.com/RyanNg1403/uit-cli/releases/latest).
-
 ```bash
 npm install -g uit-studio
 uit-studio
+```
+
+The curl app install command works only on macOS and installs an unsigned app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
 ```
 
 ### Login
@@ -79,6 +74,13 @@ Chat with Codex using direct context from your courses, lecture slides, and assi
 </p>
 
 ---
+
+## Installation matrix
+
+| Product | npm | curl | Node requirement | Supported platforms |
+| :--- | :--- | :--- | :--- | :--- |
+| UIT CLI | `npm install -g uit-cli` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh` | 20.19+ for npm; none for curl | npm: macOS, Linux, Windows · curl: macOS arm64, Linux x64/arm64 |
+| UIT Studio | `npm install -g uit-studio` then `uit-studio` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh -s -- --studio` | 20.19+ for npm; none for curl | macOS arm64 (Apple Silicon) only |
 
 ## License
 
