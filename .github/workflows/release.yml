@@ -74,8 +74,58 @@ jobs:
           path: release-assets/*
           if-no-files-found: error
 
+  build-linux:
+    name: Build Linux (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - name: Build standalone CLI
+        run: |
+          npm run build
+          scripts/package-standalone.sh linux "${{ matrix.arch }}" release-assets
+
+      - name: Smoke-test standalone CLI installer
+        run: |
+          install_home="$(mktemp -d)"
+          trap 'rm -rf "$install_home"' EXIT
+          HOME="$install_home" \
+            UIT_INSTALL_BASE_URL="file://$PWD/release-assets" \
+            scripts/install.sh --cli
+          "$install_home/.local/bin/uit" --help >/dev/null
+          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$install_home/.local/bin/uit" mcp)"
+          printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v6
+        with:
+          name: uit-linux-${{ matrix.arch }}
+          path: release-assets/*
+          if-no-files-found: error
+
   publish:
-    needs: build-macos
+    needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
 
     steps:
@@ -124,10 +174,10 @@ jobs:
       - name: Verify Studio npm package
         run: npm run studio:check
 
-      - name: Download macOS release assets
+      - name: Download release assets
         uses: actions/download-artifact@v7
         with:
-          pattern: uit-macos-*
+          pattern: uit-*
           path: release-assets
           merge-multiple: true
 

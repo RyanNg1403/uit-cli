@@ -32,7 +32,7 @@ describe("curl installer", () => {
     const uname = `${directory}/uname`;
     await writeFile(node, "#!/bin/sh\nexit 0\n");
     await writeFile(npm, '#!/bin/sh\nprintf "%s\\n" "$@" > "$UIT_TEST_RECORD"\n');
-    await writeFile(uname, '#!/bin/sh\n[ "$1" = "-s" ] && printf "Linux\\n" || printf "x86_64\\n"\n');
+    await writeFile(uname, '#!/bin/sh\n[ "$1" = "-s" ] && printf "FreeBSD\\n" || printf "x86_64\\n"\n');
     await Promise.all([chmod(node, 0o755), chmod(npm, 0o755), chmod(uname, 0o755)]);
 
     await promisify(execFile)("sh", ["scripts/install.sh", "--cli"], {

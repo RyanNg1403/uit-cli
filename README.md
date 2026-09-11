@@ -14,7 +14,7 @@ Fast, scriptable terminal client for browsing courses, checking assignments, dow
 
 ### Installation
 
-On macOS, install the standalone CLI and MCP server without Node.js:
+On Apple Silicon macOS or Linux, install the standalone CLI and MCP server without Node.js:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
@@ -33,13 +33,7 @@ npm install -g uit-studio
 uit-studio
 ```
 
-UIT CLI supports Node.js 20.19 or later.
-
-On Linux, the curl installer uses npm and therefore also requires Node.js 20.19 or later:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
-```
+The standalone curl installer supports Apple Silicon macOS and Linux x64/arm64 without a preinstalled Node.js runtime. UIT CLI supports Node.js 20.19 or later when installed from npm (or on other Unix-like systems where the installer falls back to npm).
 
 To work from source instead:
 

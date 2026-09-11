@@ -20,6 +20,7 @@ Usage:
 Environment:
   UIT_INSTALL_VERSION        Release tag to install, for example v1.2.0
   UIT_INSTALL_REPOSITORY     GitHub repository, default RyanNg1403/uit-cli
+  UIT_INSTALL_BASE_URL       Override the release asset base URL (useful for mirrors/tests)
 EOF
 }
 
@@ -71,15 +72,38 @@ install_cli_with_npm() {
 
 install_standalone_cli() (
   command -v curl >/dev/null 2>&1 || fail "curl is required."
-  command -v shasum >/dev/null 2>&1 || fail "shasum is required."
   command -v tar >/dev/null 2>&1 || fail "tar is required."
 
-  case "$(uname -m)" in
-    arm64) architecture="arm64" ;;
-    *) fail "unsupported Mac architecture: $(uname -m)" ;;
+  system="$(uname -s)"
+  machine="$(uname -m)"
+  case "$system" in
+    Darwin)
+      platform="macos"
+      case "$machine" in
+        arm64) architecture="arm64" ;;
+        *) fail "unsupported Mac architecture: $machine" ;;
+      esac
+      ;;
+    Linux)
+      platform="linux"
+      case "$machine" in
+        x86_64|amd64) architecture="x64" ;;
+        arm64|aarch64) architecture="arm64" ;;
+        *) fail "unsupported Linux architecture: $machine" ;;
+      esac
+      ;;
+    *) fail "unsupported operating system: $system" ;;
   esac
 
-  asset="UIT-CLI-macos-${architecture}.tar.gz"
+  if command -v shasum >/dev/null 2>&1; then
+    verify_checksum() { shasum --algorithm 256 --check "$1"; }
+  elif command -v sha256sum >/dev/null 2>&1; then
+    verify_checksum() { sha256sum --check "$1"; }
+  else
+    fail "shasum or sha256sum is required."
+  fi
+
+  asset="UIT-CLI-${platform}-${architecture}.tar.gz"
   base_url="$(release_base_url)"
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/uit-cli.XXXXXX")"
   replacement_directory=""
@@ -111,7 +135,7 @@ install_standalone_cli() (
     --output "$temporary_directory/$asset.sha256" "$base_url/$asset.sha256"
   (
     cd "$temporary_directory"
-    shasum --algorithm 256 --check "$asset.sha256"
+    verify_checksum "$asset.sha256"
   ) || fail "the downloaded UIT CLI archive failed checksum verification."
 
   tar -xzf "$temporary_directory/$asset" -C "$temporary_directory"
@@ -165,11 +189,12 @@ install_standalone_cli() (
 )
 
 install_cli() {
-  if [ "$(uname -s)" = "Darwin" ]; then
+  case "$(uname -s)" in
+    Darwin|Linux)
     install_standalone_cli
-  else
-    install_cli_with_npm
-  fi
+      ;;
+    *) install_cli_with_npm ;;
+  esac
 }
 
 install_studio() {

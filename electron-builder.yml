@@ -9,6 +9,8 @@ files:
   - desktop/**/*
   - dist/**/*
   - package.json
+  - "!dist/cli.*"
+  - "!dist/sso-login.*"
   - "!node_modules/commander/**/*"
   - "!node_modules/playwright/**/*"
   - "!node_modules/playwright-core/**/*"

@@ -7,13 +7,21 @@ architecture="${2:-}"
 output_directory="${3:-release-assets}"
 
 case "$platform" in
-  macos) expected_system="Darwin" ;;
+  macos)
+    expected_system="Darwin"
+    case "$architecture" in
+      arm64) ;;
+      *) printf 'Unsupported macOS architecture: %s\n' "$architecture" >&2; exit 1 ;;
+    esac
+    ;;
+  linux)
+    expected_system="Linux"
+    case "$architecture" in
+      arm64|x64) ;;
+      *) printf 'Unsupported Linux architecture: %s\n' "$architecture" >&2; exit 1 ;;
+    esac
+    ;;
   *) printf 'Unsupported standalone platform: %s\n' "$platform" >&2; exit 1 ;;
-esac
-
-case "$architecture" in
-  arm64) ;;
-  *) printf 'Unsupported standalone architecture: %s\n' "$architecture" >&2; exit 1 ;;
 esac
 
 actual_system="$(uname -s)"
@@ -43,7 +51,7 @@ cp "$repository_root/package.json" "$repository_root/package-lock.json" "$bundle
 )
 
 cp -R "$repository_root/dist" "$bundle/app/dist"
-cp "$(command -v node)" "$bundle/bin/node"
+cp "$(node -p 'process.execPath')" "$bundle/bin/node"
 chmod 755 "$bundle/bin/node"
 printf '%s\n' "$version" > "$bundle/VERSION"
 
