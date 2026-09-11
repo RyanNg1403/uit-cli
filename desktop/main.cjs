@@ -1290,6 +1290,7 @@ if ((process.argv || []).includes("--uit-mcp")) {
   });
 
   app.on("activate", () => {
+    if (process.env.UIT_TEST_HEADLESS === "1") return;
     if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   });
 
