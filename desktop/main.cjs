@@ -1242,7 +1242,6 @@ function createWindow() {
 
 async function createWindowInternal() {
   await loadService();
-  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
   registerIpc();
   const primaryDisplay = screen?.getPrimaryDisplay?.();
   const workArea = primaryDisplay?.workAreaSize || { width: 1440, height: 920 };
@@ -1291,7 +1290,6 @@ if ((process.argv || []).includes("--uit-mcp")) {
   });
 
   app.on("activate", () => {
-    if (process.env.UIT_TEST_HEADLESS === "1") return;
     if (!mainWindow || mainWindow.isDestroyed()) createWindow();
   });
 
