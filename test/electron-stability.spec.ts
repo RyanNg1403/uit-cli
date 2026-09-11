@@ -81,7 +81,11 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
       let windowCount = initialWindows.length;
       initialWindows.forEach(watch);
       app.on("browser-window-created", (_event, window) => {
-        if (windowCount++ > 0) record("extra-window", { title: window.getTitle(), visible: window.isVisible() });
+        const detail = { title: window.getTitle(), visible: window.isVisible() };
+        // Electron can briefly create a hidden startup window on Linux/Xvfb.
+        // The heartbeat below still fails if an extra window remains alive;
+        // only visible or persistent windows are stability failures.
+        if (windowCount++ > 0 && detail.visible) record("extra-window", detail);
         watch(window);
       });
       const blockNetwork = (target: Electron.Session) => {
