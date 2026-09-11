@@ -54,6 +54,19 @@ function chevron() {
   svg.append(path);
   return svg;
 }
+function codexLogo() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("codex-page-icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "currentColor");
+  svg.setAttribute("fill-rule", "evenodd");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("clip-rule", "evenodd");
+  path.setAttribute("d", "M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z");
+  svg.append(path);
+  return svg;
+}
 function mascotFrame(className, label = "") {
   const frame = node("span", className);
   if (label) {
@@ -94,6 +107,17 @@ function visibleThread(thread) { return connected(thread?.course || thread?.owne
 function hasPrompt(thread) { return thread.prompted ?? thread.messages.some((message) => message.role === "user"); }
 function addProject(course) {
   if (!state.projects.some((project) => courseKey(project) === courseKey(course))) state.projects.push(courseSnapshot(course));
+}
+function connectedProjectChoices() {
+  const choices = new Map();
+  for (const course of [...state.projects, ...state.courses]) {
+    if (!connected(course)) continue;
+    const live = state.courses.find((item) => courseKey(item) === courseKey(course));
+    const merged = { ...(live || course), ...course };
+    if (live?.semester) merged.semester = live.semester;
+    choices.set(courseKey(merged), merged);
+  }
+  return [...choices.values()];
 }
 function discardUnsent(exceptId = null) {
   state.threads = state.threads.filter((thread) => hasPrompt(thread) || thread.id === exceptId);
@@ -247,15 +271,19 @@ function showView(view) {
   for (const name of ["courses", "course", "agent"]) $("#view-" + name).hidden = name !== view;
   const pageTitle = $("#page-title");
   if (view === "agent") {
-    pageTitle.textContent = "Codex";
-    pageTitle.removeAttribute("aria-label");
-    pageTitle.removeAttribute("title");
-    pageTitle.classList.remove("page-title-logo");
+    pageTitle.replaceChildren(codexLogo());
+    pageTitle.setAttribute("role", "button");
+    pageTitle.setAttribute("tabindex", "0");
+    pageTitle.setAttribute("aria-label", "Codex home");
+    pageTitle.setAttribute("title", "Codex home");
+    pageTitle.classList.add("page-title-action");
   } else {
     pageTitle.textContent = "Courses";
+    pageTitle.removeAttribute("role");
+    pageTitle.removeAttribute("tabindex");
     pageTitle.removeAttribute("aria-label");
     pageTitle.removeAttribute("title");
-    pageTitle.classList.remove("page-title-logo");
+    pageTitle.classList.remove("page-title-action");
   }
   $$(".nav-item[data-view]").forEach((item) => {
     if (item.dataset.view === (view === "course" ? "courses" : view)) item.setAttribute("aria-current", "page");
@@ -1348,8 +1376,9 @@ function openProjectPicker(mode = "thread") {
   $("#project-picker").dataset.mode = mode;
   $("#project-picker-title").textContent = mode === "project" ? "New project" : "Choose a project";
   $("#project-search").value = "";
+  const allCourses = mode === "thread-all" ? connectedProjectChoices() : state.courses;
   $("#project-year-field").hidden = mode !== "project";
-  const years = projectYearOptions(state.courses.filter((course) => !state.projects.some((project) => courseKey(project) === courseKey(course))));
+  const years = projectYearOptions(allCourses.filter((course) => !state.projects.some((project) => courseKey(project) === courseKey(course))));
   const select = $("#project-year");
   select.setAttribute("aria-label", "Academic year");
   select.replaceChildren();
@@ -1361,8 +1390,11 @@ function openProjectPicker(mode = "thread") {
 function renderProjectOptions() {
   const target = $("#project-options"); target.replaceChildren();
   const query = $("#project-search").value.trim().toLocaleLowerCase();
-  const creating = $("#project-picker").dataset.mode === "project";
-  const available = creating ? state.courses.filter((course) => !state.projects.some((project) => courseKey(project) === courseKey(course))) : state.projects.filter(connected);
+  const mode = $("#project-picker").dataset.mode;
+  const creating = mode === "project";
+  const available = creating
+    ? state.courses.filter((course) => !state.projects.some((project) => courseKey(project) === courseKey(course)))
+    : mode === "thread-all" ? connectedProjectChoices() : state.projects.filter(connected);
   const filtered = available.filter((course) => (!creating || projectYearMatches(course, $("#project-year").value)) && `${course.fullname} ${course.shortname} ${siteLabel(course)} ${semesterOf(course).label}`.toLocaleLowerCase().includes(query));
   const yearSections = new Map();
   for (const group of semesterGroups(filtered)) {
@@ -1413,6 +1445,13 @@ function selectThread(id) {
   discardUnsent(id);
   state.activeId = id;
   persist(); showView("agent");
+}
+function openCodexHome() {
+  if (state.view !== "agent") return;
+  discardUnsent();
+  state.activeId = null;
+  persist();
+  showView("agent");
 }
 function closeThreadResumeMenu() {
   const menu = $("#thread-resume-menu");
@@ -1530,7 +1569,9 @@ async function syncThreadRollout(thread = activeThread()) {
 }
 function renderConversation() {
   const thread = activeThread();
-  $("#agent-task-title").textContent = thread?.title || "Codex";
+  const threadHeader = $(".thread-header");
+  if (threadHeader) threadHeader.hidden = !thread;
+  $("#agent-task-title").textContent = thread?.title || "";
   const courseEl = $(".thread-course-meta");
   if (courseEl) {
     courseEl.hidden = true;
@@ -2015,8 +2056,13 @@ function renderMessages(changes = null) {
   if (!thread?.messages.length) {
     $("#jump-to-latest").hidden = true;
     const empty = node("div", "thread-empty");
-    if (!thread) empty.append(node("p", "muted", "No thread selected"));
-    if (!thread) box.append(empty);
+    if (!thread) {
+      empty.append(
+        mascotFrame("working-mascot agent-empty-mascot", "Đậu Đậu, the UIT panda mascot"),
+        button("New Thread", "primary-button", () => openProjectPicker("thread-all"))
+      );
+      box.append(empty);
+    }
     return;
   }
   if (!inner) { inner = node("div", "messages-inner"); box.append(inner); }
@@ -2847,6 +2893,12 @@ async function authAction(action, success) {
 }
 
 $$(".nav-item[data-view]").forEach((control) => control.addEventListener("click", () => showView(control.dataset.view)));
+$("#page-title").addEventListener("click", openCodexHome);
+$("#page-title").addEventListener("keydown", (event) => {
+  if (event.currentTarget.getAttribute("role") !== "button" || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  openCodexHome();
+});
 $("#new-project").addEventListener("click", () => openProjectPicker("project"));
 $("#close-project-picker").addEventListener("click", () => $("#project-picker").close());
 $("#project-search").addEventListener("input", renderProjectOptions);

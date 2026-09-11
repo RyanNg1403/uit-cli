@@ -14,7 +14,7 @@ Fast, scriptable terminal client for browsing courses, checking assignments, dow
 
 ### Login
 
-`uit login` uses **UIT SSO** by default. The legacy flow still supports the v1.0/v1.1 Student ID/password login and stores only the returned Moodle token:
+`uit login` uses **UIT SSO** by default. The legacy flow prompts for your Student ID and password, then stores the returned Moodle session token:
 
 ```bash
 # UIT SSO (default; opens a browser window)
