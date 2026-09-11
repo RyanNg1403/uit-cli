@@ -27,4 +27,4 @@ if (unexpected.length > 0) {
   throw new Error(`npm package contains non-CLI files: ${unexpected.join(", ")}`);
 }
 
-console.log(`Verified npm package boundary (${files.length} CLI/MCP files, ${manifest.size} bytes).`);
+console.log(`Verified CLI npm package boundary (${files.length} files, ${manifest.size} bytes).`);

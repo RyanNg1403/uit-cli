@@ -37,8 +37,62 @@ test("Codex has one creation entry per action and no scattered guidance", async 
   await expect(page.locator("#course-nav .project")).toContainText("CS01");
   await expect(page.locator(".project-new-thread")).toHaveCount(1);
   await expect(page.locator("#agent-messages")).toBeEmpty();
+  await expect(page.locator("#page-title")).toHaveText("Codex");
+  await expect(page.locator("#page-title .page-title-mascot")).toHaveCount(0);
+  await expect(page.locator(".nav-item[data-view=agent] .nav-logo img")).toHaveAttribute("src", /uit-dau-dau\.svg/);
+  await expect(page.locator(".thread-agent-identity")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeVisible();
   await page.screenshot({ path: info.outputPath("codex-thread-clean.png") });
+});
+
+test("mascot sprites animate efficiently for onboarding and active agent work", async ({ page, boot }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await boot({ authenticated: false });
+  const onboarding = page.locator(".course-onboarding-mascot");
+  await expect(onboarding).toHaveAttribute("role", "img");
+  await expect(onboarding).toHaveAttribute("aria-label", "Đậu Đậu, the UIT panda mascot");
+  const onboardingStyle = await onboarding.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { backgroundImage: style.backgroundImage, animationName: style.animationName, animationDuration: style.animationDuration };
+  });
+  expect(onboardingStyle.backgroundImage).toContain("dau-dau-onboarding.png");
+  expect(onboardingStyle.animationName).toBe("dau-dau-onboarding-frames");
+  expect(onboardingStyle.animationDuration).toBe("3.2s");
+
+  await page.evaluate(() => sessionStorage.clear());
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await page.getByLabel("Message Codex").fill("Check the working mascot");
+  await page.locator("#send-agent").click();
+  await expect(page.locator("#page-title")).toHaveText("Codex");
+  await expect(page.locator("#page-title .mascot-agent")).toHaveCount(0);
+  const workingStatus = page.locator("#agent-turn-status");
+  await expect(workingStatus).toBeVisible();
+  await expect(workingStatus).toContainText("Codex is working");
+  const workingMascot = workingStatus.locator(".message-turn-state.is-working .working-mascot");
+  await expect(workingMascot).toBeVisible();
+  const agentStyle = await workingMascot.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { backgroundImage: style.backgroundImage, animationName: style.animationName, animationDuration: style.animationDuration };
+  });
+  expect(agentStyle.backgroundImage).toContain("dau-dau-agent.png");
+  expect(agentStyle.animationName).toBe("dau-dau-agent-frames");
+  expect(agentStyle.animationDuration).toBe("1.6s");
+
+  const input = (await calls(page, "agent.start"))[0].input;
+  const activeParams = { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}` };
+  await emit(page, "item/agentMessage/delta", { ...activeParams, itemId: "answer", delta: "Generated while working" });
+  await expect(page.locator("#agent-messages .working-mascot")).toHaveCount(0);
+  const messagesBox = await page.locator("#agent-messages").boundingBox();
+  const statusBox = await workingStatus.boundingBox();
+  expect(messagesBox).not.toBeNull();
+  expect(statusBox).not.toBeNull();
+  expect(statusBox!.y).toBeGreaterThanOrEqual(messagesBox!.y + messagesBox!.height);
+  await emit(page, "turn/completed", { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}`, turn: { id: `turn-${input.taskId}`, status: "completed" } });
+  await expect(page.locator(".working-mascot")).toHaveCount(0);
+  await expect(workingStatus).toBeHidden();
+  await expect(page.locator("#agent-status")).toHaveText("Ready");
 });
 
 test("New project groups years clearly and filters the requested year", async ({ page, boot }, info) => {
@@ -110,6 +164,7 @@ test("Codex projects are explicitly selected, persist empty and new threads choo
   await expect(page.locator("#new-task")).toHaveCount(0);
   await expect(page.locator("#new-project")).toBeVisible();
   await expect(page.locator("#course-nav .project")).toHaveCount(0);
+  await expect(page.locator("#course-nav .rail-empty")).toHaveText("No projects");
   const saved = await page.evaluate((store) => localStorage.getItem(store), STORE);
   for (const cancel of ["button", "Escape"]) {
     await page.locator("#new-project").click();
@@ -1120,6 +1175,7 @@ test("completed conversation persists, stream output deduplicates and offline re
   await emit(page, "turn/completed", { ...params, turn: { id: params.turnId, status: "completed" } });
   await expect(page.locator("#agent-messages .assistant")).toHaveCount(1);
   await expect(page.locator("#agent-messages .assistant pre")).toHaveText("Final explanation");
+  await expect(page.locator("#agent-messages .assistant .agent-avatar")).toHaveCount(0);
   await expect(page.locator("#agent-messages")).toContainText("Ran fixture-command · exit 0");
   await expect(page.locator("#agent-messages")).toContainText("update: notes.md");
   await page.getByLabel("Message Codex").fill("Unsent follow-up");
@@ -1147,6 +1203,7 @@ test("rollout sync repairs matching items and keeps distinct messages with overl
     window.uit.agent.readRollout = async () => ({
       mtime: Date.now(),
       messages: [
+        { id: "prompt", turnId: "external-turn", role: "user", text: "Start externally\n\nCourse: Computer science 1\nPortal: https://courses.uit.edu.vn" },
         { id: "answer", turnId: "external-turn", role: "assistant", text: "Complete answer" },
         { id: "another-answer", turnId: "external-turn", role: "assistant", text: "OK, completed" }
       ]
@@ -1154,6 +1211,8 @@ test("rollout sync repairs matching items and keeps distinct messages with overl
     window.dispatchEvent(new Event("focus"));
   });
 
+  await expect(page.locator("#agent-messages .user")).toHaveCount(1);
+  await expect(page.locator("#agent-messages .user")).toContainText("Start externally");
   await expect(page.locator("#agent-messages .assistant")).toHaveCount(2);
   await expect(page.locator("#agent-messages .assistant").nth(0)).toContainText("Complete answer");
   await expect(page.locator("#agent-messages .assistant").nth(1)).toContainText("OK, completed");
@@ -1782,7 +1841,94 @@ test("copy buttons for user and agent messages are positioned smartly and copy t
   await page.screenshot({ path: info.outputPath("copy_buttons_dark.png") });
 });
 
-test("topbar logo, project Open in Courses, thin tool message and equal padding on New project", async ({ page, boot }, info) => {
+test("short user messages keep attached resources compact", async ({ page, boot }) => {
+  await boot({
+    storage: JSON.stringify({
+      version: 1,
+      activeId: "compact-user-message",
+      threads: [{
+        id: "compact-user-message",
+        title: "Compact user message",
+        course: courses[0],
+        draft: "",
+        resources: [],
+        prompted: true,
+        renamed: true,
+        messages: [{
+          role: "user",
+          text: "study this file",
+          resources: [{ kind: "file", id: 501, name: "Giáo trình môn học" }],
+        }],
+      }],
+    }),
+  });
+
+  await page.locator('.nav-item[data-view="agent"]').click();
+  const message = page.locator(".message.user");
+  const bubbleMessage = message.locator(".user-message-bubble");
+  const resource = message.locator(".message-resources");
+  await expect(message).toBeVisible();
+  await expect(bubbleMessage).toBeVisible();
+  await expect(resource.locator(".message-resource-type")).toHaveText("File");
+  await expect(resource.locator(".message-resource-name")).toHaveText("@Giáo trình môn học");
+
+  const bubble = await bubbleMessage.boundingBox();
+  const inner = await page.locator(".messages-inner").boundingBox();
+  const text = await message.locator("pre").boundingBox();
+  const resourceBox = await resource.boundingBox();
+  expect(bubble).not.toBeNull();
+  expect(inner).not.toBeNull();
+  expect(text).not.toBeNull();
+  expect(resourceBox).not.toBeNull();
+  expect(bubble!.width).toBeLessThan(inner!.width * 0.6);
+  expect(bubble!.x + bubble!.width).toBeCloseTo(inner!.x + inner!.width, 1);
+  expect(resourceBox!.y - (text!.y + text!.height)).toBeLessThan(18);
+
+  await message.hover();
+  const timestamp = await message.locator(".message-time").boundingBox();
+  expect(timestamp).not.toBeNull();
+  expect(timestamp!.y).toBeGreaterThanOrEqual(bubble!.y + bubble!.height);
+});
+
+test("only the final assistant message in a continuous run exposes a timestamp", async ({ page, boot }) => {
+  await boot({
+    storage: JSON.stringify({
+      version: 1,
+      activeId: "assistant-run",
+      threads: [{
+        id: "assistant-run",
+        title: "Assistant run",
+        course: courses[0],
+        draft: "",
+        resources: [],
+        prompted: true,
+        renamed: true,
+        messages: [
+          { role: "user", text: "List the course contents" },
+          { role: "assistant", text: "I found the course contents." },
+          { role: "assistant", kind: "tool", label: "Read course contents", text: "Course contents loaded.", status: "completed" },
+          { role: "assistant", text: "The course contains the requested materials." },
+        ],
+      }],
+    }),
+  });
+
+  await page.locator('.nav-item[data-view="agent"]').click();
+  const assistantMessages = page.locator(".message.message-assistant");
+  await expect(assistantMessages).toHaveCount(2);
+  const firstActions = assistantMessages.nth(0).locator(".message-actions");
+  const finalActions = assistantMessages.nth(1).locator(".message-actions");
+  await expect(firstActions).toHaveClass(/is-continuation/);
+  await expect(finalActions).not.toHaveClass(/is-continuation/);
+  await expect(firstActions.locator(".message-time")).toHaveCSS("display", "none");
+  await expect(firstActions.locator(".message-copy-btn")).toHaveCSS("display", "none");
+  await assistantMessages.nth(0).hover();
+  await expect(firstActions.locator(".message-time")).toHaveCSS("display", "none");
+  await assistantMessages.nth(1).hover();
+  await expect(finalActions.locator(".message-time")).toHaveCSS("visibility", "visible");
+});
+
+test("agent messages have no redundant role labels, project Open in Courses, thin tool message and equal padding on New project", async ({ page, boot }, info) => {
   await boot({
     storage: JSON.stringify({
       version: 1,
@@ -1804,12 +1950,12 @@ test("topbar logo, project Open in Courses, thin tool message and equal padding 
     })
   });
 
-  // 1. Topbar logo: In agent view, #page-title contains Codex SVG logo
+  // 1. Agent view uses a plain Codex title; the mascot is reserved for active work.
   await page.locator('.nav-item[data-view="agent"]').click();
   const pageTitle = page.locator("#page-title");
-  await expect(pageTitle).toHaveClass(/page-title-logo/);
-  await expect(pageTitle.locator("svg")).toBeVisible();
-  await expect(pageTitle).toHaveAttribute("aria-label", "Codex");
+  await expect(pageTitle).not.toHaveClass(/page-title-logo/);
+  await expect(pageTitle).toHaveText("Codex");
+  await expect(pageTitle.locator(".mascot-agent")).toHaveCount(0);
 
   // Switch to Courses view: #page-title displays "Courses" text
   await page.locator('.nav-item[data-view="courses"]').click();
@@ -1818,7 +1964,7 @@ test("topbar logo, project Open in Courses, thin tool message and equal padding 
 
   // Switch back to agent view
   await page.locator('.nav-item[data-view="agent"]').click();
-  await expect(pageTitle.locator("svg")).toBeVisible();
+  await expect(pageTitle).toHaveText("Codex");
 
   // 2. New project button has equal margin top and bottom
   const newProjectBtn = page.locator("#new-project");
@@ -1844,14 +1990,13 @@ test("topbar logo, project Open in Courses, thin tool message and equal padding 
   await page.locator('.nav-item[data-view="agent"]').click();
   await expect(page.locator("#view-agent")).toBeVisible();
 
-  // 4. Tool call message is thinner in width, and Codex header marks the start of agent execution
+  // 4. Tool calls remain compact without a redundant Codex header.
   const toolMsg = page.locator(".message-tool");
   await expect(toolMsg).toBeVisible();
   const toolRole = toolMsg.locator(".message-role");
-  await expect(toolRole).toBeVisible();
-  await expect(toolRole).toHaveText("Codex");
+  await expect(toolRole).toHaveCount(0);
 
-  // Assistant text message follows under the same agent execution without repeating Codex header
+  // Assistant text follows without a redundant role header.
   const assistantTextMsg = page.locator(".message.assistant.message-assistant");
   await expect(assistantTextMsg).toBeVisible();
   await expect(assistantTextMsg.locator(".message-role")).toHaveCount(0);

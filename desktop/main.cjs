@@ -80,9 +80,10 @@ async function loadService() {
   if (process.env.UIT_DISABLE_CONFIG !== "1") {
     try {
       const mcp = await import("../dist/mcp-server.js");
-      mcp.installMcpServer?.(app.isPackaged
-        ? { command: process.execPath, args: ["--uit-mcp"] }
-        : undefined);
+      mcp.installMcpServer?.({
+        command: process.execPath,
+        args: app.isPackaged ? ["--uit-mcp"] : [__filename, "--uit-mcp"]
+      });
     } catch (_) {}
   }
   const configured = process.env.UIT_DISABLE_CONFIG === "1" ? undefined : service.configuredLegacySession?.();
@@ -701,7 +702,7 @@ async function tryCompleteSso() {
   login.resolve({ authenticated: true, authMode: "sso", baseUrl, userId: identity.userId });
 }
 
-function startSsoLogin(rawBaseUrl) {
+async function startSsoLogin(rawBaseUrl) {
   const baseUrl = normalizeSiteUrl(rawBaseUrl);
   if (ssoSession) return Promise.resolve({ authenticated: true, authMode: "sso", baseUrl: ssoSession.baseUrl, userId: ssoSession.userId });
   if (pendingSsoLogin) {
@@ -709,6 +710,26 @@ function startSsoLogin(rawBaseUrl) {
     ssoWindow?.focus();
     return pendingSsoLogin.promise;
   }
+  // A failed OAuth attempt can leave an invalid Moodle/Keycloak transaction in
+  // the persistent partition. Starting from a clean transaction avoids the
+  // ERR_TOO_MANY_REDIRECTS loop seen after an interrupted sign-in.
+  const authStorage = session.fromPartition(SSO_PARTITION);
+  let clearTimer;
+  const storageClear = authStorage.clearStorageData({
+    storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"]
+  }).then(
+    () => true,
+    (error) => {
+      console.error("Could not reset the UIT SSO browser session:", error.message);
+      return false;
+    }
+  );
+  const storageReset = await Promise.race([
+    storageClear,
+    new Promise((resolve) => { clearTimer = setTimeout(() => resolve(undefined), 5000); })
+  ]);
+  clearTimeout(clearTimer);
+  if (storageReset === undefined) console.error("Timed out while resetting the UIT SSO browser session; continuing with a fresh login window.");
   ssoWindow = new BrowserWindow({
     parent: mainWindow,
     width: 980,
@@ -761,7 +782,10 @@ function startSsoLogin(rawBaseUrl) {
     if (!pendingSsoLogin) return;
     const rejectLogin = pendingSsoLogin.reject;
     pendingSsoLogin = undefined;
-    rejectLogin(error);
+    const message = String(error?.message || error);
+    rejectLogin(/ERR_TOO_MANY_REDIRECTS/i.test(message)
+      ? new Error("UIT SSO encountered a redirect loop. The SSO session was reset; please try again.")
+      : error);
     if (ssoWindow && !ssoWindow.isDestroyed()) ssoWindow.close();
   });
   return promise;

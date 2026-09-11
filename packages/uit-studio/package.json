@@ -1,0 +1,27 @@
+{
+  "name": "uit-studio",
+  "version": "1.2.1",
+  "description": "UIT Studio desktop workspace for UIT Moodle",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RyanNg1403/uit-cli.git",
+    "directory": "packages/uit-studio"
+  },
+  "bin": {
+    "uit-studio": "studio.js"
+  },
+  "files": [
+    "studio.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "electron": "41.10.3",
+    "uit-runtime": "1.2.1"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

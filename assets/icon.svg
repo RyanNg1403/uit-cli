@@ -1,17 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <defs>
-    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#24283b"/>
-      <stop offset="1" stop-color="#16161e"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="266" y1="278" x2="790" y2="752" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#5b9cf5"/>
-      <stop offset="1" stop-color="#56d6d6"/>
-    </linearGradient>
-  </defs>
-  <rect x="52" y="52" width="920" height="920" rx="220" fill="url(#background)"/>
-  <rect x="82" y="82" width="860" height="860" rx="192" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="12"/>
-  <path d="M278 310 474 506 278 702" fill="none" stroke="url(#accent)" stroke-linecap="round" stroke-linejoin="round" stroke-width="86"/>
-  <path d="M494 710h252" fill="none" stroke="#56d6d6" stroke-linecap="round" stroke-width="86"/>
-  <text x="512" y="884" fill="#ffffff" fill-opacity="0.86" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="108" font-weight="700" letter-spacing="18" text-anchor="middle">UIT</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 128 128" shape-rendering="crispEdges">
+  <title>UIT Mascot Đậu Đậu</title>
+  <desc>Pixel-art panda mascot wearing a blue UIT shirt.</desc>
+  <g fill="#111111">
+    <rect x="20" y="12" width="18" height="18"/><rect x="90" y="12" width="18" height="18"/>
+    <rect x="16" y="18" width="14" height="14"/><rect x="98" y="18" width="14" height="14"/>
+  </g>
+  <g fill="#2A2A2A"><rect x="23" y="15" width="10" height="10"/><rect x="95" y="15" width="10" height="10"/></g>
+  <g fill="#111111">
+    <rect x="32" y="10" width="64" height="4"/><rect x="26" y="14" width="76" height="6"/>
+    <rect x="22" y="20" width="84" height="10"/><rect x="18" y="30" width="92" height="32"/>
+    <rect x="22" y="62" width="84" height="10"/><rect x="28" y="72" width="72" height="6"/>
+    <rect x="36" y="78" width="56" height="4"/>
+  </g>
+  <g fill="#F8F8F3">
+    <rect x="34" y="14" width="60" height="4"/><rect x="28" y="18" width="72" height="6"/>
+    <rect x="24" y="24" width="80" height="8"/><rect x="22" y="32" width="84" height="26"/>
+    <rect x="24" y="58" width="80" height="8"/><rect x="30" y="66" width="68" height="6"/>
+    <rect x="38" y="72" width="52" height="4"/>
+  </g>
+  <g fill="#161616">
+    <rect x="30" y="30" width="24" height="20"/><rect x="34" y="26" width="16" height="28"/>
+    <rect x="74" y="30" width="24" height="20"/><rect x="78" y="26" width="16" height="28"/>
+  </g>
+  <g fill="#FDFDFD"><rect x="38" y="34" width="8" height="10"/><rect x="82" y="34" width="8" height="10"/></g>
+  <g fill="#1B4F72"><rect x="40" y="36" width="6" height="8"/><rect x="82" y="36" width="6" height="8"/></g>
+  <g fill="#111111"><rect x="42" y="38" width="4" height="6"/><rect x="82" y="38" width="4" height="6"/></g>
+  <g fill="#FFFFFF"><rect x="42" y="36" width="2" height="2"/><rect x="84" y="36" width="2" height="2"/></g>
+  <g fill="#F4B8B8"><rect x="28" y="52" width="8" height="3"/><rect x="92" y="52" width="8" height="3"/></g>
+  <g fill="#E9E9E4"><rect x="48" y="46" width="32" height="18"/><rect x="44" y="50" width="40" height="10"/></g>
+  <g fill="#111111"><rect x="58" y="48" width="12" height="6"/><rect x="61" y="54" width="6" height="3"/></g>
+  <g fill="#111111">
+    <rect x="62" y="57" width="4" height="4"/><rect x="54" y="61" width="8" height="2"/>
+    <rect x="66" y="61" width="8" height="2"/><rect x="58" y="63" width="4" height="2"/>
+    <rect x="66" y="63" width="4" height="2"/>
+  </g>
+  <g fill="#111111"><rect x="34" y="78" width="60" height="6"/><rect x="28" y="84" width="72" height="8"/></g>
+  <g fill="#111111">
+    <rect x="18" y="86" width="18" height="28"/><rect x="92" y="86" width="18" height="28"/>
+    <rect x="14" y="94" width="12" height="18"/><rect x="102" y="94" width="12" height="18"/>
+  </g>
+  <g fill="#1E63D8">
+    <rect x="34" y="80" width="60" height="6"/><rect x="30" y="86" width="68" height="28"/>
+    <rect x="34" y="114" width="60" height="4"/>
+  </g>
+  <g fill="#2D79F3"><rect x="38" y="84" width="52" height="4"/></g>
+  <g fill="#F8F8F3">
+    <rect x="54" y="80" width="20" height="4"/><rect x="58" y="84" width="12" height="4"/>
+    <rect x="62" y="88" width="4" height="3"/>
+  </g>
+  <g fill="#FFFFFF">
+    <rect x="44" y="96" width="3" height="12"/><rect x="53" y="96" width="3" height="12"/>
+    <rect x="47" y="105" width="6" height="3"/><rect x="62" y="96" width="3" height="12"/>
+    <rect x="71" y="96" width="14" height="3"/><rect x="76" y="99" width="4" height="9"/>
+  </g>
+  <g fill="#111111">
+    <rect x="30" y="118" width="26" height="6"/><rect x="72" y="118" width="26" height="6"/>
+    <rect x="34" y="124" width="20" height="3"/><rect x="74" y="124" width="20" height="3"/>
+  </g>
+  <g fill="#1E63D8"><rect x="38" y="121" width="14" height="3"/><rect x="76" y="121" width="14" height="3"/></g>
 </svg>

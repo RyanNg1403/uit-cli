@@ -12,4 +12,7 @@ coverage/
 test-results/
 playwright-report/
 release/
+release-assets/
+packages/uit-runtime/dist/
+packages/uit-runtime/desktop/
 .opencode/

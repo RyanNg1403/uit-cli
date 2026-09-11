@@ -14,15 +14,28 @@ Fast, scriptable terminal client for browsing courses, checking assignments, dow
 
 ### Installation
 
-`npm` installs the CLI and MCP server only; UIT Studio is distributed separately.
+On macOS, install the standalone CLI and MCP server without Node.js:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
+```
+
+Alternatively, install from npm:
 
 ```bash
 npm install -g uit-cli
 ```
 
+The CLI package does not install the desktop app or a bundled Chromium browser. SSO opens an installed Google Chrome window; the CLI captures the session in its own controlled browser context. If you also want UIT Studio, install its separate npm package:
+
+```bash
+npm install -g uit-studio
+uit-studio
+```
+
 UIT CLI supports Node.js 20.19 or later.
 
-On macOS and Linux, the free installer is also available. It uses npm internally, so Node.js 20.19 or later is still required:
+On Linux, the curl installer uses npm and therefore also requires Node.js 20.19 or later:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
@@ -73,9 +86,9 @@ The native desktop workspace combining Moodle course management with an intellig
 
 ### Installation & Launch
 
-UIT Studio is currently distributed for macOS on Apple Silicon and Intel Macs. The downloadable builds are unsigned to keep distribution free, so macOS may block the first launch. If it does, open **System Settings → Privacy & Security** and choose **Open Anyway** for UIT Studio.
+UIT Studio is currently distributed for Apple Silicon Macs (arm64) only. The downloadable builds are unsigned to keep distribution free, so macOS may block the first launch. If it does, open **System Settings → Privacy & Security** and choose **Open Anyway** for UIT Studio.
 
-Install UIT Studio into `~/Applications`:
+Install UIT Studio into `~/Applications` from the macOS release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
@@ -88,6 +101,13 @@ curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/ins
 ```
 
 The installer detects the Mac architecture and verifies the release archive's SHA-256 checksum. You can also download the unsigned DMG directly from the [latest GitHub release](https://github.com/RyanNg1403/uit-cli/releases/latest).
+
+For an npm-managed installation, use the dedicated Studio package instead:
+
+```bash
+npm install -g uit-studio
+uit-studio
+```
 
 To launch from source instead, install Node.js 20.19 or later and run:
 

@@ -1,6 +1,6 @@
 {
   "name": "uit-cli",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "CLI for courses.uit.edu.vn (Moodle)",
   "license": "MIT",
   "productName": "UIT Studio",
@@ -25,6 +25,8 @@
     "desktop:package": "npm run desktop:build && electron-builder --mac zip dmg --publish never",
     "desktop:check": "npm run desktop:build && node --check desktop/main.cjs && node --check desktop/preload.cjs && node --check desktop/renderer/renderer.js && node --check desktop/renderer/appearance.js",
     "installer:check": "sh -n scripts/install.sh && scripts/install.sh --help >/dev/null",
+    "runtime:prepare": "node scripts/prepare-runtime-package.mjs",
+    "standalone:package": "npm run build && scripts/package-standalone.sh macos $(node -p 'process.arch')",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:desktop": "npm run desktop:build && playwright test desktop-ui pdf-preview sidebar",
@@ -33,7 +35,7 @@
     "package:check": "npm run build && node scripts/check-package.mjs",
     "typecheck": "tsc --noEmit",
     "prepack": "npm run build",
-    "postinstall": "playwright install chromium"
+    "studio:check": "npm run build && npm run runtime:prepare && node scripts/check-studio-package.mjs"
   },
   "engines": {
     "node": ">=20.19.0"

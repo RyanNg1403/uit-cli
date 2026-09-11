@@ -8,14 +8,15 @@ export async function defaultSsoLauncher(baseUrl: string): Promise<SsoSessionDat
   let browser;
   try {
     browser = await chromium.launch({
+      channel: "chrome",
       headless: false,
       args: ["--window-size=980,760"]
     });
   } catch (error) {
     throw new CliError(
-      `Failed to launch interactive browser for SSO login: ${(error as Error).message}\n` +
-      `If you are on a headless or remote server, run UIT Studio on your desktop, ` +
-      `or use 'uit login --token <token>'.`
+      `Could not open Google Chrome for SSO login: ${(error as Error).message}\n` +
+      `Install Google Chrome, run UIT Studio on your desktop, or use ` +
+      `'uit login --token <token>'.`
     );
   }
 

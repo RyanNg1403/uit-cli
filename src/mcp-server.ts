@@ -250,6 +250,11 @@ export function runMcpServer(): void {
     process.stdout.write(`${JSON.stringify(message)}\n`);
   };
 
+  // A pipe-based smoke test and a real MCP host both signal shutdown by
+  // closing stdin. Do not keep the closed input stream referenced after the
+  // last response has flushed; active requests still keep their own handles.
+  rl.on("close", () => process.stdin.unref());
+
   rl.on("line", async (line) => {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -481,7 +486,12 @@ export function writeFileAtomically(path: string, content: string, mode = 0o600)
 
 export function installMcpServer(options: { command?: string; args?: string[] } = {}): void {
   const configPath = join(homedir(), ".codex", "config.toml");
-  const binPath = options.command ? undefined : ensureLocalBinWrapper();
+  const standalonePath = process.env.UIT_CLI_EXECUTABLE;
+  const binPath = options.command
+    ? undefined
+    : standalonePath && existsSync(standalonePath)
+      ? standalonePath
+      : ensureLocalBinWrapper();
   const command = options.command || (binPath && existsSync(binPath) ? binPath : "uit");
   const args = options.args || ["mcp"];
   const configured = (existing: string) => upsertMcpConfig(existing, command, args);

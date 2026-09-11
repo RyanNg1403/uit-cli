@@ -294,6 +294,20 @@ describe("main IPC trust and routing", () => {
     expect(h.fs.writeFile).not.toHaveBeenCalled();
   });
 
+  it("resets the persistent SSO transaction before opening a new login window", async () => {
+    const h = await harness();
+    const login = h.invoke("session:sso-login", { baseUrl: CURRENT });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const auth = h.partitions.get("persist:uit-sso");
+    expect(auth.clearStorageData).toHaveBeenCalledWith({
+      storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"]
+    });
+    expect(h.windows).toHaveLength(2);
+    h.windows[1].close();
+    await expect(login).rejects.toThrow("window was closed");
+  });
+
   it("persists legacy session on login and removes on logout when config is enabled", async () => {
     const h = await harness();
     h.context.process.env.UIT_DISABLE_CONFIG = "0";

@@ -10,15 +10,30 @@ afterEach(async () => {
 });
 
 describe("curl installer", () => {
+  it("rejects Intel Macs instead of requesting an unavailable release", async () => {
+    const directory = await mkdtemp(`${tmpdir()}/uit-intel-installer-test-`);
+    directories.push(directory);
+    const uname = `${directory}/uname`;
+    await writeFile(uname, '#!/bin/sh\n[ "$1" = "-s" ] && printf "Darwin\\n" || printf "x86_64\\n"\n');
+    await chmod(uname, 0o755);
+
+    await expect(promisify(execFile)("sh", ["scripts/install.sh", "--cli"], {
+      cwd: process.cwd(),
+      env: { ...process.env, PATH: `${directory}:/usr/bin:/bin` }
+    })).rejects.toThrow("unsupported Mac architecture: x86_64");
+  });
+
   it("passes a requested release version to npm CLI installation", async () => {
     const directory = await mkdtemp(`${tmpdir()}/uit-installer-test-`);
     directories.push(directory);
     const record = `${directory}/npm-args`;
     const node = `${directory}/node`;
     const npm = `${directory}/npm`;
+    const uname = `${directory}/uname`;
     await writeFile(node, "#!/bin/sh\nexit 0\n");
     await writeFile(npm, '#!/bin/sh\nprintf "%s\\n" "$@" > "$UIT_TEST_RECORD"\n');
-    await Promise.all([chmod(node, 0o755), chmod(npm, 0o755)]);
+    await writeFile(uname, '#!/bin/sh\n[ "$1" = "-s" ] && printf "Linux\\n" || printf "x86_64\\n"\n');
+    await Promise.all([chmod(node, 0o755), chmod(npm, 0o755), chmod(uname, 0o755)]);
 
     await promisify(execFile)("sh", ["scripts/install.sh", "--cli"], {
       cwd: process.cwd(),
