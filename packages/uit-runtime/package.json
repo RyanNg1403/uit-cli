@@ -4,6 +4,11 @@
   "description": "Shared Playwright-free runtime for UIT CLI and UIT Studio",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RyanNg1403/uit-cli.git",
+    "directory": "packages/uit-runtime"
+  },
   "main": "desktop/main.cjs",
   "files": [
     "dist",
