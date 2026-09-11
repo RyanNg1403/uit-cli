@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning. For new releases, update the version with `npm version patch`, `npm version minor`, or `npm version major`, then push the generated tag.
 
+## [1.2.2] - 2026-09-11
+
+### Fixed
+
+- Restored the legacy Student ID/password login flow as `uit login --legacy`.
+- Routed token-based CLI login and the backwards-compatible `uit init` command to the legacy UIT Moodle portal instead of the SSO-only current portal.
+- Clarified SSO, legacy login, and token guidance in the CLI help and documentation.
+
 ## [1.2.0] - 2026-09-09
 
 ### Added

@@ -586,7 +586,7 @@ export class NodeSessionApiClient implements ApiClient {
   }
 
   async uploadFile(_filepath: string): Promise<MoodleRecord> {
-    throw new Error("File uploads are not supported through SSO session yet. Please use 'uit login --token <token>' with a Moodle API token.");
+    throw new Error("File uploads are not supported through SSO session yet. Please use 'uit login --legacy' with your Student ID/password or an existing Moodle API token.");
   }
 
   async readFile(fileUrl: string): Promise<{ data: Uint8Array; mimeType: string }> {

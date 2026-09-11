@@ -52,6 +52,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   stdoutSpy.mockRestore();
   stderrSpy.mockRestore();
   process.chdir(originalCwd);
@@ -204,6 +205,79 @@ describe("SSO CLI workflow and session resolution", () => {
     const saved = JSON.parse(readFileSync(join(tempDir, ".uit", "sessions.json"), "utf8"));
     expect(saved.sso.userId).toBe(2026);
     expect(saved.sso.sesskey).toBe("sso-sess-key");
+  });
+
+  it("uses SSO when uit login has no authentication flag", async () => {
+    const mockLauncher = vi.fn(async (baseUrl: string) => ({
+      baseUrl,
+      userId: 2027,
+      sesskey: "default-sso-sess-key",
+      cookies: [{ name: "MoodleSession", value: "default-sso-cookie" }]
+    }));
+
+    const program = createProgram(mockApi({}), { ssoLauncher: mockLauncher });
+    await program.parseAsync(["node", "uit", "--json", "login"]);
+
+    expect(mockLauncher).toHaveBeenCalledWith("https://courses.uit.edu.vn");
+    expect(JSON.parse(stdout)).toMatchObject({ status: "ok", auth: "sso", user_id: 2027 });
+  });
+
+  it("restores uit login --legacy and persists the token from Student ID/password", async () => {
+    const mockLauncher = vi.fn(async () => {
+      throw new Error("SSO must not run for legacy login");
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://coursesold.uit.edu.vn/login/token.php") {
+        expect(init?.method).toBe("POST");
+        expect((init?.body as URLSearchParams).get("username")).toBe("2026");
+        expect((init?.body as URLSearchParams).get("password")).toBe("legacy-password");
+        return Response.json({ token: "legacy-token-2026" });
+      }
+
+      const parsed = new URL(url);
+      expect(parsed.origin).toBe("https://coursesold.uit.edu.vn");
+      expect(parsed.pathname).toBe("/webservice/rest/server.php");
+      expect(parsed.searchParams.get("wstoken")).toBe("legacy-token-2026");
+      return Response.json({ userid: 2026, fullname: "Legacy Student", sitename: "Legacy Moodle" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const program = createProgram(mockApi({}), { ssoLauncher: mockLauncher });
+    await program.parseAsync([
+      "node",
+      "uit",
+      "--json",
+      "login",
+      "--legacy",
+      "--username",
+      "2026",
+      "--password",
+      "legacy-password"
+    ]);
+
+    expect(mockLauncher).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(stdout)).toEqual({
+      status: "ok",
+      user: "Legacy Student",
+      user_id: 2026,
+      site: "Legacy Moodle"
+    });
+    expect(JSON.parse(readFileSync(join(tempDir, ".uit", "sessions.json"), "utf8"))).toMatchObject({
+      legacy: [{ baseUrl: "https://coursesold.uit.edu.vn", userId: 2026, token: "legacy-token-2026" }],
+      active: { authType: "token", baseUrl: "https://coursesold.uit.edu.vn" }
+    });
+  });
+
+  it("rejects contradictory SSO and legacy login flags", async () => {
+    const launcher = vi.fn();
+    const program = createProgram(mockApi({}), { ssoLauncher: launcher });
+
+    await expect(program.parseAsync(["node", "uit", "login", "--sso", "--legacy"])).rejects.toThrow(
+      "Choose one login method: --sso or --legacy."
+    );
+    expect(launcher).not.toHaveBeenCalled();
   });
 
   it("triggers SSO login when running uit init --sso", async () => {

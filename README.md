@@ -32,17 +32,23 @@ npm link
 
 ### Login
 
-`uit login` supports both **UIT SSO** and **Moodle API tokens**:
+`uit login` uses **UIT SSO** by default. The legacy flow still supports the v1.0/v1.1 Student ID/password login and stores only the returned Moodle token:
 
 ```bash
-# Recommended: Sign in via UIT SSO in browser (default)
+# UIT SSO (default; opens a browser window)
 uit login
 
-# Or sign in via Moodle API token
+# Explicit SSO flag
+uit login --sso
+
+# Legacy Moodle: prompts for Student ID and password, then stores the token
+uit login --legacy
+
+# Legacy Moodle with an existing token
 uit login --token <your_token>
 ```
 
-*Tip: If you already signed in via **UIT Studio**, your SSO session is automatically shared with the CLI.*
+`uit init` remains a backwards-compatible alias for the legacy Student ID/password flow. If you already signed in via **UIT Studio**, your SSO session is automatically shared with the CLI.
 
 ### Basic Usage
 
