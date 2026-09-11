@@ -34,9 +34,6 @@ uit login --sso
 
 # Legacy Moodle: prompts for Student ID and password, then stores the token
 uit login --legacy
-
-# Legacy Moodle with an existing token
-uit login --token <your_token>
 ```
 
 `uit init` remains a backwards-compatible alias for the legacy Student ID/password flow. If you already signed in via **UIT Studio**, your SSO session is automatically shared with the CLI.
