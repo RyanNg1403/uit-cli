@@ -21,15 +21,6 @@ Install both npm packages together with `npm install -g uit-cli uit-studio`, or 
 
 Fast, scriptable terminal client for browsing courses, checking assignments, downloading materials, and tracking grades.
 
-To work from source instead:
-
-```bash
-git clone https://github.com/RyanNg1403/uit-cli.git
-cd uit-cli
-npm ci
-npm link
-```
-
 ### Login
 
 `uit login` uses **UIT SSO** by default. The legacy flow still supports the v1.0/v1.1 Student ID/password login and stores only the returned Moodle token:
@@ -50,16 +41,6 @@ uit login --token <your_token>
 
 `uit init` remains a backwards-compatible alias for the legacy Student ID/password flow. If you already signed in via **UIT Studio**, your SSO session is automatically shared with the CLI.
 
-### Basic Usage
-
-| Command | Description |
-| :--- | :--- |
-| `uit courses` | List enrolled courses with course IDs |
-| `uit contents <course_id>` | Browse sections, lecture slides, and files |
-| `uit deadlines` | View assignment deadlines and submission status |
-| `uit grades <course_id>` | Check grades, weights, and teacher feedback |
-| `uit download <course_id>` | Download course materials and lecture slides |
-
 <p align="center">
   <img src="assets/demo.gif" alt="UIT CLI Demo" width="860">
 </p>
@@ -77,15 +58,6 @@ The npm package launches with `uit-studio`. The curl installer places the unsign
 ```bash
 npm install -g uit-studio
 uit-studio
-```
-
-To launch from source instead, install Node.js 20.19 or later and run:
-
-```bash
-git clone https://github.com/RyanNg1403/uit-cli.git
-cd uit-cli
-npm ci
-npm run desktop
 ```
 
 ### Login
