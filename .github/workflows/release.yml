@@ -243,7 +243,7 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release-assets/* --clobber;
           else
-            gh release create "$RELEASE_TAG" release-assets/*
-            --generate-notes --verify-tag
-            --notes "UIT Studio for macOS is distributed unsigned. macOS may require users to approve its first launch with Open Anyway in System Settings > Privacy & Security."
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --generate-notes --verify-tag \
+              --notes "UIT Studio for macOS is distributed unsigned. macOS may require users to approve its first launch with Open Anyway in System Settings > Privacy & Security."
           fi
