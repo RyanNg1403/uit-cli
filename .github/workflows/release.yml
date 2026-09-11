@@ -11,14 +11,8 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS (${{ matrix.arch }})
+    name: Build macOS (Apple Silicon)
     runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - arm64
-          - x64
 
     steps:
       - name: Checkout
@@ -31,27 +25,21 @@ jobs:
           cache: npm
 
       - name: Verify tag matches package version
-        run: node -e "const { version } = require('./package.json'); if (process.env.GITHUB_REF_NAME !== 'v' + version) { throw new Error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package version v' + version); }"
+        run: node -e "const root = require('./package.json'); const runtime = require('./packages/uit-runtime/package.json'); const studio = require('./packages/uit-studio/package.json'); if (![runtime.version, studio.version].every((version) => version === root.version)) throw new Error('CLI, runtime, and Studio versions must match'); if (process.env.GITHUB_REF_NAME !== 'v' + root.version) throw new Error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package version v' + root.version);"
 
       - name: Install dependencies
         run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
       - name: Build unsigned macOS distributables
-        run: npm run desktop:package -- --${{ matrix.arch }}
+        run: npm run desktop:package -- --arm64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Verify packaged MCP on native architecture
         run: |
-          native_arch="$(uname -m)"
-          if { [ "$native_arch" = "arm64" ] && [ "${{ matrix.arch }}" != "arm64" ]; } || \
-             { [ "$native_arch" = "x86_64" ] && [ "${{ matrix.arch }}" != "x64" ]; }; then
-            echo "Skipping execution of the cross-architecture package."
-            exit 0
-          fi
-          app_directory="mac"
-          if [ "${{ matrix.arch }}" = "arm64" ]; then app_directory="mac-arm64"; fi
-          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "release/${app_directory}/UIT Studio.app/Contents/MacOS/UIT Studio" --uit-mcp)"
+          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "release/mac-arm64/UIT Studio.app/Contents/MacOS/UIT Studio" --uit-mcp)"
           printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
           printf '%s\n' "$response" | grep -F "\"version\":\"${GITHUB_REF_NAME#v}\""
 
@@ -59,21 +47,85 @@ jobs:
         run: |
           mkdir -p release-assets
           for extension in zip dmg; do
-            asset="UIT-Studio-macos-${{ matrix.arch }}.${extension}"
+            asset="UIT-Studio-macos-arm64.${extension}"
             test -f "release/${asset}"
             cp "release/${asset}" "release-assets/${asset}"
             (cd release-assets && shasum -a 256 "${asset}" > "${asset}.sha256")
           done
 
+      - name: Build standalone CLI
+        run: scripts/package-standalone.sh macos arm64 release-assets
+
+      - name: Smoke-test standalone CLI installer
+        run: |
+          install_home="$(mktemp -d)"
+          trap 'rm -rf "$install_home"' EXIT
+          HOME="$install_home" \
+            UIT_INSTALL_BASE_URL="file://$PWD/release-assets" \
+            scripts/install.sh --cli
+          "$install_home/.local/bin/uit" --help >/dev/null
+          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$install_home/.local/bin/uit" mcp)"
+          printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
+
       - name: Upload release assets
         uses: actions/upload-artifact@v6
         with:
-          name: uit-studio-macos-${{ matrix.arch }}
+          name: uit-macos-arm64
+          path: release-assets/*
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - name: Build standalone CLI
+        run: |
+          npm run build
+          scripts/package-standalone.sh linux "${{ matrix.arch }}" release-assets
+
+      - name: Smoke-test standalone CLI installer
+        run: |
+          install_home="$(mktemp -d)"
+          trap 'rm -rf "$install_home"' EXIT
+          HOME="$install_home" \
+            UIT_INSTALL_BASE_URL="file://$PWD/release-assets" \
+            scripts/install.sh --cli
+          "$install_home/.local/bin/uit" --help >/dev/null
+          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$install_home/.local/bin/uit" mcp)"
+          printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v6
+        with:
+          name: uit-linux-${{ matrix.arch }}
           path: release-assets/*
           if-no-files-found: error
 
   publish:
-    needs: build-macos
+    needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
 
     steps:
@@ -119,10 +171,13 @@ jobs:
       - name: Verify npm package
         run: npm run package:check
 
-      - name: Download macOS release assets
+      - name: Verify Studio npm package
+        run: npm run studio:check
+
+      - name: Download release assets
         uses: actions/download-artifact@v7
         with:
-          pattern: uit-studio-macos-*
+          pattern: uit-*
           path: release-assets
           merge-multiple: true
 
@@ -133,6 +188,16 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish UIT runtime to npm
+        run: npm publish ./packages/uit-runtime --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish UIT Studio to npm
+        run: npm publish ./packages/uit-studio --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

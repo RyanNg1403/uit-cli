@@ -54,17 +54,13 @@ function chevron() {
   svg.append(path);
   return svg;
 }
-function codexLogo() {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "currentColor");
-  svg.setAttribute("fill-rule", "evenodd");
-  svg.setAttribute("aria-hidden", "true");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("clip-rule", "evenodd");
-  path.setAttribute("d", "M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z");
-  svg.append(path);
-  return svg;
+function mascotFrame(className, label = "") {
+  const frame = node("span", className);
+  if (label) {
+    frame.setAttribute("role", "img");
+    frame.setAttribute("aria-label", label);
+  } else frame.setAttribute("aria-hidden", "true");
+  return frame;
 }
 function formatMessageTimestamp(timestamp) {
   if (!timestamp) return "";
@@ -169,6 +165,21 @@ function safeResource(resource) {
   }
   return { kind: resource.referenceKind || resource.kind, id: resource.id, moduleId: resource.moduleId, fileUrl, name: resource.name };
 }
+function resourceKindLabel(kind) {
+  return ({ file: "File", module: "Module", assignment: "Assignment", announcement: "Announcement" })[kind] || "Course resource";
+}
+function messageResources(resources) {
+  const group = node("div", "message-resources");
+  group.setAttribute("aria-label", "Attached course resources");
+  for (const resource of resources) {
+    const kind = String(resource.kind || "resource").toLowerCase();
+    const chip = node("span", "message-resource");
+    chip.dataset.resourceKind = kind;
+    chip.append(node("span", "message-resource-type", resourceKindLabel(kind)), node("span", "message-resource-name", `@${resource.name}`));
+    group.append(chip);
+  }
+  return group;
+}
 function courseSnapshot(course) {
   return { id: course.id, baseUrl: course.baseUrl, userId: course.userId, shortname: course.shortname, fullname: course.fullname, semester: semesterOf(course), siteLabel: siteLabel(course) };
 }
@@ -236,10 +247,10 @@ function showView(view) {
   for (const name of ["courses", "course", "agent"]) $("#view-" + name).hidden = name !== view;
   const pageTitle = $("#page-title");
   if (view === "agent") {
-    pageTitle.replaceChildren(codexLogo());
-    pageTitle.setAttribute("aria-label", "Codex");
-    pageTitle.setAttribute("title", "Codex");
-    pageTitle.classList.add("page-title-logo");
+    pageTitle.textContent = "Codex";
+    pageTitle.removeAttribute("aria-label");
+    pageTitle.removeAttribute("title");
+    pageTitle.classList.remove("page-title-logo");
   } else {
     pageTitle.textContent = "Courses";
     pageTitle.removeAttribute("aria-label");
@@ -295,7 +306,7 @@ function renderRail() {
       nav.append(group);
     }
   }
-  if (!nav.childElementCount) nav.append(node("p", "muted", state.sessions.length ? agent ? "No projects" : "No courses" : "Not connected"));
+  if (!nav.childElementCount) nav.append(node("p", "muted rail-empty", state.sessions.length ? agent ? "No projects" : "No courses" : "Not connected"));
 }
 let railMenu = null;
 function closeRailMenu() {
@@ -555,9 +566,7 @@ function renderCourseList() {
   list.replaceChildren();
   if (!state.sessions.length) {
     const empty = node("div", "empty course-onboarding");
-    const mascot = node("img", "course-onboarding-mascot");
-    mascot.src = "./assets/uit-dau-dau.svg";
-    mascot.alt = "Đậu Đậu, the UIT panda mascot";
+    const mascot = mascotFrame("course-onboarding-mascot mascot-onboarding", "Đậu Đậu, the UIT panda mascot");
     empty.append(
       mascot,
       node("h2", "", "Welcome to UIT Studio"),
@@ -1457,6 +1466,20 @@ async function checkThreadLock(thread = activeThread()) {
     $("#view-agent")?.classList.remove("thread-locked");
   }
 }
+function rolloutMessageMatch(messages, rolloutMessage) {
+  const byId = rolloutMessage.id
+    ? messages.find((message) => message.itemId === rolloutMessage.id || message.rolloutId === rolloutMessage.id)
+    : null;
+  if (byId) return byId;
+  return messages.find((message) => {
+    if (message.role !== rolloutMessage.role) return false;
+    if (message.text === rolloutMessage.text) return true;
+    return rolloutMessage.role === "user" && rolloutMessage.text.startsWith(`${message.text}\n\nCourse:`);
+  }) || null;
+}
+function isStudioContextMessage(existing, rolloutMessage) {
+  return rolloutMessage.role === "user" && rolloutMessage.text.startsWith(`${existing.text}\n\nCourse:`);
+}
 async function syncThreadRollout(thread = activeThread()) {
   if (!thread?.threadId) return;
   const currentId = thread.id;
@@ -1471,11 +1494,9 @@ async function syncThreadRollout(thread = activeThread()) {
       let updated = false;
       for (const rm of result.messages) {
         if (!rm.text) continue;
-        const existing = rm.id
-          ? thread.messages.find((m) => m.itemId === rm.id || m.rolloutId === rm.id)
-          : thread.messages.find((m) => m.role === rm.role && m.text === rm.text);
+        const existing = rolloutMessageMatch(thread.messages, rm);
         if (existing) {
-          if (existing.text !== rm.text || existing.status !== "completed") {
+          if (!isStudioContextMessage(existing, rm) && (existing.text !== rm.text || existing.status !== "completed")) {
             existing.text = rm.text;
             existing.status = "completed";
             updated = true;
@@ -1833,6 +1854,34 @@ function updateJumpToLatest(thread = activeThread()) {
   const box = $("#agent-messages");
   control.hidden = !thread || timelineState(thread).following || box.scrollHeight <= box.clientHeight;
 }
+function isFinalAgentMessage(thread, message) {
+  if (!thread || message.role !== "assistant") return true;
+  const index = thread.messages.indexOf(message);
+  for (let i = index + 1; i < thread.messages.length; i++) {
+    const next = thread.messages[i];
+    if (next.kind === "reasoning" || next.label === "Thought process" || next.kind === "turn-state") continue;
+    return next.role === "user";
+  }
+  return true;
+}
+function renderAgentTurnStatus(thread) {
+  const target = $("#agent-turn-status");
+  if (!target) return;
+  target.replaceChildren();
+  const entry = thread?.messages.find((message) => message.kind === "turn-state" && message.status === "working");
+  if (!entry || !(thread.busy || thread.pending)) {
+    target.hidden = true;
+    target.setAttribute("aria-hidden", "true");
+    return;
+  }
+  const status = node("div", "message-turn-state is-working");
+  const copy = node("div", "turn-state-copy");
+  copy.append(node("strong", "turn-state-label", "Codex is working"));
+  status.append(mascotFrame("working-mascot", "Codex is working"), copy);
+  target.append(status);
+  target.hidden = false;
+  target.setAttribute("aria-hidden", "false");
+}
 function toolFriendlyWorking(tool, args) {
   if (tool === "uit_list_course_contents") return "Listing course contents...";
   if (tool === "uit_read_resource") return `Reading course resource${args?.name ? `: ${args.name}` : ""}...`;
@@ -1947,22 +1996,10 @@ function createMessageCopyButton(getText) {
   return btn;
 }
 
-function isAgentExecutionStart(thread, message) {
-  if (!thread || message.role === "user" || message.kind === "turn-state") return false;
-  const list = thread.messages;
-  const index = list.indexOf(message);
-  if (index <= 0) return true;
-  for (let i = index - 1; i >= 0; i--) {
-    const prev = list[i];
-    if (prev.kind === "reasoning" || prev.label === "Thought process" || prev.kind === "turn-state") continue;
-    return prev.role === "user";
-  }
-  return true;
-}
-
 function renderMessages(changes = null) {
   const thread = activeThread();
   const box = $("#agent-messages");
+  renderAgentTurnStatus(thread);
   const sameThread = box.dataset.threadId === (thread?.id || "");
   const scroll = timelineState(thread);
   if (!sameThread) scroll.following = true;
@@ -1984,7 +2021,7 @@ function renderMessages(changes = null) {
   }
   if (!inner) { inner = node("div", "messages-inner"); box.append(inner); }
   for (const message of changes || thread.messages) {
-    if (message.kind === "reasoning" || message.label === "Thought process") continue;
+    if (message.kind === "reasoning" || message.label === "Thought process" || message.kind === "turn-state" && message.status === "working") continue;
     const kind = message.kind || (message.role === "event" ? "tool" : message.role);
     const isToolLike = kind === "tool" || kind === "file-change";
     const status = message.status || (isToolLike ? (/failed|error/i.test(message.label || "") ? "failed" : "completed") : undefined);
@@ -2001,6 +2038,30 @@ function renderMessages(changes = null) {
           if (status === "failed") cached.outputPre.classList.add("is-failed");
           else cached.outputPre.classList.remove("is-failed");
         }
+      } else if (kind === "turn-state") {
+        const working = status === "working" && thread?.busy;
+        if (cached.label) cached.label.textContent = message.label || message.text;
+        if (message.text && message.text !== message.label) {
+          if (!cached.detail) {
+            cached.detail = node("p", "turn-state-detail");
+            cached.copy.append(cached.detail);
+          }
+          cached.detail.textContent = message.text;
+        } else if (cached.detail) {
+          cached.detail.remove();
+          cached.detail = null;
+        }
+        if (working && !cached.workingMascot) {
+          const mascot = mascotFrame("working-mascot", "Codex is working");
+          cached.item.replaceChild(mascot, cached.stateMarker);
+          cached.workingMascot = mascot;
+          cached.stateMarker = null;
+        } else if (!working && cached.workingMascot) {
+          const marker = node("span", "state-marker");
+          cached.item.replaceChild(marker, cached.workingMascot);
+          cached.stateMarker = marker;
+          cached.workingMascot = null;
+        }
       } else if (message.role === "assistant") {
         if (!message.streaming) appendRichText(cached.content, message.text);
         else {
@@ -2013,6 +2074,7 @@ function renderMessages(changes = null) {
         }
         if (cached.actions) {
           cached.actions.hidden = Boolean(message.streaming) || !message.text;
+          cached.actions.classList.toggle("is-continuation", !isFinalAgentMessage(thread, message));
         }
       } else if (cached.content) {
         cached.content.textContent = message.text;
@@ -2025,9 +2087,6 @@ function renderMessages(changes = null) {
     if (status) item.dataset.status = status;
 
     if (isToolLike) {
-      if (isAgentExecutionStart(thread, message)) {
-        item.append(node("p", "message-role", "Codex"));
-      }
       const details = node("details", "tool-call");
       if (status === "working") details.open = true;
       const summary = node("summary");
@@ -2087,11 +2146,15 @@ function renderMessages(changes = null) {
       item.append(details);
       messageNodes.set(message, { item, summaryText, inputPre, outputPre });
     } else if (kind === "turn-state") {
+      const working = status === "working" && thread?.busy;
+      const workingMascot = working ? mascotFrame("working-mascot", "Codex is working") : null;
       const copy = node("div", "turn-state-copy");
-      copy.append(node("strong", "turn-state-label", message.label || message.text));
-      if (message.text && message.text !== message.label) copy.append(node("p", "turn-state-detail", message.text));
-      item.append(node("span", "state-marker"), copy);
-      messageNodes.set(message, { item });
+      const label = node("strong", "turn-state-label", message.label || message.text);
+      const detail = message.text && message.text !== message.label ? node("p", "turn-state-detail", message.text) : null;
+      copy.append(label);
+      if (detail) copy.append(detail);
+      item.append(workingMascot || node("span", "state-marker"), copy);
+      messageNodes.set(message, { item, copy, workingMascot, stateMarker: workingMascot ? null : item.firstElementChild, label, detail });
     } else {
       const isUser = message.role === "user";
       const isAssistant = message.role === "assistant";
@@ -2104,9 +2167,12 @@ function renderMessages(changes = null) {
       let copyBtn = null;
 
       if (isUser) {
+        const bubble = node("div", "user-message-bubble");
         const header = node("div", "message-header");
         header.append(node("p", "message-role", "You"));
-        item.append(header, content);
+        bubble.append(header, content);
+        if (message.resources?.length) bubble.append(messageResources(message.resources));
+        item.append(bubble);
         actions = node("div", "message-actions user-actions");
         const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
         if (timeStr) actions.append(node("span", "message-time", timeStr));
@@ -2114,12 +2180,10 @@ function renderMessages(changes = null) {
         actions.append(copyBtn);
         item.append(actions);
       } else if (isAssistant) {
-        if (isAgentExecutionStart(thread, message)) {
-          item.append(node("p", "message-role", "Codex"));
-        }
         item.append(content);
-        if (message.resources?.length) item.append(node("p", "message-resources", message.resources.map((resource) => `@${resource.name}`).join("  ")));
+        if (message.resources?.length) item.append(messageResources(message.resources));
         actions = node("div", "message-actions");
+        actions.classList.toggle("is-continuation", !isFinalAgentMessage(thread, message));
         const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
         if (timeStr) actions.append(node("span", "message-time", timeStr));
         copyBtn = createMessageCopyButton(() => message.text);
@@ -2127,15 +2191,12 @@ function renderMessages(changes = null) {
         if (message.streaming || !message.text) actions.hidden = true;
         item.append(actions);
       } else {
-        if (isAgentExecutionStart(thread, message) && message.label !== "Codex") {
-          item.append(node("p", "message-role", "Codex"));
-        }
         item.append(node("p", "message-role", message.label || "Activity"), content);
       }
       messageNodes.set(message, { item, content, actions, copyBtn });
     }
-    if (message.role !== "assistant" && message.resources?.length) {
-      item.append(node("p", "message-resources", message.resources.map((resource) => `@${resource.name}`).join("  ")));
+    if (message.role !== "assistant" && message.role !== "user" && message.resources?.length) {
+      item.append(messageResources(message.resources));
     }
     inner.append(item);
   }
@@ -2324,6 +2385,7 @@ function flushStreamUpdates() {
 }
 function updateThreadStatus() {
   const thread = activeThread();
+  $("#view-agent").classList.toggle("agent-working", Boolean(thread?.busy || thread?.pending));
   $("#send-agent").disabled = !thread || !thread.course || thread.busy || thread.pending || thread.branching || thread.archived || !thread.draft.trim();
   $("#send-agent").hidden = Boolean(thread?.busy);
   $("#model-picker").disabled = !thread;

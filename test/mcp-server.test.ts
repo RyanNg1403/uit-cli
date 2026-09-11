@@ -5,6 +5,7 @@ import { basename, join, resolve } from "node:path";
 import {
   ensureLocalBinWrapper,
   executeMcpTool,
+  installMcpServer,
   isInsideUitWorkspace,
   upsertMcpConfig,
   writeFileAtomically,
@@ -57,6 +58,29 @@ describe("mcp-server workspace gating and tools", () => {
     expect(upsertMcpConfig("", "uit", ["mcp"])).toBe(
       '[mcp_servers.uit]\ncommand = "uit"\nargs = ["mcp"]\n'
     );
+  });
+
+  it("registers the standalone launcher instead of creating a Node wrapper", () => {
+    const directory = mkdtempSync(join(tmpdir(), "uit-standalone-mcp-test-"));
+    const executable = join(directory, "uit");
+    const previousHome = process.env.HOME;
+    const previousExecutable = process.env.UIT_CLI_EXECUTABLE;
+    try {
+      writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
+      process.env.HOME = directory;
+      process.env.UIT_CLI_EXECUTABLE = executable;
+      installMcpServer();
+      const config = readFileSync(join(directory, ".codex", "config.toml"), "utf8");
+      expect(config).toContain(`command = ${JSON.stringify(executable)}`);
+      expect(config).toContain('args = ["mcp"]');
+      expect(readdirSync(join(directory, ".codex"))).toEqual(["config.toml"]);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousExecutable === undefined) delete process.env.UIT_CLI_EXECUTABLE;
+      else process.env.UIT_CLI_EXECUTABLE = previousExecutable;
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("updates a commented MCP section header without creating a duplicate table", () => {

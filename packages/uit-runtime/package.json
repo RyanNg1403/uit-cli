@@ -1,0 +1,27 @@
+{
+  "name": "uit-runtime",
+  "version": "1.2.1",
+  "description": "Shared Playwright-free runtime for UIT CLI and UIT Studio",
+  "license": "MIT",
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "files": [
+    "dist",
+    "desktop",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepack": "npm --prefix ../.. run build && node ../../scripts/prepare-runtime-package.mjs"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.2",
+    "pdfjs-dist": "4.10.38"
+  },
+  "peerDependencies": {
+    "electron": "41.10.3"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
