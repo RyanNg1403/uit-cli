@@ -444,7 +444,9 @@ async function restorePersistedLegacySessions() {
 }
 
 async function restorePersistedSsoSession() {
-  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+  // Headless stability runs must never open a hidden authentication probe;
+  // they intentionally provide an isolated, credential-free profile.
+  if (process.env.UIT_DISABLE_CONFIG === "1" || process.env.UIT_TEST_HEADLESS === "1") return;
   try {
     const data = await readPersistedSessions();
     const saved = data?.sso;
