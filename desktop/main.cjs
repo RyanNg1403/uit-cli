@@ -1242,6 +1242,7 @@ function createWindow() {
 
 async function createWindowInternal() {
   await loadService();
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
   registerIpc();
   const primaryDisplay = screen?.getPrimaryDisplay?.();
   const workArea = primaryDisplay?.workAreaSize || { width: 1440, height: 920 };
