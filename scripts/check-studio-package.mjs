@@ -47,12 +47,18 @@ const runtimeUnexpected = runtimeFiles.filter((path) => (
   path !== "README.md" &&
   path !== "package.json" &&
   !path.startsWith("dist/") &&
-  !path.startsWith("desktop/")
+  !path.startsWith("desktop-build/")
 ));
 if (runtimeUnexpected.length > 0) {
   throw new Error(`uit-runtime package contains unexpected files: ${runtimeUnexpected.join(", ")}`);
 }
-for (const required of ["dist/desktop-service.js", "dist/mcp-server.js", "desktop/main.cjs"]) {
+for (const required of [
+  "dist/desktop-service.js",
+  "dist/mcp-server.js",
+  "desktop-build/main.js",
+  "desktop-build/preload.cjs",
+  "desktop-build/renderer/assets/uit-dau-dau-icon.png"
+]) {
   if (!runtimeFiles.includes(required)) throw new Error(`uit-runtime package is missing ${required}`);
 }
 for (const forbidden of ["dist/cli.js", "dist/sso-login.js"]) {

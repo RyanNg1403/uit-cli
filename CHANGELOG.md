@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.3.0] - 2026-09-11
+
+- Applied the Đậu Đậu mascot icon to shell-launched Studio windows and app identity on macOS, Linux, and Windows.
+
 ## [1.2.3] - 2026-09-11
 
 - Removed the manual token argument from the public CLI login flows.

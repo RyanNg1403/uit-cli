@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 const require = createRequire(import.meta.url);
 const packageRoot = dirname(require.resolve("uit-runtime/package.json"));
 const electron = require("electron");
-const main = join(packageRoot, "desktop", "main.cjs");
+const main = join(packageRoot, "desktop-build", "main.js");
 const child = spawn(electron, [main, ...process.argv.slice(2)], { stdio: "inherit" });
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {

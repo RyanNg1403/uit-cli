@@ -2,11 +2,11 @@ appId: vn.edu.uit.studio
 productName: UIT Studio
 asar: true
 extraMetadata:
-  main: desktop/main.cjs
+  main: desktop-build/main.js
 directories:
   output: release
 files:
-  - desktop/**/*
+  - desktop-build/**/*
   - dist/**/*
   - package.json
   - "!dist/cli.*"
