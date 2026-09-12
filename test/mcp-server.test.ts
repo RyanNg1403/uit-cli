@@ -24,14 +24,15 @@ describe("mcp-server workspace gating and tools", () => {
     expect(isInsideUitWorkspace("/tmp")).toBe(false);
   });
 
-  it("exposes the expected 5 UIT tools in UIT_MCP_TOOLS", () => {
+  it("exposes the canonical UIT tools in UIT_MCP_TOOLS", () => {
     const toolNames = UIT_MCP_TOOLS.map((t) => t.name);
     expect(toolNames).toContain("uit_courses");
     expect(toolNames).toContain("uit_course_contents");
+    expect(toolNames).toContain("uit_read_resource");
     expect(toolNames).toContain("uit_course_members");
     expect(toolNames).toContain("uit_course_grades");
     expect(toolNames).toContain("uit_download_material");
-    expect(toolNames.length).toBe(5);
+    expect(toolNames.length).toBe(6);
   });
 
   it("rejects direct tool calls outside a UIT workspace", async () => {
@@ -64,10 +65,12 @@ describe("mcp-server workspace gating and tools", () => {
     const directory = mkdtempSync(join(tmpdir(), "uit-standalone-mcp-test-"));
     const executable = join(directory, "uit");
     const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
     const previousExecutable = process.env.UIT_CLI_EXECUTABLE;
     try {
       writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
       process.env.HOME = directory;
+      delete process.env.CODEX_HOME;
       process.env.UIT_CLI_EXECUTABLE = executable;
       installMcpServer();
       const config = readFileSync(join(directory, ".codex", "config.toml"), "utf8");
@@ -77,6 +80,8 @@ describe("mcp-server workspace gating and tools", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
       if (previousExecutable === undefined) delete process.env.UIT_CLI_EXECUTABLE;
       else process.env.UIT_CLI_EXECUTABLE = previousExecutable;
       rmSync(directory, { recursive: true, force: true });

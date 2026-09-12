@@ -1325,6 +1325,10 @@ textarea:disabled {
   background: var(--hover);
 }
 .composer-spacer { flex: 1; }
+.composer-options,
+.composer-submit { display: flex; align-items: center; gap: 6px; }
+.composer-options { min-width: 0; }
+.composer-submit { margin-left: 2px; }
 .composer-pill {
   display: inline-flex;
   align-items: center;
@@ -1344,6 +1348,24 @@ button.composer-pill:hover:not(:disabled) {
   border-color: var(--strong-border);
   background: var(--hover);
 }
+.yolo-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.yolo-toggle[aria-pressed="false"] { color: var(--muted); }
+.fast-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.fast-toggle[aria-pressed="false"] { color: var(--muted); }
+.approval-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.approval-actions button { margin-right: 0; }
+.approval-help { margin: 4px 0 8px; color: var(--muted); font-size: 12px; }
+.approval-tool-label { margin: 6px 0 0; color: var(--text); font-size: 13px; font-weight: 600; }
+.approval-description { margin: 4px 0; color: var(--muted); font-size: 12px; }
+.approval-arguments { margin: 8px 0 0; }
 .send-button {
   display: inline-flex;
   align-items: center;
@@ -1626,6 +1648,7 @@ dialog::backdrop { background: var(--backdrop); }
   .thread-empty { padding-block: 20px; }
   .composer { padding: 0 14px calc(12px + env(safe-area-inset-bottom)); }
   .composer-actions { flex-wrap: wrap; }
+  .composer-options { flex: 1 1 auto; justify-content: flex-end; }
   .composer-pill { min-width: 0; max-width: min(46vw, 210px); overflow: hidden; text-overflow: ellipsis; }
   .send-button { width: 42px; height: 42px; }
   .jump-to-latest { margin-bottom: 10px; }

@@ -209,6 +209,31 @@ describe("Moodle session API", () => {
     }]);
   });
 
+  it("does not parse the participants table header as a user in the Node fallback", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("/lib/ajax/")) return Response.json([{
+        error: true,
+        exception: { errorcode: "servicenotavailable", message: "Unavailable" }
+      }]);
+      return new Response(`
+        <table id="participants" class="generaltable">
+          <thead><tr><th class="header c1"><a href="/user/index.php?id=42">Họ</a></th></tr></thead>
+          <tbody><tr>
+            <td class="cell c0"><input id="user101" type="checkbox" /></td>
+            <td class="cell c1"><a href="/user/view.php?id=101&course=42">Alice Student</a></td>
+            <td class="cell c2">Học viên</td>
+          </tr></tbody>
+        </table>
+      `, { headers: { "content-type": "text/html" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new NodeSessionApiClient("https://courses.uit.edu.vn", "sesskey", "MoodleSession=cookie");
+
+    await expect(api.call("core_enrol_get_enrolled_users", { courseid: 42 })).resolves.toEqual([
+      { id: 101, fullname: "Alice Student", roles: [{ shortname: "học viên", name: "Học viên" }] }
+    ]);
+  });
+
   it("normalizes Moodle bracket-array arguments for AJAX", () => {
     expect(JSON.parse(buildAjaxInfo("mod_assign_get_assignments", { "courseids[0]": 42, "courseids[2]": 99 }))).toEqual([
       { index: 0, methodname: "mod_assign_get_assignments", args: { courseids: [42, null, 99] } }

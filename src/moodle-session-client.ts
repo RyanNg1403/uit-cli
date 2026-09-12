@@ -296,7 +296,8 @@ export class MoodleSessionApi implements ApiClient {
       const seen=new Set();
       const users=[];
       for(const row of rows){
-        const link=row.querySelector('a[href*="/user/view.php"],a[href*="id="]');
+        // Do not treat course sorting/header links containing id= as users.
+        const link=row.querySelector('a[href*="/user/view.php"]');
         let id=0;
         if(link){
           try{

@@ -230,6 +230,19 @@ export function saveSsoSession(sessionData: SsoSessionData): string {
   return path;
 }
 
+/** Select an already-persisted account without changing or re-saving credentials. */
+export function activateSession(authType: "token" | "sso", baseUrl: string): void {
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+  const sessions = readSessionsFile();
+  const available = authType === "sso"
+    ? sessions.sso?.baseUrl?.replace(/\/+$/, "") === cleanBaseUrl
+    : (sessions.legacy || []).some((item) => item.baseUrl?.replace(/\/+$/, "") === cleanBaseUrl && Boolean(item.token));
+  if (!available) throw new CliError("The selected UIT account is no longer saved. Sign in again.");
+  sessions.active = { authType, baseUrl: cleanBaseUrl };
+  writeSessionsFile(sessions);
+  cfg = undefined;
+}
+
 export function deleteSsoSession(): void {
   const sessions = readSessionsFile();
   delete sessions.sso;

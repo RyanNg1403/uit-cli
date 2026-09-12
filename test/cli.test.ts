@@ -458,6 +458,20 @@ describe("CLI command flows", () => {
     expect(stdout).toContain("Welcome to class");
   });
 
+  it("uses the verified forum module ID when SSO hides its instance ID", async () => {
+    const api = mockApi({
+      core_course_get_contents: [{ name: "General", modules: [{ id: 102, modname: "forum", name: "Các thông báo" }] }],
+      core_course_get_course_module: { cm: { type: "news" } },
+      mod_forum_get_forum_discussions: { discussions: [] }
+    });
+
+    const code = await main(["node", "uit", "--json", "announcements", "19207"], api);
+
+    expect(code).toBe(0);
+    expect(api.call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { cmid: 102 });
+    expect(JSON.parse(stdout)).toEqual([]);
+  });
+
   it("resolves module ID to assignment instance ID in status command", async () => {
     let statusCalledWith: Record<string, any> | undefined;
     const api: ApiClient = {

@@ -103,9 +103,15 @@
               <div class="composer-actions">
                 <button id="attach-resource" class="icon-button" type="button" aria-label="Attach course resource" title="Attach course resource"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
                 <span class="composer-spacer"></span>
-                <button id="model-picker" class="composer-pill" type="button" aria-haspopup="dialog" title="Model and reasoning effort">Auto</button>
-                <button id="stop-agent" class="send-button" type="button" hidden aria-label="Stop" title="Stop"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg></button>
-                <button id="send-agent" class="send-button" type="submit" aria-label="Send" title="Send"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <div class="composer-options" role="group" aria-label="Codex options">
+                  <button id="yolo-toggle" class="composer-pill yolo-toggle" type="button" aria-pressed="true" title="YOLO mode">YOLO</button>
+                  <button id="fast-toggle" class="composer-pill fast-toggle" type="button" aria-pressed="false" title="Fast mode">Fast</button>
+                  <button id="model-picker" class="composer-pill" type="button" aria-haspopup="dialog" title="Model and reasoning effort">Auto</button>
+                </div>
+                <div class="composer-submit" role="group" aria-label="Message actions">
+                  <button id="stop-agent" class="send-button" type="button" hidden aria-label="Stop" title="Stop"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg></button>
+                  <button id="send-agent" class="send-button" type="submit" aria-label="Send" title="Send"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                </div>
               </div>
               <div id="model-menu" class="model-menu" role="dialog" aria-label="Model and reasoning effort" hidden></div>
             </form>

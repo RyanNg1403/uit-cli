@@ -8,10 +8,11 @@ This document evaluates the coexistence, trade-offs, and relationship between th
 
 | Question | Answer | Explanation |
 | :--- | :---: | :--- |
-| **Can both operate without AI Studio running?** | **Yes** | • **CLI**: Operates as a standalone binary in terminal using credentials in `~/.uit/.env`.<br>• **MCP Server**: Runs as a headless stdio background process spawned directly by Codex / Claude / ChatGPT (`node dist/cli.js mcp`). It reads `~/.uit/sso-session.json` or `~/.uit/.env` from disk without requiring any UI window or Electron process to be active. |
-| **Can the agent use the CLI in any folder?** | **Yes** | `uit` is a global binary and works in any directory containing or inheriting `~/.uit/.env`. By design, MCP tools are workspace-gated to `~/UIT` via `isInsideUitWorkspace(process.cwd())` to avoid polluting the agent's context when working on unrelated non-UIT projects. |
-| **Does only MCP have access to SSO-based courses?** | **Currently, Yes** | `src/config.ts` (CLI) currently only checks `UIT_TOKEN` in `.env`. Meanwhile, `src/mcp-server.ts` checks `~/.uit/sso-session.json` first, allowing it to authenticate via Moodle SSO session cookies and keys. |
-| **Is the CLI overwhelming for agents compared to MCP?** | **Yes** | The CLI exposes **17 fine-grained commands** requiring argument formatting, terminal paging, and multi-turn bash calls. The MCP server provides **5 focused, pre-bundled tools** that return structured JSON directly into agent memory. |
+| **Can both operate without AI Studio running?** | **Yes** | The CLI and MCP server both run independently of UIT Studio. They share `~/.uit/sessions.json`; `UIT_TOKEN`/`UIT_BASE_URL`/`UIT_USER_ID` remain optional process-environment overrides for scripts and CI. No `.env` file is read. |
+| **Can the agent use the CLI in any folder?** | **Yes** | `uit` is a global CLI and can run from any directory. MCP tools intentionally remain gated to managed course workspaces under `~/.uit/courses` via `isInsideUitWorkspace(process.cwd())`, preventing course tools from appearing in unrelated projects. |
+| **Does only MCP have access to SSO-based courses?** | **No** | `uit login` stores the current-site SSO session in `~/.uit/sessions.json`, and the CLI, MCP server, and UIT Studio resolve that same session. Legacy Moodle accounts remain available through `uit login --legacy`. |
+| **Is the CLI overwhelming for agents compared to MCP?** | **Yes** | The CLI exposes **17 fine-grained commands** requiring argument formatting, terminal paging, and multi-turn bash calls. The MCP server provides **6 focused, pre-bundled tools** that return structured JSON directly into agent memory. |
+| **Does UIT Studio use the same MCP tools as direct Codex?** | **Yes** | Studio starts Codex with `~/.uit/courses` as its working root, so its configured UIT MCP server and standalone `uit mcp` use the same canonical registry and dispatcher in `src/uit-tools.ts`. |
 
 ---
 
@@ -31,9 +32,9 @@ The CLI and MCP server are not redundant; they are optimized for fundamentally d
              │                                 │
              ▼                                 ▼
        UIT CLI                              UIT MCP
-   • 17 granular commands              • 5 bundled JSON tools
+   • 17 granular commands              • 6 bundled JSON tools
    • Browser launch (uit open)         • Native JSON-RPC stdio
-   • Submission & file uploads         • Workspace-gated (~/UIT)
+   • Submission & file uploads         • Workspace-gated (~/.uit/courses)
    • Raw Moodle API inspection         • Token-efficient responses
 ```
 
@@ -67,16 +68,17 @@ src/
 ├── api.ts                   <-- Shared HTTP/REST/Moodle client
 ├── cli.ts                   <-- Commander CLI definition & 'uit mcp' command
 ├── mcp-server.ts            <-- MCP JSON-RPC protocol implementation
+├── uit-tools.ts              <-- Canonical MCP tool registry/dispatcher (Studio + standalone MCP)
 ├── moodle-session-client.ts <-- Moodle AJAX & session scraper
 └── desktop-service.ts       <-- Shared data resolvers (courses, grades, files)
 ```
 
 ---
 
-## 4. Next Step Recommendation: Unified Authentication
+## 4. Current Authentication Model
 
-To eliminate the only remaining asymmetry between the two interfaces, **the CLI should be updated to support SSO session fallback**:
+The CLI and MCP server now use the same session model:
 
-1. When `uit` executes a command, if `~/.uit/.env` is absent, check `~/.uit/sso-session.json`.
-2. If an active SSO session exists, allow CLI commands to run using `NodeSessionApiClient`.
-3. **Result**: A student who logs in via UIT Studio via SSO will have both UIT Studio, UIT MCP, and the UIT CLI working seamlessly without ever needing to manually obtain a Moodle web service token.
+1. `uit login` opens UIT SSO and stores the authenticated session in `~/.uit/sessions.json`.
+2. `uit login --legacy` handles the old Moodle portal and stores its token in the same file.
+3. CLI commands, MCP tools, and UIT Studio can reuse the saved session without requiring the desktop app to be running.
