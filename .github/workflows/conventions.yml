@@ -4,7 +4,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   push:
-    branches-ignore: []
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
 
 jobs:
   validate-branch-and-commits:
@@ -12,6 +15,10 @@ jobs:
     steps:
       - name: Check branch naming
         run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "Tag push detected, skipping branch convention checks."
+            exit 0
+          fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BRANCH="${{ github.head_ref }}"
           else

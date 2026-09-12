@@ -7,6 +7,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     continue
   fi
 
+  case "$remote_ref" in
+    refs/tags/*) continue ;;
+  esac
+
   remote_branch=${remote_ref#refs/heads/}
 
   case "$remote_branch" in
