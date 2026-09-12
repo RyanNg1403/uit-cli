@@ -36,6 +36,22 @@ function decodeHtmlText(value: string): string {
     .trim();
 }
 
+function parseHtmlTimestamp(fragment: string | undefined): number {
+  if (!fragment) return 0;
+  const attribute = /(?:data-(?:timestamp|timecreated|timemodified)|datetime)\s*=\s*["']([^"']+)["']/i.exec(fragment)?.[1];
+  const value = attribute || decodeHtmlText(fragment);
+  if (/^\d+$/.test(value)) {
+    const numeric = Number(value);
+    if (Number.isSafeInteger(numeric)) return numeric > 10_000_000_000 ? Math.floor(numeric / 1000) : numeric;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;
+}
+
+function hasSubmissionFormError(html: string): boolean {
+  return /(?:class\s*=\s*["'][^"']*\b(?:form-error|validationerror|notifyproblem|alert-danger|errorbox)\b[^"']*["']|aria-invalid\s*=\s*["']true["']|data-field-error\s*=)/i.test(html);
+}
+
 function fileRecord(rawUrl: string, pageUrl: string): MoodleRecord | undefined {
   try {
     const url = new URL(rawUrl, pageUrl);
@@ -630,7 +646,9 @@ export class NodeSessionApiClient implements ApiClient {
       if (/\/login(?:\/|$)/i.test(new URL(location, url).pathname)) {
         throw new Error("UIT session expired. Please sign in again.");
       }
-      return { html: "", url: new URL(location, url).toString() };
+      const destination = new URL(location, url);
+      if (destination.origin !== url.origin) throw new Error("Moodle form redirected to another origin.");
+      return { html: "", url: destination.toString() };
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const html = await res.text();
@@ -662,7 +680,19 @@ export class NodeSessionApiClient implements ApiClient {
       }
     }
 
-    await this.postHtmlForm(`/mod/assign/view.php?id=${cmid}`, body);
+    const response = await this.postHtmlForm(`/mod/assign/view.php?id=${cmid}`, body);
+    const responseUrl = new URL(response.url, `${this.baseUrl}/`);
+    if (
+      responseUrl.origin !== new URL(this.baseUrl).origin ||
+      responseUrl.pathname !== "/mod/assign/view.php" ||
+      responseUrl.searchParams.get("id") !== String(cmid)
+    ) {
+      throw new Error("Moodle returned an unexpected submission response.");
+    }
+    const responseHtml = response.html || (await this.fetchHtmlPage(responseUrl.toString())).html;
+    if (hasSubmissionFormError(responseHtml)) {
+      throw new Error("Moodle rejected the submission. Check the assignment requirements and try again.");
+    }
     return { status: true, warnings: [] };
   }
 
@@ -686,7 +716,7 @@ export class NodeSessionApiClient implements ApiClient {
       lastattempt: {
         submission: {
           status,
-          timemodified: modifiedMatch ? Math.floor(Date.now() / 1000) : 0
+          timemodified: parseHtmlTimestamp(modifiedMatch?.[1])
         }
       },
       feedback: {

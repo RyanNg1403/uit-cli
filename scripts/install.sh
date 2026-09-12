@@ -79,6 +79,7 @@ install_standalone_cli() (
   case "$system" in
     Darwin)
       platform="macos"
+      platform_label="macOS"
       case "$machine" in
         arm64) architecture="arm64" ;;
         *) fail "unsupported Mac architecture: $machine" ;;
@@ -86,6 +87,7 @@ install_standalone_cli() (
       ;;
     Linux)
       platform="linux"
+      platform_label="Linux"
       case "$machine" in
         x86_64|amd64) architecture="x64" ;;
         arm64|aarch64) architecture="arm64" ;;
@@ -128,7 +130,7 @@ install_standalone_cli() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
 
-  printf 'Downloading standalone UIT CLI for macOS (%s)...\n' "$architecture"
+  printf 'Downloading standalone UIT CLI for %s (%s)...\n' "$platform_label" "$architecture"
   curl --fail --silent --show-error --location \
     --output "$temporary_directory/$asset" "$base_url/$asset"
   curl --fail --silent --show-error --location \
