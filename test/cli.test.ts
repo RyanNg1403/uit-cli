@@ -428,4 +428,67 @@ describe("CLI command flows", () => {
     expect(JSON.parse(stdout).map((row: { id: number }) => row.id)).toEqual([2, 3]);
     expect(JSON.parse(stdout)[0]).toMatchObject({ course: "CS101", course_name: "Intro & Lab", name: "Future" });
   });
+
+  it("prioritizes announcement forums over discussion forums in announcements command", async () => {
+    const api = mockApi({
+      core_course_get_contents: [
+        {
+          name: "General",
+          modules: [
+            { id: 101, modname: "forum", name: "Diễn đàn trao đổi chung" },
+            { id: 102, modname: "forum", name: "Thông báo lớp học" }
+          ]
+        }
+      ],
+      core_course_get_course_module: {
+        cm: { instance: 55, type: "news" }
+      },
+      mod_forum_get_forum_discussions: {
+        discussions: [
+          { discussion: 901, subject: "Welcome to class", userfullname: "Lecturer", timemodified: 1700000000 }
+        ]
+      }
+    });
+
+    const code = await main(["node", "uit", "announcements", "19207"], api);
+
+    expect(code).toBe(0);
+    expect(api.call).toHaveBeenCalledWith("core_course_get_course_module", { cmid: 102 });
+    expect(api.call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { forumid: 55 });
+    expect(stdout).toContain("Welcome to class");
+  });
+
+  it("resolves module ID to assignment instance ID in status command", async () => {
+    let statusCalledWith: Record<string, any> | undefined;
+    const api: ApiClient = {
+      call: vi.fn(async (name: string, params: any) => {
+        if (name === "mod_assign_get_submission_status") {
+          statusCalledWith = params;
+          if (params.assignid === 505) {
+            return {
+              lastattempt: {
+                submission: { status: "submitted", timemodified: 1700000000, attemptnumber: 0 }
+              },
+              feedback: { grade: { grade: "10.0", timemodified: 1700000000 } }
+            };
+          }
+          throw new Error("Invalid assignment id");
+        }
+        if (name === "core_course_get_course_module") {
+          return { cm: { id: 999, instance: 505, modname: "assign" } };
+        }
+        throw new Error(`unexpected call: ${name}`);
+      }),
+      uploadFile: vi.fn(),
+      downloadFile: vi.fn()
+    };
+
+    const code = await main(["node", "uit", "--json", "status", "999"], api);
+
+    expect(code).toBe(0);
+    expect(statusCalledWith).toEqual({ assignid: 505 });
+    const output = JSON.parse(stdout);
+    expect(output.status).toBe("submitted");
+    expect(output.grade).toBe("10.0");
+  });
 });

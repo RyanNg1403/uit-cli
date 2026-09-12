@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+# Reads stdin: <local ref> <local sha1> <remote ref> <remote sha1>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$local_sha" = "0000000000000000000000000000000000000000" ] || [ -z "$remote_ref" ]; then
+    continue
+  fi
+
+  remote_branch=${remote_ref#refs/heads/}
+
+  case "$remote_branch" in
+    main|release/*|feat/*|fix/*|chore/*|proj/*)
+      ;;
+    *)
+      echo "❌ Error: Push rejected. Branch '$remote_branch' violates branch naming rules." >&2
+      echo "   Allowed remote branch patterns:" >&2
+      echo "   - feat/**:  For new features and implementations" >&2
+      echo "   - fix/**:   For hot fixes or bug fixing" >&2
+      echo "   - chore/**: For updating README, bumping versions, chores" >&2
+      echo "   - proj/**:  For big implementation plans" >&2
+      echo "   - release/**: For release stabilization" >&2
+      echo "   - main:     Protected main branch" >&2
+      exit 1
+      ;;
+  esac
+done
+
+exit 0

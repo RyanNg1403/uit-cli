@@ -77,40 +77,6 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-async function syncThreadToCodexDb(threadId: string, cwd: string, title: string): Promise<void> {
-  if (process.env.UIT_DISABLE_CONFIG === "1") return;
-  const dbPath = join(homedir(), ".codex", "state_5.sqlite");
-  if (!existsSync(dbPath)) return;
-  const script = `import sqlite3, sys, os, uuid, time
-db_path, raw_cwd, thread_id, title = sys.argv[1:5]
-if not os.path.exists(db_path):
-    sys.exit(0)
-try:
-    cwd = os.path.realpath(raw_cwd)
-    conn = sqlite3.connect(db_path, timeout=5)
-    cur = conn.cursor()
-    cur.execute("SELECT project_id FROM project_roots WHERE path = ? OR path = ?", (cwd, raw_cwd))
-    row = cur.fetchone()
-    project_id = row[0] if row else None
-    now_ms = int(time.time() * 1000)
-    if not project_id:
-        name = os.path.basename(cwd) or "project"
-        project_id = str(uuid.uuid4())
-        cur.execute("INSERT INTO projects (id, name, metadata, position, created_at_ms, updated_at_ms) VALUES (?, ?, '{}', 0, ?, ?)", (project_id, name, now_ms, now_ms))
-        cur.execute("INSERT INTO project_roots (project_id, position, path) VALUES (?, 0, ?)", (project_id, cwd))
-    if thread_id:
-        cur.execute("UPDATE threads SET thread_source = 'user', project_id = ?, name = COALESCE(NULLIF(name, ''), ?) WHERE id = ?", (project_id, title or 'Course Thread', thread_id))
-    cur.execute("UPDATE threads SET thread_source = 'user', project_id = ? WHERE (cwd = ? OR cwd = ?) AND (thread_source IS NULL OR thread_source = '')", (project_id, cwd, raw_cwd))
-    conn.commit()
-    conn.close()
-except Exception:
-    pass
-`;
-  try {
-    await execFileAsync("python3", ["-c", script, dbPath, cwd, threadId, title || ""], { timeout: 3000 });
-  } catch { /* Best-effort Codex database synchronization. */ }
-}
-
 if (process.env.UIT_TEST_PROFILE) app.setPath("userData", resolve(process.env.UIT_TEST_PROFILE));
 
 let service!: typeof import("../dist/desktop-service.js");
@@ -617,7 +583,7 @@ async function restorePersistedSsoSession() {
         if (!identity?.sesskey || identity.userId <= 0) throw new Error("Could not read SSO identity");
         return identity;
       })(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Probe timeout")), 6000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Probe timeout")), 30000))
     ]).catch(() => null);
 
     if (probeResult && probeResult.sesskey && probeResult.userId === saved.userId) {
@@ -1356,24 +1322,18 @@ function registerIpc(): void {
       const input = requireObject(rawInput, "Open desktop input");
       const cwd = requireWorkspacePath(input.cwd, "Workspace path");
       const threadId = requireString(input.threadId, "Thread ID");
-      const title = typeof input.title === "string" ? input.title.trim() : "";
       if (idleLockTimer) {
         clearTimeout(idleLockTimer);
         idleLockTimer = undefined;
       }
       cachedModels = undefined;
       await Promise.resolve(codex.disconnect()).catch(() => undefined);
-      await syncThreadToCodexDb(threadId, cwd, title).catch(() => undefined);
-      try {
-        await execFileAsync("codex", ["app", cwd]);
-      } catch {
-        await execFileAsync("open", ["-a", "ChatGPT", cwd]).catch(() => undefined);
-      }
+      await execFileAsync("codex", ["app", cwd]).catch(() => undefined);
       setTimeout(() => {
-        execFileAsync("open", [`codex://threads/${threadId}`]).catch(() => undefined);
+        shell.openExternal(`codex://threads/${threadId}`).catch(() => undefined);
       }, 350);
       setTimeout(() => {
-        execFileAsync("open", [`codex://threads/${threadId}`]).catch(() => undefined);
+        shell.openExternal(`codex://threads/${threadId}`).catch(() => undefined);
       }, 1000);
       return { success: true };
     },

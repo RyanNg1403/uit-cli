@@ -24,3 +24,16 @@ mac:
   artifactName: UIT-Studio-macos-${arch}.${ext}
 dmg:
   title: UIT Studio
+linux:
+  category: Education
+  icon: desktop/renderer/assets/uit-dau-dau-icon.png
+  target:
+    - AppImage
+    - tar.gz
+  artifactName: UIT-Studio-linux-${arch}.${ext}
+win:
+  icon: desktop/renderer/assets/uit-dau-dau-icon.png
+  target:
+    - zip
+    - nsis
+  artifactName: UIT-Studio-windows-${arch}.${ext}

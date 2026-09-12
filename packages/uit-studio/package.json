@@ -1,6 +1,6 @@
 {
   "name": "uit-studio",
-  "version": "1.3.0",
+  "version": "1.3.2",
   "description": "UIT Studio desktop workspace for UIT Moodle",
   "license": "MIT",
   "type": "module",
@@ -19,7 +19,7 @@
   ],
   "dependencies": {
     "electron": "41.10.3",
-    "uit-runtime": "1.3.0"
+    "uit-runtime": "1.3.2"
   },
   "engines": {
     "node": ">=20.19.0"

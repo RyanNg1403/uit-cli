@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.2] - 2026-09-12
+
+- Added session file upload support and web HTML fallbacks for modern Moodle instances.
+- Added multi-browser SSO login fallback across Google Chrome, Microsoft Edge, and Playwright Chromium.
+- Prioritized official course announcement forums in `uit announcements`.
+- Added automatic Course Module ID to assignment ID resolution and diagnostic hints for `uit status`.
+- Replaced platform-specific subshells with cross-platform protocol and app launching in Studio.
+- Increased Studio SSO session restore probe timeout to 30 seconds for higher network resilience.
+- Added multi-platform Studio desktop builds for Linux and Windows alongside macOS.
+- Hardened CI release unshallowing and standalone packaging checksum fallbacks.
+
 ## [1.3.0] - 2026-09-11
 
 - Applied the Đậu Đậu mascot icon to shell-launched Studio windows and app identity on macOS, Linux, and Windows.

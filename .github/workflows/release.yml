@@ -128,6 +128,19 @@ jobs:
           response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$install_home/.local/bin/uit" mcp)"
           printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
 
+      - name: Build Linux Studio distributables
+        if: matrix.arch == 'x64'
+        run: |
+          npm run desktop:build
+          npx electron-builder --linux AppImage tar.gz --x64 --publish never
+          for asset in release/UIT-Studio-linux-x64.*; do
+            if [ -f "$asset" ]; then
+              cp "$asset" release-assets/
+              name="$(basename "$asset")"
+              (cd release-assets && sha256sum "$name" > "${name}.sha256")
+            fi
+          done
+
       - name: Upload release assets
         uses: actions/upload-artifact@v6
         with:
@@ -135,8 +148,45 @@ jobs:
           path: release-assets/*
           if-no-files-found: error
 
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - name: Build Windows Studio distributables
+        run: |
+          npm run desktop:build
+          npx electron-builder --win zip nsis --x64 --publish never
+          New-Item -ItemType Directory -Force -Path release-assets
+          Copy-Item release/UIT-Studio-windows-x64.* release-assets/
+          Get-ChildItem -Path release-assets -File | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower()
+            Set-Content -Path "$($_.FullName).sha256" -Value "$hash  $($_.Name)"
+          }
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v6
+        with:
+          name: uit-windows-x64
+          path: release-assets/*
+          if-no-files-found: error
+
   publish:
-    needs: [build-macos, build-linux]
+    needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
 
     steps:
@@ -159,7 +209,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          git fetch origin main --unshallow
+          git fetch origin main --unshallow || true
           git fetch origin --tags
           git merge-base --is-ancestor "$(git rev-list -n 1 "$RELEASE_TAG")" origin/main
 
