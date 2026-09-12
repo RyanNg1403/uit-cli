@@ -1,6 +1,7 @@
 appId: vn.edu.uit.studio
 productName: UIT Studio
 asar: true
+disableSanityCheckAsar: true
 extraMetadata:
   main: desktop-build/main.js
 directories:

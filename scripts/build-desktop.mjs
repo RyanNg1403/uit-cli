@@ -13,7 +13,8 @@ mkdirSync(outputDirectory, { recursive: true });
 for (const config of ["tsconfig.desktop-main.json", "tsconfig.desktop-preload.json"]) {
   const result = spawnSync(npmCommand, ["exec", "--", "tsc", "-p", config], {
     cwd: repositoryRoot,
-    stdio: "inherit"
+    stdio: "inherit",
+    shell: process.platform === "win32"
   });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
