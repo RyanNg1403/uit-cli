@@ -6,16 +6,26 @@ export type SsoLoginLauncher = (baseUrl: string) => Promise<SsoSessionData>;
 
 export async function defaultSsoLauncher(baseUrl: string): Promise<SsoSessionData> {
   let browser;
-  try {
-    browser = await chromium.launch({
-      channel: "chrome",
-      headless: false,
-      args: ["--window-size=980,760"]
-    });
-  } catch (error) {
+  let lastError: Error | undefined;
+  const launchCandidates: Array<{ channel?: string }> = [{ channel: "chrome" }, { channel: "msedge" }, {}];
+
+  for (const candidate of launchCandidates) {
+    try {
+      browser = await chromium.launch({
+        ...candidate,
+        headless: false,
+        args: ["--window-size=980,760"]
+      });
+      break;
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+
+  if (!browser) {
     throw new CliError(
-      `Could not open Google Chrome for SSO login: ${(error as Error).message}\n` +
-      `Install Google Chrome, run UIT Studio on your desktop, or use ` +
+      `Could not open a browser (Chrome, Edge, or Chromium) for SSO login: ${lastError?.message || "launch failed"}\n` +
+      `Install a supported browser, run UIT Studio on your desktop, or use ` +
       `'uit login --legacy' for the Student ID/password flow.`
     );
   }

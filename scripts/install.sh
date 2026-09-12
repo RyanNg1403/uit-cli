@@ -95,12 +95,12 @@ install_standalone_cli() (
     *) fail "unsupported operating system: $system" ;;
   esac
 
-  if command -v shasum >/dev/null 2>&1; then
-    verify_checksum() { shasum --algorithm 256 --check "$1"; }
-  elif command -v sha256sum >/dev/null 2>&1; then
+  if command -v sha256sum >/dev/null 2>&1; then
     verify_checksum() { sha256sum --check "$1"; }
+  elif command -v shasum >/dev/null 2>&1; then
+    verify_checksum() { shasum --algorithm 256 --check "$1"; }
   else
-    fail "shasum or sha256sum is required."
+    fail "sha256sum or shasum is required."
   fi
 
   asset="UIT-CLI-${platform}-${architecture}.tar.gz"

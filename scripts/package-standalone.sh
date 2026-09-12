@@ -90,7 +90,11 @@ asset="UIT-CLI-${platform}-${architecture}.tar.gz"
 tar -C "$temporary_directory" -czf "$output_directory/$asset" uit-cli
 (
   cd "$output_directory"
-  shasum -a 256 "$asset" > "$asset.sha256"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$asset" > "$asset.sha256"
+  else
+    shasum -a 256 "$asset" > "$asset.sha256"
+  fi
 )
 
 printf 'Created %s\n' "$output_directory/$asset"

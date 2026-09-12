@@ -1,6 +1,6 @@
 {
   "name": "uit-runtime",
-  "version": "1.3.0",
+  "version": "1.3.2",
   "description": "Shared Playwright-free runtime for UIT CLI and UIT Studio",
   "license": "MIT",
   "type": "module",

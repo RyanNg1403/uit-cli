@@ -603,19 +603,24 @@ export async function cmdAnnouncements(args: { course_id: number; limit?: number
   const courseId = args.course_id;
   loading("Loading announcements...");
   const sections = await ctx.api.call<MoodleRecord[]>("core_course_get_contents", { courseid: courseId });
-  let forumId: number | undefined;
+  const forumMods = sections
+    .flatMap((section) => section.modules || [])
+    .filter((mod: MoodleRecord) => mod.modname === "forum");
 
-  for (const section of sections) {
-    for (const mod of section.modules || []) {
-      if (mod.modname === "forum") {
-        const cmInfo = await ctx.api.call<MoodleRecord>("core_course_get_course_module", { cmid: mod.id });
-        forumId = cmInfo.cm?.instance;
-        break;
-      }
+  if (!forumMods.length) die("No forum found in this course");
+
+  const isNewsName = (name: string) => /thông báo|announcement|tin tức|news/i.test(name);
+  const sortedMods = [...forumMods].sort((a, b) => (isNewsName(b.name || "") ? 1 : 0) - (isNewsName(a.name || "") ? 1 : 0));
+
+  let forumId: number | undefined;
+  for (const mod of sortedMods) {
+    const cmInfo = await ctx.api.call<MoodleRecord>("core_course_get_course_module", { cmid: mod.id });
+    if (cmInfo.cm?.instance) {
+      forumId = cmInfo.cm.instance;
+      if (cmInfo.cm?.type === "news" || isNewsName(mod.name || "")) break;
     }
-    if (forumId) break;
   }
-  if (!forumId) die("No forum found in this course");
+  if (!forumId) die("No announcement forum found in this course");
 
   const discussions = await ctx.api.call<MoodleRecord>("mod_forum_get_forum_discussions", { forumid: forumId });
   let discs = discussions.discussions || [];
@@ -850,10 +855,30 @@ export async function cmdSubmit(args: { assign_id: number; file: string }, ctx =
 
 export async function cmdStatus(args: { assign_id: number }, ctx = createContext()): Promise<void> {
   loading("Loading submission status...");
-  const status = await ctx.api.call<MoodleRecord>("mod_assign_get_submission_status", { assignid: args.assign_id });
+  let assignId = args.assign_id;
+  let status: MoodleRecord | undefined;
+  try {
+    status = await ctx.api.call<MoodleRecord>("mod_assign_get_submission_status", { assignid: assignId });
+  } catch {
+    try {
+      const cmInfo = await ctx.api.call<MoodleRecord>("core_course_get_course_module", { cmid: assignId });
+      if (cmInfo.cm?.instance && cmInfo.cm?.modname === "assign") {
+        assignId = cmInfo.cm.instance;
+        status = await ctx.api.call<MoodleRecord>("mod_assign_get_submission_status", { assignid: assignId });
+      }
+    } catch {
+      // Fall through to error
+    }
+    if (!status) {
+      die(
+        `Could not load submission status for ID ${args.assign_id}.`,
+        "Make sure this is an assignment ID or module ID (see 'uit deadlines' or 'uit contents <course_id>')."
+      );
+    }
+  }
   const sub = status.lastattempt?.submission || {};
   const feedback = status.feedback || {};
-  const result: MoodleRecord = { assign_id: args.assign_id };
+  const result: MoodleRecord = { assign_id: assignId };
   if (Object.keys(sub).length) {
     result.status = sub.status || "unknown";
     result.submitted = ts(sub.timemodified || 0);

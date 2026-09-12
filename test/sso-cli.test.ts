@@ -18,6 +18,7 @@ vi.mock("node:os", async (importOriginal) => {
 import { createProgram, main } from "../src/cli.js";
 import { get, getActiveConfig, resetConfigCache, save, saveSsoSession, type SsoSessionData } from "../src/config.js";
 import { NodeSessionApiClient, createSessionApiClient } from "../src/api.js";
+import { defaultSsoLauncher } from "../src/sso-login.js";
 import { workspacePath } from "../src/desktop-service.js";
 import { executeMcpTool, resolveAvailableSession } from "../src/mcp-server.js";
 import type { ApiClient } from "../src/types.js";
@@ -325,11 +326,64 @@ describe("SSO CLI workflow and session resolution", () => {
   });
 
   it("NodeSessionApiClient executes calls with Cookie header and handles uploads", async () => {
-    const client = createSessionApiClient("https://courses.uit.edu.vn", "my-sesskey", [
-      { name: "MoodleSession", value: "session-cookie-1" }
-    ]);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 456, file: "package.json", url: "https://courses.uit.edu.vn/draftfile.php/1/package.json" })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const client = createSessionApiClient("https://courses.uit.edu.vn", "my-sesskey", [
+        { name: "MoodleSession", value: "session-cookie-1" }
+      ]);
 
-    expect(client).toBeInstanceOf(NodeSessionApiClient);
-    await expect(client.uploadFile("/path/to/file.pdf")).rejects.toThrow("File uploads are not supported");
+      expect(client).toBeInstanceOf(NodeSessionApiClient);
+      const testFilePath = join(tempDir, "test.txt");
+      writeFileSync(testFilePath, "test content");
+      const result = await client.uploadFile(testFilePath);
+      expect(result.itemid).toBe(456);
+      expect(result.filename).toBe("package.json");
+      expect(fetchMock).toHaveBeenCalled();
+      const [calledUrl, calledInit] = fetchMock.mock.calls[0];
+      expect(calledUrl).toContain("/repository/repository_ajax.php?action=upload");
+      expect(calledInit.headers.Cookie).toBe("MoodleSession=session-cookie-1");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back to edge or chromium when chrome is missing in defaultSsoLauncher", async () => {
+    const launchCalls: any[] = [];
+    const mockPage = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue("https://courses.uit.edu.vn/my/"),
+      evaluate: vi.fn().mockResolvedValue({ sesskey: "sso-key", userId: 99 }),
+      isClosed: vi.fn().mockReturnValue(false)
+    };
+    const mockContext = {
+      newPage: vi.fn().mockResolvedValue(mockPage),
+      cookies: vi.fn().mockResolvedValue([{ name: "MoodleSession", value: "val", domain: "courses.uit.edu.vn", path: "/" }])
+    };
+    const mockBrowser = {
+      newContext: vi.fn().mockResolvedValue(mockContext),
+      isConnected: vi.fn().mockReturnValue(true),
+      close: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const chromiumMock = await import("playwright").then((m) => m.chromium);
+    const launchSpy = vi.spyOn(chromiumMock, "launch").mockImplementation(async (opts: any) => {
+      launchCalls.push(opts);
+      if (opts?.channel === "chrome") throw new Error("Chrome not found");
+      return mockBrowser as any;
+    });
+
+    try {
+      const session = await defaultSsoLauncher("https://courses.uit.edu.vn");
+      expect(session.userId).toBe(99);
+      expect(session.sesskey).toBe("sso-key");
+      expect(launchCalls[0]).toMatchObject({ channel: "chrome" });
+      expect(launchCalls[1]).toMatchObject({ channel: "msedge" });
+    } finally {
+      launchSpy.mockRestore();
+    }
   });
 });

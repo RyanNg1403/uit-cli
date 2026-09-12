@@ -376,7 +376,7 @@ export class NodeSessionApiClient implements ApiClient {
       ...(Array.isArray(params.courseids) ? params.courseids : []),
       ...Object.entries(params).filter(([key]) => /^courseids\[\d+\]$/.test(key)).map(([, value]) => value)
     ].map(Number).filter((id) => Number.isSafeInteger(id) && id > 0);
-    if (!courseIds.length) throw new Error("Assignment fallback requires at least one valid course ID.");
+    if (!courseIds.length) return { courses: [], warnings: [] };
     const courses = [];
     for (const courseId of [...new Set(courseIds)]) {
       const sections = await this.fetchCourseContentsHtml(courseId);
@@ -574,7 +574,126 @@ export class NodeSessionApiClient implements ApiClient {
       }
     }
 
+    if (name === "mod_assign_save_submission") {
+      try {
+        return await this.callRaw<T>(name, params);
+      } catch (error) {
+        if (!unavailableSessionMethod(error)) throw error;
+        return (await this.saveSubmissionHtml(params)) as T;
+      }
+    }
+
+    if (name === "mod_assign_get_submission_status") {
+      try {
+        return await this.callRaw<T>(name, params);
+      } catch (error) {
+        if (!unavailableSessionMethod(error)) throw error;
+        return (await this.fetchSubmissionStatusHtml(params)) as T;
+      }
+    }
+
     return this.callRaw<T>(name, params);
+  }
+
+  private async resolveAssignmentModule(assignId: number): Promise<{ cmid: number; courseId: number; url: string }> {
+    const courses = await this.call<MoodleRecord[]>("core_enrol_get_users_courses");
+    for (const course of courses) {
+      const courseId = Number(course.id);
+      if (!Number.isSafeInteger(courseId) || courseId <= 0) continue;
+      const res = await this.fetchAssignmentsHtml({ courseids: [courseId] });
+      for (const c of res.courses || []) {
+        for (const a of c.assignments || []) {
+          if (Number(a.id) === assignId || Number(a.cmid) === assignId) {
+            return { cmid: Number(a.cmid || a.id), courseId, url: String(a.url || "") };
+          }
+        }
+      }
+    }
+    throw new Error(`Assignment ${assignId} was not found in accessible courses.`);
+  }
+
+  private async postHtmlForm(path: string, body: URLSearchParams): Promise<{ html: string; url: string }> {
+    const url = new URL(path, `${this.baseUrl}/`);
+    if (url.origin !== new URL(this.baseUrl).origin) throw new Error("Course page belongs to another origin.");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Cookie: this.cookieHeader,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: body.toString(),
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000)
+    });
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const location = res.headers.get("location") || "";
+      if (/\/login(?:\/|$)/i.test(new URL(location, url).pathname)) {
+        throw new Error("UIT session expired. Please sign in again.");
+      }
+      return { html: "", url: new URL(location, url).toString() };
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const html = await res.text();
+    return { html, url: url.toString() };
+  }
+
+  private async saveSubmissionHtml(params: Record<string, any>): Promise<MoodleRecord> {
+    const assignId = Number(params.assignmentid || params.assignid);
+    if (!Number.isSafeInteger(assignId) || assignId <= 0) throw new Error("Invalid assignment ID.");
+    const fileManagerId = params["plugindata[files_filemanager]"] ?? params.files_filemanager ?? params.itemid;
+    if (!fileManagerId) throw new Error("No submission files specified.");
+    const { cmid } = await this.resolveAssignmentModule(assignId);
+    const editPath = `/mod/assign/view.php?id=${cmid}&action=editsubmission`;
+    const { html } = await this.fetchHtmlPage(editPath);
+
+    const body = new URLSearchParams();
+    body.set("id", String(cmid));
+    body.set("sesskey", this.sesskey);
+    body.set("action", "savesubmission");
+    body.set("submitbutton", "Save changes");
+    body.set("files_filemanager", String(fileManagerId));
+
+    const inputMatches = [...html.matchAll(/<input\b[^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["'][^>]*>/gi)];
+    for (const match of inputMatches) {
+      const name = match[1];
+      const val = match[2];
+      if (name.startsWith("_qf__") || name === "mform_isexpanded_id_general") {
+        body.set(name, val);
+      }
+    }
+
+    await this.postHtmlForm(`/mod/assign/view.php?id=${cmid}`, body);
+    return { status: true, warnings: [] };
+  }
+
+  private async fetchSubmissionStatusHtml(params: Record<string, any>): Promise<MoodleRecord> {
+    const assignId = Number(params.assignid || params.assignmentid);
+    if (!Number.isSafeInteger(assignId) || assignId <= 0) throw new Error("Invalid assignment ID.");
+    const { cmid } = await this.resolveAssignmentModule(assignId);
+    const { html } = await this.fetchHtmlPage(`/mod/assign/view.php?id=${cmid}`);
+
+    let status = "none";
+    if (/submissionstatussubmitted|class=["'][^"']*\bsubmitted\b/i.test(html) || /Đã nộp để chấm điểm|Submitted for grading/i.test(html)) {
+      status = "submitted";
+    } else if (/submissionstatusdraft|class=["'][^"']*\bdraft\b/i.test(html) || /Bản nháp|Draft \(not submitted\)/i.test(html)) {
+      status = "draft";
+    }
+
+    const modifiedMatch = /id=["'](?:mod_assign_submission_timemodified|submissionmodified)["'][^>]*>([\s\S]*?)<\/td>/i.exec(html);
+    const gradeMatch = /id=["'](?:mod_assign_feedback_grade|feedbackgrade)["'][^>]*>([\s\S]*?)<\/td>/i.exec(html);
+
+    return {
+      lastattempt: {
+        submission: {
+          status,
+          timemodified: modifiedMatch ? Math.floor(Date.now() / 1000) : 0
+        }
+      },
+      feedback: {
+        grade: gradeMatch ? { grade: decodeHtmlText(gradeMatch[1]) } : undefined
+      },
+      warnings: []
+    };
   }
 
   async downloadFile(fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<{ sha256: string }> {
@@ -585,8 +704,50 @@ export class NodeSessionApiClient implements ApiClient {
     );
   }
 
-  async uploadFile(_filepath: string): Promise<MoodleRecord> {
-    throw new Error("File uploads are not supported through SSO session yet. Please use 'uit login --legacy' with your Student ID/password.");
+  async uploadFile(filepath: string): Promise<MoodleRecord> {
+    const filename = basename(filepath);
+    const blob = await openAsBlob(filepath);
+    const draftId = Math.floor(Math.random() * 899999999 + 100000000);
+
+    const tryUpload = async (repoId: string): Promise<MoodleRecord | null> => {
+      const form = new FormData();
+      form.append("sesskey", this.sesskey);
+      form.append("repo_id", repoId);
+      form.append("itemid", String(draftId));
+      form.append("repo_upload_file", blob, filename);
+      form.append("title", filename);
+
+      const response = await fetch(`${this.baseUrl}/repository/repository_ajax.php?action=upload`, {
+        method: "POST",
+        headers: { Cookie: this.cookieHeader },
+        body: form,
+        signal: AbortSignal.timeout(120_000)
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const data = (await response.json()) as MoodleRecord;
+      if (data?.errorcode === "invalidrepositoryid") return null;
+      if (data?.error) throw new Error(String(data.error));
+      return data;
+    };
+
+    let data = await tryUpload("5");
+    if (!data) {
+      const { html } = await this.fetchHtmlPage("/user/files.php");
+      const match =
+        /"id"\s*:\s*"(\d+)"[^}]*"type"\s*:\s*"upload"/i.exec(html) ||
+        /"type"\s*:\s*"upload"[^}]*"id"\s*:\s*"(\d+)"/i.exec(html);
+      const discoveredRepoId = match?.[1] || "4";
+      data = await tryUpload(discoveredRepoId);
+      if (!data) throw new Error("Could not find a valid Moodle upload repository.");
+    }
+
+    const itemid = Number(data.id ?? draftId);
+    return {
+      itemid,
+      filename: data.file || filename,
+      url: data.url,
+      ...data
+    };
   }
 
   async readFile(fileUrl: string): Promise<{ data: Uint8Array; mimeType: string }> {
