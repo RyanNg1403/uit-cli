@@ -1,0 +1,76 @@
+#!/bin/sh
+set -e
+
+commit_msg_file="$1"
+commit_msg=$(head -n 1 "$commit_msg_file")
+
+# Allow merge commits or interactive fixup/squash
+case "$commit_msg" in
+  Merge*|"fixup!"*|"squash!"*) exit 0 ;;
+esac
+
+# Get current branch
+branch=$(git branch --show-current 2>/dev/null || true)
+if [ -z "$branch" ]; then
+  exit 0
+fi
+
+case "$branch" in
+  feat/*)
+    expected_prefix="feat"
+    ;;
+  fix/*)
+    expected_prefix="fix"
+    ;;
+  chore/*)
+    expected_prefix="chore"
+    ;;
+  proj/*)
+    expected_prefix="proj"
+    ;;
+  release/*)
+    case "$commit_msg" in
+      "feat:"*|"feat("*"):"*|"fix:"*|"fix("*"):"*|"chore:"*|"chore("*"):"*|"proj:"*|"proj("*"):"*)
+        exit 0
+        ;;
+      *)
+        echo "❌ Error: Invalid commit message prefix on release branch." >&2
+        echo "   Allowed commit prefixes are: feat:, fix:, chore:, or proj: (e.g. chore: prepare v1.3.2)" >&2
+        echo "   (Note: There is no 'release:' commit prefix; final releases are merge commits into main)." >&2
+        echo "   Received message: $commit_msg" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  main)
+    case "$commit_msg" in
+      "feat:"*|"feat("*"):"*|"fix:"*|"fix("*"):"*|"chore:"*|"chore("*"):"*|"proj:"*|"proj("*"):"*)
+        exit 0
+        ;;
+      *)
+        echo "❌ Error: Invalid commit message on main branch." >&2
+        echo "   Allowed commit prefixes are: feat:, fix:, chore:, or proj:." >&2
+        echo "   Received message: $commit_msg" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    echo "❌ Error: Branch '$branch' does not match naming conventions." >&2
+    echo "   Allowed branch prefixes: feat/**, fix/**, chore/**, proj/**, release/**, or main" >&2
+    exit 1
+    ;;
+esac
+
+case "$commit_msg" in
+  "$expected_prefix:"*|"$expected_prefix("*"):"*)
+    exit 0
+    ;;
+  *)
+    echo "❌ Error: Commit message header does not match branch prefix '$expected_prefix'." >&2
+    echo "   Current branch:  $branch" >&2
+    echo "   Expected format: $expected_prefix: <message> (or $expected_prefix(scope): <message>)" >&2
+    echo "   Received message: $commit_msg" >&2
+    exit 1
+    ;;
+esac
