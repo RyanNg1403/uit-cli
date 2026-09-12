@@ -612,6 +612,7 @@ test("composer shows course context and a working model/effort picker", async ({
   await expect(page.locator("#composer-context")).toContainText("CS01");
   await expect(page.locator("#composer-context")).not.toContainText("Workspace write");
   await expect(page.locator("#model-picker")).toContainText("Auto");
+  await expect(page.locator("#model-picker")).not.toContainText("⚡");
   await page.locator("#model-picker").click();
   await expect(page.locator("#model-menu")).toContainText("GPT-5.6-Sol");
   await page.locator(".model-option").filter({ hasText: "GPT-5.6-Sol" }).click();
@@ -1059,6 +1060,51 @@ test("approval belongs to background thread, denial and errors are recoverable",
   await emit(page, "agent/error", { ...params, message: "Fixture disconnected", willRetry: false });
   await expect(page.locator("#agent-status")).toContainText("Connection interrupted");
   await expect(page.locator("#agent-messages")).toContainText("Fixture disconnected");
+});
+
+test("composer groups YOLO, Fast, and model controls, with UIT approvals available", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await expect(page.locator(".composer-options")).toBeVisible();
+  await expect(page.locator(".composer-submit")).toBeVisible();
+  const yolo = page.locator("#yolo-toggle");
+  await expect(yolo).toHaveAttribute("aria-pressed", "true");
+  await expect(yolo).toContainText("YOLO");
+  await expect(yolo).not.toContainText("⚡");
+
+  await yolo.click();
+  await expect(yolo).toHaveAttribute("aria-pressed", "false");
+  await expect(yolo).toContainText("Approvals");
+  await expect(yolo).not.toContainText("🛡");
+  const fast = page.locator("#fast-toggle");
+  await expect(fast).toHaveAttribute("aria-pressed", "false");
+  await fast.click();
+  await expect(fast).toHaveAttribute("aria-pressed", "true");
+  await expect(fast).toContainText("Fast");
+  await page.getByLabel("Message Codex").fill("Read the course contents");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start")).at(-1)!.input;
+  expect(input).toMatchObject({ yolo: false, fast: true });
+  const params = { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}` };
+  await emit(page, "agent/approval", {
+    ...params, requestId: "mcp-approval", kind: "mcp", serverName: "uit", toolName: "uit_course_contents",
+    description: "Read course modules, sections, assignments, and announcements for a UIT course.",
+    argumentsText: "Arguments: {\"courseId\":592}", command: "uit · uit_course_contents"
+  });
+  await expect(page.locator(".approval")).toContainText("Allow this UIT tool?");
+  await expect(page.locator(".approval")).toContainText("uit · uit_course_contents");
+  await expect(page.locator(".approval")).toContainText("Read course modules");
+  await expect(page.locator(".approval")).toContainText("Arguments: {\"courseId\":592}");
+  await expect(page.locator(".approval")).not.toContainText("Allow the uit MCP server");
+  await expect(page.locator(".approval")).not.toContainText("Future UIT tool requests");
+  await expect(page.getByRole("button", { name: "Allow once", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Always allow", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Always allow", exact: true }).click();
+  await expect(page.locator(".approval")).toHaveCount(0);
+  expect((await calls(page, "agent.approve")).at(-1)!.input).toEqual({ requestId: "mcp-approval", approved: true, remember: "uit-session" });
+  await emit(page, "turn/completed", { ...params, turn: { id: params.turnId, status: "completed" } });
+  await expect(page.locator("#agent-status")).toHaveText("Ready");
 });
 
 test("failed first send persists prompted thread, restores draft and resource for retry after reload", async ({ page, boot }) => {

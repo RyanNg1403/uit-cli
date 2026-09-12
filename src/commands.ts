@@ -256,10 +256,10 @@ export async function cmdView(args: { module_id: number }, ctx = createContext()
 
   switch (modname) {
     case "assign":
-      await viewAssign(moduleId, instance, courseId, name, ctx);
+      await viewAssign(moduleId, instance, courseId, ctx);
       return;
     case "forum":
-      await viewForum(moduleId, instance, name, ctx);
+      await viewForum(moduleId, instance, ctx);
       return;
     case "resource":
     case "folder":
@@ -293,7 +293,7 @@ export async function cmdView(args: { module_id: number }, ctx = createContext()
   }
 }
 
-async function viewAssign(moduleId: number, instance: number, courseId: number, name: string, ctx: CommandContext): Promise<void> {
+async function viewAssign(moduleId: number, instance: number, courseId: number, ctx: CommandContext): Promise<void> {
   const result = await ctx.api.call<MoodleRecord>("mod_assign_get_assignments", { "courseids[0]": courseId });
   let assign: MoodleRecord | undefined;
   for (const course of result.courses || []) {
@@ -368,8 +368,9 @@ async function viewAssign(moduleId: number, instance: number, courseId: number, 
   }
 }
 
-async function viewForum(moduleId: number, instance: number, name: string, ctx: CommandContext): Promise<void> {
-  const discussions = await ctx.api.call<MoodleRecord>("mod_forum_get_forum_discussions", { forumid: instance });
+async function viewForum(moduleId: number, instance: number | undefined, ctx: CommandContext): Promise<void> {
+  const key = typeof instance === "number" && Number.isSafeInteger(instance) && instance > 0 ? { forumid: instance } : { cmid: moduleId };
+  const discussions = await ctx.api.call<MoodleRecord>("mod_forum_get_forum_discussions", key);
   const rows = (discussions.discussions || []).map((discussion: MoodleRecord) => ({
     id: discussion.discussion,
     subject: clean(discussion.subject || ""),
@@ -612,17 +613,25 @@ export async function cmdAnnouncements(args: { course_id: number; limit?: number
   const isNewsName = (name: string) => /thông báo|announcement|tin tức|news/i.test(name);
   const sortedMods = [...forumMods].sort((a, b) => (isNewsName(b.name || "") ? 1 : 0) - (isNewsName(a.name || "") ? 1 : 0));
 
-  let forumId: number | undefined;
+  let forumKey: { forumid?: number; cmid?: number } | undefined;
   for (const mod of sortedMods) {
     const cmInfo = await ctx.api.call<MoodleRecord>("core_course_get_course_module", { cmid: mod.id });
-    if (cmInfo.cm?.instance) {
-      forumId = cmInfo.cm.instance;
-      if (cmInfo.cm?.type === "news" || isNewsName(mod.name || "")) break;
+    const instance = Number(cmInfo.cm?.instance);
+    if (Number.isSafeInteger(instance) && instance > 0) {
+      forumKey = { forumid: instance };
+    } else if (Number.isSafeInteger(Number(mod.id)) && Number(mod.id) > 0) {
+      // SSO HTML pages may hide the forum instance while still exposing the
+      // verified course-module ID; the discussions fallback accepts that key.
+      forumKey = { cmid: Number(mod.id) };
+    }
+    if (forumKey && (cmInfo.cm?.type === "news" || isNewsName(mod.name || ""))) break;
+    if (forumKey && !isNewsName(mod.name || "") && cmInfo.cm?.type !== "news") {
+      forumKey = undefined;
     }
   }
-  if (!forumId) die("No announcement forum found in this course");
+  if (!forumKey) die("No announcement forum found in this course");
 
-  const discussions = await ctx.api.call<MoodleRecord>("mod_forum_get_forum_discussions", { forumid: forumId });
+  const discussions = await ctx.api.call<MoodleRecord>("mod_forum_get_forum_discussions", forumKey);
   let discs = discussions.discussions || [];
   if (args.limit) discs = discs.slice(0, args.limit);
 

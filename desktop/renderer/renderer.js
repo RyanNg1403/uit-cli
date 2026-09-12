@@ -217,6 +217,8 @@ function persist() {
       draft: thread.draft, resources: thread.resources.map(safeResource),
       messages: thread.messages.filter((message) => message.kind !== "reasoning" && message.label !== "Thought process"),
       threadId: thread.threadId, turnId: thread.turnId, cwd: thread.cwd, started: thread.started, prompted: true, forkSource: thread.forkSource,
+      yolo: thread.yolo !== false,
+      fast: thread.fast === true,
       archived: Boolean(thread.archived),
       createdAt: thread.createdAt, updatedAt: thread.updatedAt,
       interrupted: thread.busy || thread.interrupted,
@@ -247,7 +249,8 @@ function restore() {
           ? { ...message, status: "stopped", label: "Interrupted", text: "This turn ended when UIT Studio closed. Send a message to continue." }
           : message),
       draft: String(thread.draft || ""), busy: false, pending: false, stopping: false,
-      branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(),
+      branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(), yolo: thread.yolo !== false,
+      fast: thread.fast === true,
     }));
     if (saved.projects !== undefined && (!Array.isArray(saved.projects) || !saved.projects.every((project) => project && typeof project.baseUrl === "string" && Number.isSafeInteger(project.id) && project.id > 0 && Number(project.userId) > 0))) throw new Error("Invalid saved projects");
     state.projects = (saved.projects || []).map((project) => {
@@ -1432,6 +1435,7 @@ function newThread(course = null, resource = null) {
   const thread = {
     id: uid(), owner: { baseUrl: owner.baseUrl, userId: owner.userId }, course: course ? courseSnapshot(course) : null,
     title: "New thread", draft: "", resources: resource ? [safeResource(resource)] : [], messages: [], model: defaultModel, effort: defaultEffort,
+    yolo: true, fast: false,
     threadId: null, turnId: null, cwd: null, started: false, prompted: false, busy: false, pending: false,
     stopping: false, branching: false, interrupted: false, approvals: [], completedTurns: new Set(),
     taskId: null, createdAt: Date.now(), updatedAt: Date.now(),
@@ -1587,7 +1591,7 @@ function renderConversation() {
   autoResizeInput();
   $("#agent-input").disabled = !thread || Boolean(thread?.archived);
   closeMention(); closeModelMenu();
-  renderComposerContext(); renderModelPicker();
+  renderComposerContext(); renderModelPicker(); renderYoloToggle(); renderFastToggle();
   renderChips(); renderMessages(); renderApprovals(); updateThreadStatus();
   checkThreadLock(thread);
 }
@@ -1669,7 +1673,33 @@ function modelLabel(thread) {
   return thread.effort ? `${name} ${thread.effort}` : name;
 }
 function renderModelPicker() {
-  $("#model-picker").textContent = `⚡ ${modelLabel(activeThread())}`;
+  $("#model-picker").textContent = modelLabel(activeThread());
+}
+function renderYoloToggle() {
+  const control = $("#yolo-toggle");
+  if (!control) return;
+  const thread = activeThread();
+  const enabled = thread ? thread.yolo !== false : true;
+  control.textContent = enabled ? "YOLO" : "Approvals";
+  control.setAttribute("aria-pressed", String(enabled));
+  control.classList.toggle("is-active", enabled);
+  control.title = enabled
+    ? "YOLO is on for this thread: Codex can use workspace and UIT tools without asking. Click to require approval for the next turn."
+    : "Approval mode is on for this thread: review workspace and UIT tool requests before they run. Click to enable YOLO for the next turn.";
+  control.disabled = !thread || Boolean(thread.busy || thread.pending || thread.archived);
+}
+function renderFastToggle() {
+  const control = $("#fast-toggle");
+  if (!control) return;
+  const thread = activeThread();
+  const enabled = thread?.fast === true;
+  control.textContent = enabled ? "⚡ Fast" : "Fast";
+  control.setAttribute("aria-pressed", String(enabled));
+  control.classList.toggle("is-active", enabled);
+  control.title = enabled
+    ? "Fast mode is on for this thread. Codex will request the fast service tier for the next turn."
+    : "Fast mode is off. Click to request Codex's fast service tier for this thread; availability and credit use depend on your model and account.";
+  control.disabled = !thread || Boolean(thread.busy || thread.pending || thread.archived);
 }
 function closeModelMenu() {
   $("#model-menu").hidden = true;
@@ -1924,19 +1954,23 @@ function renderAgentTurnStatus(thread) {
   target.setAttribute("aria-hidden", "false");
 }
 function toolFriendlyWorking(tool, args) {
-  if (tool === "uit_list_course_contents") return "Listing course contents...";
-  if (tool === "uit_read_resource") return `Reading course resource${args?.name ? `: ${args.name}` : ""}...`;
-  if (tool === "uit_download_resource") return "Downloading course material...";
-  if (tool === "uit_list_participants") return "Listing course participants...";
-  if (tool === "uit_get_grades") return "Reading grade report...";
+  const name = String(tool || "").split(".").pop();
+  if (["uit_list_course_contents", "uit_course_contents"].includes(name)) return "Listing course contents...";
+  if (name === "uit_read_resource") return `Reading course resource${args?.name ? `: ${args.name}` : ""}...`;
+  if (["uit_download_resource", "uit_download_material"].includes(name)) return "Downloading course material...";
+  if (["uit_list_participants", "uit_course_members"].includes(name)) return "Listing course participants...";
+  if (["uit_get_grades", "uit_course_grades"].includes(name)) return "Reading grade report...";
+  if (name === "uit_courses") return "Listing UIT courses...";
   return `Running ${tool}...`;
 }
 function toolFriendlyCompleted(tool, args, failed) {
-  if (tool === "uit_list_course_contents") return failed ? "Failed to read course contents" : "Read course contents";
-  if (tool === "uit_read_resource") return failed ? `Failed to read ${args?.kind || "resource"}` : `Read ${args?.kind || "resource"}${args?.name ? `: ${args.name}` : ""}`;
-  if (tool === "uit_download_resource") return failed ? "Failed to download course file" : "Downloaded course file";
-  if (tool === "uit_list_participants") return failed ? "Failed to list participants" : "Listed course participants";
-  if (tool === "uit_get_grades") return failed ? "Failed to read grades" : "Read grade report";
+  const name = String(tool || "").split(".").pop();
+  if (["uit_list_course_contents", "uit_course_contents"].includes(name)) return failed ? "Failed to read course contents" : "Read course contents";
+  if (name === "uit_read_resource") return failed ? `Failed to read ${args?.kind || "resource"}` : `Read ${args?.kind || "resource"}${args?.name ? `: ${args.name}` : ""}`;
+  if (["uit_download_resource", "uit_download_material"].includes(name)) return failed ? "Failed to download course file" : "Downloaded course file";
+  if (["uit_list_participants", "uit_course_members"].includes(name)) return failed ? "Failed to list participants" : "Listed course participants";
+  if (["uit_get_grades", "uit_course_grades"].includes(name)) return failed ? "Failed to read grades" : "Read grade report";
+  if (name === "uit_courses") return failed ? "Failed to list UIT courses" : "Listed UIT courses";
   return failed ? `${tool} failed` : `Ran ${tool}`;
 }
 function formatToolArguments(args) {
@@ -2435,6 +2469,7 @@ function updateThreadStatus() {
   $("#send-agent").disabled = !thread || !thread.course || thread.busy || thread.pending || thread.branching || thread.archived || !thread.draft.trim();
   $("#send-agent").hidden = Boolean(thread?.busy);
   $("#model-picker").disabled = !thread;
+  renderYoloToggle(); renderFastToggle();
   $("#attach-resource").disabled = !thread?.course;
   $("#stop-agent").hidden = !thread?.busy;
   $("#stop-agent").disabled = !thread?.threadId || !thread?.turnId || thread.stopping;
@@ -2464,7 +2499,7 @@ async function sendMessage() {
   try {
     const effectiveModel = thread.model || (codexModels || []).find((m) => /luna/i.test(m.id))?.id;
     const effectiveEffort = thread.effort || (effectiveModel && /luna/i.test(effectiveModel) ? "low" : undefined);
-    const payload = { ...courseRef(thread.course), shortname: thread.course.shortname || thread.course.fullname, taskId, resources: resourcePayload(resources), message: text, ...(effectiveModel ? { model: effectiveModel } : {}), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
+    const payload = { ...courseRef(thread.course), shortname: thread.course.shortname || thread.course.fullname, taskId, resources: resourcePayload(resources), message: text, yolo: thread.yolo !== false, fast: thread.fast === true, ...(effectiveModel ? { model: effectiveModel } : {}), ...(effectiveEffort ? { effort: effectiveEffort } : {}) };
     if (thread.forkSource && !thread.threadId) {
       const branch = await window.uit.agent.fork({ threadId: thread.forkSource });
       thread.threadId = branch.id;
@@ -2510,6 +2545,8 @@ async function branchThread(targetThread) {
     const branch = newThread(source.course);
     if (!branch) return;
     branch.title = `Branch: ${source.title}`; branch.renamed = true;
+    branch.yolo = source.yolo !== false;
+    branch.fast = source.fast === true;
     branch.forkSource = source.threadId; branch.cwd = source.cwd; branch.started = false;
     branch.turnId = source.turnId;
     branch.messages = structuredClone(source.messages); branch.draft = source.draft;
@@ -2523,15 +2560,25 @@ function renderApprovals() {
   const target = $("#agent-approvals"); target.replaceChildren();
   for (const approval of thread?.approvals || []) {
     const box = node("section", "approval"); box.dataset.requestId = String(approval.requestId);
-    box.append(node("h3", "", "Allow this action?"), node("pre", "", approval.command));
-    const decide = async (approved) => {
+    const isMcp = approval.kind === "mcp";
+    box.append(node("h3", "", isMcp ? "Allow this UIT tool?" : "Allow this action?"));
+    const toolLabel = `${approval.serverName || "UIT"} · ${approval.toolName || "UIT course tool"}`;
+    if (isMcp) {
+      box.append(node("p", "approval-tool-label", toolLabel));
+      if (approval.description) box.append(node("p", "approval-description", approval.description));
+      if (approval.argumentsText) box.append(node("pre", "approval-arguments", approval.argumentsText));
+      box.append(node("p", "approval-help", "Allow once or for this Studio session."));
+    } else box.append(node("pre", "", approval.command));
+    const decide = async (approved, remember = false) => {
       if (approval.pending) return;
       approval.pending = true;
       $$("button", box).forEach((control) => { control.disabled = true; });
       try {
-        await window.uit.agent.approve({ requestId: approval.requestId, approved });
+        await window.uit.agent.approve({ requestId: approval.requestId, approved, ...(remember ? { remember: "uit-session" } : {}) });
         thread.approvals = thread.approvals.filter((item) => item !== approval);
-        thread.messages.push({ role: "event", kind: "approval", status: approved ? "completed" : "stopped", label: approved ? "Action approved" : "Action denied", text: approval.command });
+        const label = !approved ? (isMcp ? "UIT tool denied" : "Action denied") : remember ? "UIT tools enabled for this session" : isMcp ? "UIT tool approved" : "Action approved";
+        const text = isMcp ? toolLabel : approval.command;
+        thread.messages.push({ role: "event", kind: "approval", status: approved ? "completed" : "stopped", label, text });
         persist(); if (thread.id === state.activeId) { renderApprovals(); renderMessages(); updateThreadStatus(); }
       } catch (error) {
         approval.pending = false;
@@ -2539,7 +2586,15 @@ function renderApprovals() {
         if (thread.id === state.activeId) renderApprovals();
       }
     };
-    box.append(button("Deny", "secondary-button", () => decide(false)), button("Allow", "primary-button", () => decide(true)));
+    const actions = node("div", "approval-actions");
+    actions.append(button("Deny", "secondary-button", () => decide(false)));
+    if (isMcp) {
+      actions.append(button("Allow once", "primary-button", () => decide(true)));
+      const always = button("Always allow", "secondary-button approval-session-button", () => decide(true, true));
+      always.title = "Approve future UIT MCP tool requests until you disconnect or restart Studio.";
+      actions.append(always);
+    } else actions.append(button("Allow", "primary-button", () => decide(true)));
+    box.append(actions);
     if (approval.error) box.append(node("p", "form-error", approval.error));
     $$("button", box).forEach((control) => { control.disabled = !!approval.pending; });
     target.append(box);
@@ -2621,7 +2676,15 @@ function handleAgentEvent(message) {
       if (turnState() && turnId) turnState().turnId = turnId;
       break;
     case "agent/approval":
-      if (!thread.approvals.some((approval) => approval.requestId === params.requestId)) thread.approvals.push({ requestId: params.requestId, command: String(params.command || params.reason || "No action details were provided. Deny if you cannot verify the request.") });
+      if (!thread.approvals.some((approval) => approval.requestId === params.requestId)) thread.approvals.push({
+        requestId: params.requestId,
+        kind: params.kind === "mcp" ? "mcp" : "action",
+        serverName: params.serverName,
+        toolName: params.toolName,
+        description: typeof params.description === "string" ? params.description : "",
+        argumentsText: typeof params.argumentsText === "string" ? params.argumentsText : "",
+        command: String(params.command || params.reason || "No action details were provided. Deny if you cannot verify the request.")
+      });
       break;
     case "item/agentMessage/delta": {
       const entry = eventMessage("assistant", "Codex");
@@ -2659,8 +2722,9 @@ function handleAgentEvent(message) {
         entry.output = "";
         entry.text = entry.input || toolName;
       } else if (item.type === "mcpToolCall") {
-        const entry = eventMessage("event", `Calling ${item.server}.${item.tool}...`, "tool", "working");
-        entry.toolName = `${item.server}.${item.tool}`;
+        const toolName = `${item.server}.${item.tool}`;
+        const entry = eventMessage("event", toolFriendlyWorking(toolName, item.arguments), "tool", "working");
+        entry.toolName = toolName;
         entry.command = entry.toolName;
         entry.input = formatToolArguments(item.arguments);
         entry.output = "";
@@ -2713,9 +2777,10 @@ function handleAgentEvent(message) {
         const entry = eventMessage("event", "MCP Tool completed", "tool", failed ? "failed" : "completed");
         entry.toolName = `${item.server}.${item.tool}`;
         entry.command = entry.toolName;
+        entry.input = formatToolArguments(item.arguments) || entry.input;
         entry.durationMs = item.durationMs;
         const dur = item.durationMs ? ` · ${(item.durationMs / 1000).toFixed(1)}s` : "";
-        entry.label = `${failed ? "Failed" : "Ran"} ${entry.toolName}${dur}`;
+        entry.label = `${toolFriendlyCompleted(entry.toolName, item.arguments, failed)}${dur}`;
         entry.output = item.error ? String(item.error.message || item.error) : JSON.stringify(item.result, null, 2);
         entry.text = [entry.input, entry.output].filter(Boolean).join("\n");
       } else if (item.type === "fileChange") {
@@ -3078,6 +3143,23 @@ $("#agent-input").addEventListener("click", updateMentions);
 $("#agent-input").addEventListener("keyup", (event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateMentions(); });
 $("#agent-form").addEventListener("submit", (event) => { event.preventDefault(); closeMention(); closeModelMenu(); sendMessage(); });
 $("#stop-agent").addEventListener("click", stopThread);
+$("#yolo-toggle").addEventListener("click", () => {
+  const thread = activeThread();
+  if (!thread) return;
+  const enabled = !(thread.yolo !== false);
+  thread.yolo = enabled;
+  persist();
+  renderYoloToggle();
+  updateThreadStatus();
+});
+$("#fast-toggle").addEventListener("click", () => {
+  const thread = activeThread();
+  if (!thread) return;
+  thread.fast = !(thread.fast === true);
+  persist();
+  renderFastToggle();
+  updateThreadStatus();
+});
 $("#model-picker").addEventListener("click", () => { $("#model-menu").hidden ? openModelMenu() : closeModelMenu(); });
 $("#model-menu").addEventListener("keydown", (event) => {
   if (event.key === "Escape") { event.preventDefault(); closeModelMenu(); $("#model-picker").focus(); return; }

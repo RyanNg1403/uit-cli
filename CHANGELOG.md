@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3] - 2026-09-12
+
+- Unified UIT MCP tools between Codex-hosted and Studio agent sessions, including explicit course-resource reads and downloads.
+- Added Studio YOLO, Fast mode, and session-level UIT tool approval controls.
+- Split the Playwright-free `uit-runtime` from the CLI and made Studio installable as its own npm package.
+- Hardened modern Moodle HTML fallbacks, SSO session routing, and course/forum resource resolution.
+
 ## [1.3.2] - 2026-09-12
 
 - Added session file upload support and web HTML fallbacks for modern Moodle instances.

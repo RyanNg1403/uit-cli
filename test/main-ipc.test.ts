@@ -574,7 +574,7 @@ describe("main IPC trust and routing", () => {
 });
 
 describe("main course-bound agent orchestration (no Codex process)", () => {
-  it("resolves @references through the service, ignores renderer context/cwd and registers only read/download tools", async () => {
+  it("resolves @references through the service and lets the configured MCP server provide course tools", async () => {
     const h = await harness(); h.connect();
     const resource = { kind: "assignment", id: 601, moduleId: 701, description: "FORGED RESOURCE" };
     const result = await h.start({ resources: [resource], context: "FORGED CONTEXT", cwd: "/outside", shortname: "FORGED NAME" });
@@ -582,10 +582,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     expect(h.service.courseWorkspace).toHaveBeenCalledWith(1, "CS01", CURRENT, 101);
     const [cwd, options] = h.codex.startThread.mock.calls[0] as unknown as [string, any];
     expect(cwd).toBe(workspace);
-    expect(options.dynamicTools.map((tool: any) => tool.name)).toEqual([
-      "uit_list_course_contents", "uit_read_resource", "uit_download_resource", "uit_list_participants", "uit_get_grades"
-    ]);
-    expect(options.dynamicTools.every((tool: any) => tool.inputSchema.additionalProperties === false)).toBe(true);
+    expect(options).not.toHaveProperty("dynamicTools");
     const [threadId, prompt, turnCwd] = h.codex.startTurn.mock.calls[0] as unknown as string[];
     expect(threadId).toBe(result.threadId);
     expect(turnCwd).toBe(workspace);
@@ -602,13 +599,22 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     const result = await h.start({ model: "gpt-5.6-sol", effort: "high" });
     expect(result).toMatchObject({ model: "gpt-5.6-sol", effort: "high" });
     expect(h.codex.startThread).toHaveBeenLastCalledWith(workspace, expect.objectContaining({ model: "gpt-5.6-sol" }));
-    expect(h.codex.startTurn).toHaveBeenLastCalledWith(result.threadId, expect.any(String), workspace, { model: "gpt-5.6-sol", effort: "high" });
+    expect(h.codex.startTurn).toHaveBeenLastCalledWith(result.threadId, expect.any(String), workspace, { model: "gpt-5.6-sol", effort: "high", approvalPolicy: "on-request", serviceTierForTurn: "default" });
     await expect(h.invoke("codex:models")).resolves.toEqual([{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", efforts: ["low", "high"] }]);
     await expect(h.invoke("codex:models")).resolves.toEqual([{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", efforts: ["low", "high"] }]);
     expect(h.codex.listModels).toHaveBeenCalledTimes(1);
     await expect(h.start({ model: "bogus model!" })).rejects.toThrow("Unknown model selection");
     await expect(h.start({ effort: "bogus effort!" })).rejects.toThrow("Unknown reasoning effort");
     expect(h.codex.startThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes Fast mode as a per-turn service-tier override", async () => {
+    const h = await harness(); h.connect();
+    const result = await h.start({ fast: true });
+    expect(result).toMatchObject({ fast: true });
+    expect(h.codex.startTurn).toHaveBeenLastCalledWith(result.threadId, expect.any(String), workspace, { approvalPolicy: "on-request", serviceTierForTurn: "fast" });
+    expect(h.bindings().get(result.threadId)).toMatchObject({ fast: true });
+    await expect(h.start({ fast: "true" })).rejects.toThrow("Fast mode must be a boolean");
   });
 
   it("does not start a turn when enrollment or reference resolution fails", async () => {
@@ -670,35 +676,8 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     });
   });
 
-  it("dynamic tools read without downloading, expose partial read errors and download only on explicit request", async () => {
-    const h = await harness(); h.connect(); const { threadId } = await h.start();
-    const call = (tool: string, args = {}) => h.request({ id: `call-${tool}`, method: "item/tool/call", params: { threadId, tool, arguments: args } });
-    h.service.listAssignments.mockRejectedValueOnce(new Error("Assignments offline"));
-    await call("uit_list_course_contents");
-    const response = h.codex.respond.mock.calls.at(-1)![1];
-    expect(response.success).toBe(true);
-    expect(JSON.parse(response.contentItems[0].text)).toEqual({ modules: [{ id: 501, name: "Module" }], assignments: { error: "Assignments offline" }, announcements: [{ id: 801 }] });
-    await call("uit_read_resource", { kind: "module", id: 501 });
-    expect(h.service.resolveCourseResource).toHaveBeenCalledWith(1, { kind: "module", id: 501 }, h.currentApi);
-    expect(h.service.materializeFile).not.toHaveBeenCalled();
-    await expect(call("uit_submit_assignment")).rejects.toThrow("not supported");
-    await expect(call("uit_download_resource", { fileUrl: `${LEGACY}/a` })).rejects.toThrow("selected UIT course site");
-    const fileUrl = `${CURRENT}/pluginfile.php/1/slide.pdf`;
-    await call("uit_download_resource", { fileUrl });
-    expect(h.service.materializeFile).toHaveBeenCalledExactlyOnceWith(1, fileUrl, "resource", h.currentApi, expect.objectContaining({ baseUrl: CURRENT, userId: 101 }));
-    expect(h.shell.openPath).not.toHaveBeenCalled();
-    h.service.listCourseParticipants = vi.fn().mockResolvedValue([{ id: 101, fullname: "Student", roles: ["student"] }, { id: 102, fullname: "Teacher", roles: ["editingteacher"] }]);
-    h.service.getCourseGrades = vi.fn().mockResolvedValue([{ item: "Lab 1", grade: "10" }]);
-    await call("uit_list_participants", { role: "teacher" });
-    expect(h.service.listCourseParticipants).toHaveBeenCalledWith(1, h.currentApi);
-    expect(JSON.parse(h.codex.respond.mock.calls.at(-1)![1].contentItems[0].text)).toEqual([{ id: 102, fullname: "Teacher", roles: ["editingteacher"] }]);
-    await call("uit_get_grades");
-    expect(h.service.getCourseGrades).toHaveBeenCalledWith(1, h.currentApi, 101);
-    expect(JSON.parse(h.codex.respond.mock.calls.at(-1)![1].contentItems[0].text)).toEqual([{ item: "Lab 1", grade: "10" }]);
-  });
-
   it.each(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"])("correlates %s and responds with protocol decision only once", async (method) => {
-    const h = await harness(); h.connect(); const { threadId } = await h.start();
+    const h = await harness(); h.connect(); const { threadId } = await h.start({ yolo: false });
     for (const approved of [false, true]) {
       const requestId = `approval-${approved}`;
       await h.request({ id: requestId, method, params: { threadId, command: "fixture --dry-run", reason: "Read workspace", cwd: workspace } });
@@ -711,7 +690,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
   });
 
   it.each(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"])("shows the full permission scope for %s before approving", async (method) => {
-    const h = await harness(); h.connect(); const { threadId } = await h.start();
+    const h = await harness(); h.connect(); const { threadId } = await h.start({ yolo: false });
     const grantRoot = path.join(home, "shared");
     const additionalPermissions = { fileSystem: { write: [grantRoot] }, network: { enabled: true } };
     const networkApprovalContext = { host: "example.invalid", protocol: "https" };
@@ -731,6 +710,49 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     expect(h.codex.respond).toHaveBeenCalledExactlyOnceWith("scope-approval", { decision: "accept" });
   });
 
+  it("handles MCP tool approval with the elicitation response format", async () => {
+    const h = await harness(); h.connect(); const { threadId } = await h.start({ yolo: false });
+    for (const approved of [false, true]) {
+      const requestId = `mcp-${approved}`;
+      await h.request({ id: requestId, method: "mcpServer/elicitation/request", params: {
+        threadId, serverName: "uit", mode: "form", message: "Allow course contents?",
+        _meta: {
+          codex_approval_kind: "mcp_tool_call", tool_name: "uit_course_contents", tool_description: "Read course contents.",
+          tool_params: { courseId: 42 }
+        },
+        requestedSchema: { type: "object", properties: {} }
+      } });
+      expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", { method: "agent/approval", params: expect.objectContaining({
+        kind: "mcp", serverName: "uit", toolName: "uit_course_contents", description: "Read course contents.",
+        argumentsText: "Arguments: {\"courseId\":42}", command: "uit · uit_course_contents"
+      }) });
+      await h.invoke("agent:approve", { requestId, approved, ...(approved ? { remember: "uit-session" } : {}) });
+      expect(h.codex.respond).toHaveBeenLastCalledWith(requestId, {
+        action: approved ? "accept" : "decline", content: approved ? {} : null, _meta: null
+      });
+    }
+    h.window.webContents.send.mockClear();
+    await h.request({ id: "mcp-auto", method: "mcpServer/elicitation/request", params: {
+      threadId, serverName: "uit", mode: "form", message: "Allow another course tool?",
+      _meta: { codex_approval_kind: "mcp_tool_call", tool_params: { courseId: 43 } },
+      requestedSchema: { type: "object", properties: {} }
+    } });
+    expect(h.codex.respond).toHaveBeenLastCalledWith("mcp-auto", { action: "accept", content: {}, _meta: null });
+    expect(h.window.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it("auto-accepts UIT tool approvals in the default YOLO mode", async () => {
+    const h = await harness(); h.connect(); const { threadId } = await h.start();
+    h.window.webContents.send.mockClear();
+    await h.request({ id: "mcp-yolo", method: "mcpServer/elicitation/request", params: {
+      threadId, serverName: "uit", mode: "form", message: "Allow course contents?",
+      _meta: { codex_approval_kind: "mcp_tool_call", tool_params: { courseId: 1 } },
+      requestedSchema: { type: "object", properties: {} }
+    } });
+    expect(h.codex.respond).toHaveBeenLastCalledWith("mcp-yolo", { action: "accept", content: {}, _meta: null });
+    expect(h.window.webContents.send).not.toHaveBeenCalled();
+  });
+
   it("denies unsupported interactions and rejects tools after an account changes", async () => {
     const h = await harness(); h.connect(); const { threadId } = await h.start();
     for (const [method, response] of [["item/permissions/requestApproval", { permissions: {}, scope: "turn" }], ["item/tool/requestUserInput", { answers: {} }], ["execCommandApproval", { decision: "denied" }]] as const) {
@@ -739,7 +761,8 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
       expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", expect.objectContaining({ method: "agent/error", params: expect.objectContaining({ taskId: "task-1", threadId }) }));
     }
     runInContext("ssoSession.userId = 999", h.context);
-    await expect(h.request({ id: "tool", method: "item/tool/call", params: { threadId, tool: "uit_list_course_contents" } })).rejects.toThrow("different account");
+    await h.request({ id: "tool", method: "item/tool/call", params: { threadId, tool: "uit_course_contents" } });
+    expect(h.codex.respond).toHaveBeenLastCalledWith("tool", expect.objectContaining({ success: false }));
     expect(h.service.getCourseContents).not.toHaveBeenCalled();
   });
 
@@ -782,7 +805,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     expect(options).toEqual({ mode: 0o600 });
     expect(h.fs.rename).toHaveBeenCalledWith(file, path.join(profile, "course-threads.json"));
     const saved = JSON.parse(data);
-    expect(saved).toEqual([[threadId, { ...reference, shortname: "CS01", workspace }]]);
+    expect(saved).toEqual([[threadId, { ...reference, shortname: "CS01", workspace, yolo: true, fast: false }]]);
     const restored = await harness(saved);
     expect(restored.bindings().get(threadId)).toMatchObject({ ...reference, busy: false });
     const input = { ...reference, threadId, taskId: "restored-task", message: "Continue" };
@@ -835,7 +858,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
 
   it("a stale completion must not unlock a newer turn or discard its approval", async () => {
     const h = await harness(); h.connect();
-    const first = await h.start();
+    const first = await h.start({ yolo: false });
     h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: first.turnId } } });
     const next = await h.invoke("agent:send", { ...reference, threadId: first.threadId, taskId: "task-next", message: "Next turn" });
     await h.request({ id: "next-approval", method: "item/commandExecution/requestApproval", params: { threadId: first.threadId, turnId: next.turnId, command: "fixture" } });
@@ -846,7 +869,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
 
   it.each([false, true])("ignores a stale completion before the next start response (turn/started received: %s)", async (started) => {
     const h = await harness(); h.connect();
-    const first = await h.start();
+    const first = await h.start({ yolo: false });
     h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: first.turnId } } });
     const entered = deferred();
     const response = deferred<{ id: string; status: string }>();

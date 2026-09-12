@@ -157,18 +157,18 @@ describe("CodexClient", () => {
       if (message.method === "thread/start") server.send({ id: message.id, result: { thread: { id: "thread" }, model: "gpt-5.6-sol" } });
       if (message.method === "turn/start") server.send({ id: message.id, result: { turn: { id: "turn" } } });
       if (message.method === "model/list") server.send({ id: message.id, result: { data: [
-        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Workhorse", supportedReasoningEfforts: ["low", { reasoningEffort: "high" }] },
+        { id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Workhorse", supportedReasoningEfforts: ["low", { reasoningEffort: "high" }], defaultServiceTier: "default", serviceTiers: [{ id: "default", name: "Standard", description: "Standard speed" }, { id: "fast", name: "Fast", description: "Faster responses" }] },
         { id: "hidden-model", displayName: "Hidden", hidden: true },
         { id: 42 },
       ] } });
     });
     await expect(server.client.startThread("/workspace", { model: "gpt-5.6-sol" })).resolves.toEqual({ thread: { id: "thread" }, model: "gpt-5.6-sol" });
-    await server.client.startTurn("thread", "hello", "/workspace", { model: "gpt-5.6-sol", effort: "high" });
-    await expect(server.client.listModels()).resolves.toEqual([{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Workhorse", efforts: ["low", "high"] }]);
+    await server.client.startTurn("thread", "hello", "/workspace", { model: "gpt-5.6-sol", effort: "high", serviceTierForTurn: "fast" });
+    await expect(server.client.listModels()).resolves.toEqual([{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Workhorse", efforts: ["low", "high"], defaultServiceTier: "default", serviceTiers: [{ id: "default", name: "Standard", description: "Standard speed" }, { id: "fast", name: "Fast", description: "Faster responses" }] }]);
     const started = server.messages.find((message) => message.method === "thread/start");
     expect(started?.params).toMatchObject({ model: "gpt-5.6-sol" });
     const turn = server.messages.find((message) => message.method === "turn/start");
-    expect(turn?.params).toMatchObject({ model: "gpt-5.6-sol", effort: "high" });
+    expect(turn?.params).toMatchObject({ model: "gpt-5.6-sol", effort: "high", serviceTierForTurn: "fast" });
   });
 
   it.each([0, 1, "1", "approval-id"])("routes server request ID %s independently from pending responses", async (id) => {

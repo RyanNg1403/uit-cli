@@ -5,6 +5,8 @@ import { createInterface } from "node:readline";
 export interface CodexClientOptions {
   command?: string;
   args?: string[];
+  /** Working directory for the app-server process (and its MCP children). */
+  cwd?: string;
   requestTimeoutMs?: number;
   spawnProcess?: typeof spawn;
 }
@@ -46,11 +48,21 @@ export type CodexDynamicToolSpec = CodexDynamicToolFunction | {
 export interface CodexThreadStartOptions {
   dynamicTools?: CodexDynamicToolSpec[];
   model?: string;
+  approvalPolicy?: "on-request" | "never";
 }
 
 export interface CodexTurnStartOptions {
   model?: string;
   effort?: string;
+  approvalPolicy?: "on-request" | "never";
+  /** Service tier for this turn; use `default` for standard speed or `fast` when available. */
+  serviceTierForTurn?: "default" | "fast" | string;
+}
+
+export interface CodexServiceTier {
+  id: string;
+  name: string;
+  description: string;
 }
 
 export interface CodexModelOption {
@@ -58,6 +70,8 @@ export interface CodexModelOption {
   displayName: string;
   description?: string;
   efforts: string[];
+  serviceTiers?: CodexServiceTier[];
+  defaultServiceTier?: string;
 }
 
 export interface CodexThread {
@@ -76,6 +90,7 @@ export interface CodexTurn {
 export class CodexClient extends EventEmitter {
   private readonly command: string;
   private readonly args: string[];
+  private readonly cwd?: string;
   private readonly requestTimeoutMs: number;
   private readonly spawnProcess: typeof spawn;
   private process: ChildProcessWithoutNullStreams | undefined;
@@ -89,6 +104,7 @@ export class CodexClient extends EventEmitter {
     super();
     this.command = options.command || "codex";
     this.args = options.args || ["app-server", "--listen", "stdio://"];
+    this.cwd = options.cwd;
     this.requestTimeoutMs = options.requestTimeoutMs || 20_000;
     this.spawnProcess = options.spawnProcess || spawn;
   }
@@ -104,7 +120,10 @@ export class CodexClient extends EventEmitter {
     // Defer spawning until the shared promise is installed, including synchronous spawn failures.
     const connection = Promise.resolve().then(async () => {
       if (this.connecting !== connection) throw new Error("Codex client disconnected");
-      process = this.spawnProcess(this.command, this.args, { stdio: ["pipe", "pipe", "pipe"] });
+      process = this.spawnProcess(this.command, this.args, {
+        ...(this.cwd ? { cwd: this.cwd } : {}),
+        stdio: ["pipe", "pipe", "pipe"]
+      });
       this.process = process;
       const child = process;
       const lines = createInterface({ input: child.stdout });
@@ -154,6 +173,7 @@ export class CodexClient extends EventEmitter {
       sandbox: "workspace-write",
       approvalPolicy: "on-request",
       ...(options.model !== undefined ? { model: options.model } : {}),
+      ...(options.approvalPolicy !== undefined ? { approvalPolicy: options.approvalPolicy } : {}),
       ...(options.dynamicTools !== undefined ? { dynamicTools: options.dynamicTools } : {})
     });
     return { thread: result.thread as CodexThread, model: typeof result.model === "string" ? result.model : undefined };
@@ -165,14 +185,23 @@ export class CodexClient extends EventEmitter {
     const entries = Array.isArray(result?.data) ? result.data : [];
     return entries
       .filter((entry: any) => entry && typeof entry.id === "string" && !entry.hidden)
-      .map((entry: any) => ({
-        id: entry.id,
-        displayName: typeof entry.displayName === "string" && entry.displayName ? entry.displayName : entry.id,
-        description: typeof entry.description === "string" ? entry.description : undefined,
-        efforts: Array.isArray(entry.supportedReasoningEfforts)
-          ? entry.supportedReasoningEfforts.map((item: any) => typeof item === "string" ? item : item?.reasoningEffort).filter((effort: unknown): effort is string => typeof effort === "string" && Boolean(effort))
-          : []
-      }));
+      .map((entry: any) => {
+        const serviceTiers = Array.isArray(entry.serviceTiers)
+          ? entry.serviceTiers
+            .filter((tier: any) => tier && typeof tier.id === "string" && typeof tier.name === "string" && typeof tier.description === "string")
+            .map((tier: any) => ({ id: tier.id, name: tier.name, description: tier.description }))
+          : [];
+        return {
+          id: entry.id,
+          displayName: typeof entry.displayName === "string" && entry.displayName ? entry.displayName : entry.id,
+          description: typeof entry.description === "string" ? entry.description : undefined,
+          efforts: Array.isArray(entry.supportedReasoningEfforts)
+            ? entry.supportedReasoningEfforts.map((item: any) => typeof item === "string" ? item : item?.reasoningEffort).filter((effort: unknown): effort is string => typeof effort === "string" && Boolean(effort))
+            : [],
+          ...(serviceTiers.length ? { serviceTiers } : {}),
+          ...(typeof entry.defaultServiceTier === "string" ? { defaultServiceTier: entry.defaultServiceTier } : {})
+        };
+      });
   }
 
   async resumeThread(threadId: string): Promise<CodexThread> {
@@ -188,7 +217,9 @@ export class CodexClient extends EventEmitter {
       input: [{ type: "text", text }],
       ...(cwd ? { cwd } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
-      ...(options.effort !== undefined ? { effort: options.effort } : {})
+      ...(options.effort !== undefined ? { effort: options.effort } : {}),
+      ...(options.approvalPolicy !== undefined ? { approvalPolicy: options.approvalPolicy } : {}),
+      ...(options.serviceTierForTurn !== undefined ? { serviceTierForTurn: options.serviceTierForTurn } : {})
     });
     return result.turn as CodexTurn;
   }
