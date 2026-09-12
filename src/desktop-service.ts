@@ -5,7 +5,7 @@ import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
-import { get, save } from "./config.js";
+import { activateSession as selectActiveSession, get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 
@@ -28,6 +28,10 @@ export interface DesktopLoginResult {
   session: DesktopSession;
   api: ApiClient;
   token?: string;
+}
+
+export function activateSession(authMode: "token" | "sso", baseUrl: string): void {
+  selectActiveSession(authMode, baseUrl);
 }
 
 export interface CourseSummary {

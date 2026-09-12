@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import {
   closeSync,
   existsSync,
@@ -19,17 +19,9 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ApiClient } from "./types.js";
 import { createTokenApiClient, createSessionApiClient } from "./api.js";
-import { getActiveConfig, readSessionsFile, type Config } from "./config.js";
-import {
-  getCourseContents,
-  listAssignments,
-  listAnnouncements,
-  materializeFile,
-  listCourseParticipants,
-  getCourseGrades,
-  listCourses
-} from "./desktop-service.js";
-import { workspacePath } from "./desktop-service.js";
+import { getActiveConfig } from "./config.js";
+import { createUitToolExecutor, UIT_TOOLS, type UitToolServices } from "./uit-tools.js";
+import * as desktopService from "./desktop-service.js";
 
 function packageVersion(): string {
   try {
@@ -46,51 +38,13 @@ export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
   return current === root || current.startsWith(`${root}${sep}`);
 }
 
-function persistedConfigs(): Config[] {
-  const sessions = readSessionsFile();
-  const configs: Config[] = [];
-  // Environment credentials remain the active CLI default, but must not hide a
-  // saved account that is explicitly encoded in a Studio course workspace.
-  if (process.env.UIT_TOKEN) configs.push(getActiveConfig({ fresh: true }) as Config);
-  if (sessions.sso?.baseUrl && sessions.sso.sesskey && sessions.sso.userId && Array.isArray(sessions.sso.cookies)) {
-    configs.push({
-      authType: "sso",
-      baseUrl: sessions.sso.baseUrl.replace(/\/+$/, ""),
-      userId: Number(sessions.sso.userId),
-      sesskey: sessions.sso.sesskey,
-      cookies: sessions.sso.cookies
-    });
-  }
-  for (const session of sessions.legacy || []) {
-    if (session?.baseUrl && session.token && session.userId) {
-      configs.push({ authType: "token", baseUrl: session.baseUrl.replace(/\/+$/, ""), userId: Number(session.userId), token: session.token });
-    }
-  }
-  return configs;
-}
-
-function workspaceCourseId(cwd: string): number | undefined {
-  const root = resolve(homedir(), ".uit", "courses");
-  const current = resolve(cwd);
-  if (!current.startsWith(`${root}${sep}`)) return undefined;
-  const parts = current.slice(root.length + 1).split(sep);
-  const match = /^course-([1-9]\d*)$/.exec(parts[2] || "");
-  return match ? Number(match[1]) : undefined;
-}
-
 export function resolveAvailableSession(cwd: string = process.cwd()): { api: ApiClient; userId: number; baseUrl: string } {
-  // Bind credentials to the portal/account encoded by the course workspace.
-  // MCP servers are long-lived, so reload persisted sessions on every call.
-  const courseId = workspaceCourseId(cwd);
-  if (!courseId) throw new Error("UIT MCP tools require a specific UIT course workspace.");
-  const current = resolve(cwd);
-  const config = persistedConfigs().find((candidate) => {
-    const userId = Number(candidate.userId);
-    if (!Number.isSafeInteger(userId) || userId <= 0) return false;
-    const workspace = workspacePath(courseId, candidate.baseUrl, userId);
-    return current === workspace || current.startsWith(`${workspace}${sep}`);
-  });
-  if (!config) throw new Error("No saved UIT session matches this course workspace. Reconnect its portal account.");
+  if (!isInsideUitWorkspace(cwd)) {
+    throw new Error("UIT MCP tools are only available inside a UIT course workspace.");
+  }
+  // MCP servers are long-lived, so reload the active session on every call.
+  // The course is selected by an explicit tool argument, never inferred from cwd.
+  const config = getActiveConfig({ fresh: true });
   const userId = Number(config.userId);
   if (!Number.isSafeInteger(userId) || userId <= 0) {
     throw new Error("The active UIT session has no valid user ID. Sign in again or set UIT_USER_ID.");
@@ -111,72 +65,20 @@ export function resolveAvailableSession(cwd: string = process.cwd()): { api: Api
   };
 }
 
-export const UIT_MCP_TOOLS = [
-  {
-    name: "uit_courses",
-    description: "List accessible UIT courses for the authenticated student account.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false
-    }
-  },
-  {
-    name: "uit_course_contents",
-    description: "Read course modules, sections, assignments, and announcements for a UIT course.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        courseId: { type: "integer", description: "Course ID (positive integer)" }
-      },
-      required: ["courseId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "uit_course_members",
-    description: "List course instructors, teaching assistants, and enrolled students.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        courseId: { type: "integer", description: "Course ID" },
-        role: {
-          type: "string",
-          enum: ["all", "teacher", "student"],
-          description: "Filter: 'teacher' for instructors, 'student' for students, or 'all'."
-        }
-      },
-      required: ["courseId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "uit_course_grades",
-    description: "Read student grade report, scores, maximum points, and teacher feedback for a course.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        courseId: { type: "integer", description: "Course ID" }
-      },
-      required: ["courseId"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "uit_download_material",
-    description: "Explicitly download a course file into the project's materials folder. Returns the local filepath.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        courseId: { type: "integer", description: "Course ID" },
-        fileUrl: { type: "string", description: "Full URL of the file from course contents" },
-        filename: { type: "string", description: "Optional filename to save as" }
-      },
-      required: ["courseId", "fileUrl"],
-      additionalProperties: false
-    }
-  }
-];
+export const UIT_MCP_TOOLS = UIT_TOOLS;
+
+const uitToolServices: UitToolServices = {
+  listCourses: (api, userId) => desktopService.listCourses(api, userId),
+  getCourseContents: (courseId, api) => desktopService.getCourseContents(courseId, api),
+  listAssignments: (courseId, api) => desktopService.listAssignments(courseId, api),
+  listAnnouncements: (courseId, api) => desktopService.listAnnouncements(courseId, api),
+  listCourseParticipants: (courseId, api) => desktopService.listCourseParticipants(courseId, api),
+  getCourseGrades: (courseId, api, userId) => desktopService.getCourseGrades(courseId, api, userId),
+  resolveCourseResource: (courseId, reference, api) => desktopService.resolveCourseResource(courseId, reference as unknown as desktopService.CourseResourceReference, api),
+  materializeFile: (courseId, fileUrl, filename, api, identity) => desktopService.materializeFile(courseId, fileUrl, filename, api, identity)
+};
+
+const executeUitTool = createUitToolExecutor(uitToolServices);
 
 export async function executeMcpTool(
   name: string,
@@ -187,56 +89,7 @@ export async function executeMcpTool(
     throw new Error("UIT MCP tools are only available inside a UIT course workspace.");
   }
   const session = resolveAvailableSession(cwd);
-  const courseId = Number(args.courseId);
-  const scopedCourseId = workspaceCourseId(cwd)!;
-  if (name !== "uit_courses" && courseId !== scopedCourseId) {
-    throw new Error(`This MCP server is scoped to course ${scopedCourseId}; cross-course access is not allowed.`);
-  }
-
-  switch (name) {
-    case "uit_courses": {
-      return await listCourses(session.api, session.userId);
-    }
-    case "uit_course_contents": {
-      if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid courseId");
-      const [modules, assignments, announcements] = await Promise.allSettled([
-        getCourseContents(courseId, session.api),
-        listAssignments(courseId, session.api),
-        listAnnouncements(courseId, session.api)
-      ]);
-      return {
-        modules: modules.status === "fulfilled" ? modules.value : { error: modules.reason.message },
-        assignments: assignments.status === "fulfilled" ? assignments.value : { error: assignments.reason.message },
-        announcements: announcements.status === "fulfilled" ? announcements.value : { error: announcements.reason.message }
-      };
-    }
-    case "uit_course_members": {
-      if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid courseId");
-      const roleFilter = args.role || "all";
-      if (!new Set(["all", "teacher", "student"]).has(roleFilter)) throw new Error("Invalid role filter");
-      const participants = await listCourseParticipants(courseId, session.api);
-      return participants.filter((p) => {
-        if (roleFilter === "all") return true;
-        const roleStrings = p.roles.map((r: string) => r.toLowerCase());
-        if (roleFilter === "teacher") return roleStrings.some((r: string) => /gv|teacher|instructor|giảng|trợ/i.test(r));
-        if (roleFilter === "student") return roleStrings.some((r: string) => /student|học\s*viên/i.test(r));
-        return true;
-      });
-    }
-    case "uit_course_grades": {
-      if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid courseId");
-      return await getCourseGrades(courseId, session.api, session.userId);
-    }
-    case "uit_download_material": {
-      if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Invalid courseId");
-      const fileUrl = String(args.fileUrl || "");
-      const filename = String(args.filename || "material");
-      const localPath = await materializeFile(courseId, fileUrl, filename, session.api, session);
-      return { path: localPath };
-    }
-    default:
-      throw new Error(`Unknown tool: ${name}`);
-  }
+  return await executeUitTool(name, args, session);
 }
 
 export function runMcpServer(): void {
@@ -484,8 +337,13 @@ export function writeFileAtomically(path: string, content: string, mode = 0o600)
   }
 }
 
+function codexConfigPath(): string {
+  const codexHome = process.env.CODEX_HOME?.trim();
+  return join(codexHome ? resolve(codexHome) : join(homedir(), ".codex"), "config.toml");
+}
+
 export function installMcpServer(options: { command?: string; args?: string[] } = {}): void {
-  const configPath = join(homedir(), ".codex", "config.toml");
+  const configPath = codexConfigPath();
   const standalonePath = process.env.UIT_CLI_EXECUTABLE;
   const binPath = options.command
     ? undefined
@@ -497,23 +355,23 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
   const configured = (existing: string) => upsertMcpConfig(existing, command, args);
 
   if (!existsSync(configPath)) {
-    const codexDir = join(homedir(), ".codex");
+    const codexDir = dirname(configPath);
     if (!existsSync(codexDir)) {
       mkdirSync(codexDir, { recursive: true });
     }
     writeFileAtomically(configPath, configured(""));
-    console.log(`Created ~/.codex/config.toml and added [mcp_servers.uit]`);
+    console.log(`Created ${configPath} and added [mcp_servers.uit]`);
     return;
   }
 
   const existing = readFileSync(configPath, "utf8");
   const updated = configured(existing);
   if (updated === existing) {
-    console.log(`uit MCP server is already configured in ~/.codex/config.toml`);
+    console.log(`uit MCP server is already configured in ${configPath}`);
     return;
   }
   writeFileAtomically(configPath, updated, statSync(configPath).mode & 0o777);
   console.log(new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]`, "m").test(existing)
-    ? `Updated uit MCP server path in ~/.codex/config.toml to ${command}`
-    : `Configured uit MCP server in ~/.codex/config.toml`);
+    ? `Updated uit MCP server path in ${configPath} to ${command}`
+    : `Configured uit MCP server in ${configPath}`);
 }

@@ -20,6 +20,7 @@ const sharedModules = [
   "moodle-session-client",
   "output",
   "types",
+  "uit-tools",
   "unzip"
 ];
 

@@ -11,7 +11,8 @@ This document evaluates the coexistence, trade-offs, and relationship between th
 | **Can both operate without AI Studio running?** | **Yes** | The CLI and MCP server both run independently of UIT Studio. They share `~/.uit/sessions.json`; `UIT_TOKEN`/`UIT_BASE_URL`/`UIT_USER_ID` remain optional process-environment overrides for scripts and CI. No `.env` file is read. |
 | **Can the agent use the CLI in any folder?** | **Yes** | `uit` is a global CLI and can run from any directory. MCP tools intentionally remain gated to managed course workspaces under `~/.uit/courses` via `isInsideUitWorkspace(process.cwd())`, preventing course tools from appearing in unrelated projects. |
 | **Does only MCP have access to SSO-based courses?** | **No** | `uit login` stores the current-site SSO session in `~/.uit/sessions.json`, and the CLI, MCP server, and UIT Studio resolve that same session. Legacy Moodle accounts remain available through `uit login --legacy`. |
-| **Is the CLI overwhelming for agents compared to MCP?** | **Yes** | The CLI exposes **17 fine-grained commands** requiring argument formatting, terminal paging, and multi-turn bash calls. The MCP server provides **5 focused, pre-bundled tools** that return structured JSON directly into agent memory. |
+| **Is the CLI overwhelming for agents compared to MCP?** | **Yes** | The CLI exposes **17 fine-grained commands** requiring argument formatting, terminal paging, and multi-turn bash calls. The MCP server provides **6 focused, pre-bundled tools** that return structured JSON directly into agent memory. |
+| **Does UIT Studio use the same MCP tools as direct Codex?** | **Yes** | Studio starts Codex with `~/.uit/courses` as its working root, so its configured UIT MCP server and standalone `uit mcp` use the same canonical registry and dispatcher in `src/uit-tools.ts`. |
 
 ---
 
@@ -31,7 +32,7 @@ The CLI and MCP server are not redundant; they are optimized for fundamentally d
              │                                 │
              ▼                                 ▼
        UIT CLI                              UIT MCP
-   • 17 granular commands              • 5 bundled JSON tools
+   • 17 granular commands              • 6 bundled JSON tools
    • Browser launch (uit open)         • Native JSON-RPC stdio
    • Submission & file uploads         • Workspace-gated (~/.uit/courses)
    • Raw Moodle API inspection         • Token-efficient responses
@@ -67,6 +68,7 @@ src/
 ├── api.ts                   <-- Shared HTTP/REST/Moodle client
 ├── cli.ts                   <-- Commander CLI definition & 'uit mcp' command
 ├── mcp-server.ts            <-- MCP JSON-RPC protocol implementation
+├── uit-tools.ts              <-- Canonical MCP tool registry/dispatcher (Studio + standalone MCP)
 ├── moodle-session-client.ts <-- Moodle AJAX & session scraper
 └── desktop-service.ts       <-- Shared data resolvers (courses, grades, files)
 ```
