@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UIT CLI & UIT Studio — Modern Moodle for Developers & Students</title>
+  <meta name="description" content="Fast terminal access and an AI-powered desktop workspace for courses.uit.edu.vn. Manage courses, track assignments, and study with Codex AI.">
+  <meta name="theme-color" content="#0a0e17">
+
+  <!-- Open Graph / Social Sharing -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ryanng1403.github.io/uit-cli/">
+  <meta property="og:title" content="UIT CLI & UIT Studio">
+  <meta property="og:description" content="The modern command-line tool and AI desktop workspace for UIT Moodle LMS.">
+  <meta property="og:image" content="assets/studio-courses.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Ambient background glow effects -->
+  <div class="ambient-glow"></div>
+  <div class="grid-overlay"></div>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="container nav-container">
+      <a href="#" class="brand">
+        <img src="assets/icon.svg" alt="UIT CLI Logo" class="brand-logo">
+        <span>UIT CLI & Studio</span>
+        <span class="brand-badge">v1.3.4</span>
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="#features" class="nav-link">Features</a></li>
+        <li><a href="#showcase" class="nav-link">Showcase</a></li>
+        <li><a href="#commands" class="nav-link">Commands</a></li>
+        <li><a href="#install" class="nav-link">Install</a></li>
+        <li><a href="CLI_REFERENCE.md" class="nav-link">Docs</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme">
+          <span id="theme-icon"></span>
+        </button>
+        <a href="https://github.com/RyanNg1403/uit-cli" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="hero">
+    <div class="container">
+      <a href="https://github.com/RyanNg1403/uit-cli/releases" class="hero-pill" target="_blank" rel="noopener noreferrer">
+        <span>✨ UIT CLI & UIT Studio v1.3.4 is out</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+
+      <h1 class="hero-title">
+        Moodle, accelerated for <br>
+        <span class="gradient-text">developers & students.</span>
+      </h1>
+
+      <p class="hero-description">
+        Fast terminal access and an AI desktop workspace for <strong>courses.uit.edu.vn</strong>.
+        Sync courses, track deadlines, download lecture slides, and study with Codex AI.
+      </p>
+
+      <!-- Quick Install Box -->
+      <div class="install-card">
+        <div class="install-tabs">
+          <button class="tab-btn install-tab-btn active" data-platform="npm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+            npm
+          </button>
+          <button class="tab-btn install-tab-btn" data-platform="curl">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            macOS / Linux (curl)
+          </button>
+          <button class="tab-btn install-tab-btn" data-platform="windows">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+            Windows
+          </button>
+        </div>
+        <div class="install-body">
+          <div class="code-wrapper">
+            <span class="prompt-prefix">$</span>
+            <code id="install-code">npm install -g uit-cli</code>
+          </div>
+          <button id="install-copy-btn" class="copy-btn" onclick="copyText('npm install -g uit-cli', this)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            Copy
+          </button>
+        </div>
+      </div>
+
+      <div class="hero-ctas">
+        <a href="#install" class="btn btn-primary">
+          <span>Get Started</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+        </a>
+        <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          <span>Download Studio App</span>
+        </a>
+        <a href="CLI_REFERENCE.md" class="btn btn-ghost">
+          <span>CLI Reference</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Showcase / Visual Preview Section -->
+  <section id="showcase" class="showcase-section">
+    <div class="container">
+      <div class="showcase-tabs-container">
+        <div class="showcase-tab-bar">
+          <button class="showcase-pill active" data-target="view-cli">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            UIT CLI in Action
+          </button>
+          <button class="showcase-pill" data-target="view-studio">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            UIT Studio Dashboard
+          </button>
+          <button class="showcase-pill" data-target="view-codex">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            Codex AI Study Copilot
+          </button>
+        </div>
+      </div>
+
+      <!-- App Window Mockup -->
+      <div class="window-frame">
+        <div class="window-header">
+          <div class="window-dots">
+            <div class="dot dot-red"></div>
+            <div class="dot dot-yellow"></div>
+            <div class="dot dot-green"></div>
+          </div>
+          <div class="window-title">uit — zsh — 110x32</div>
+        </div>
+        <div class="window-content">
+          <!-- CLI Demo GIF -->
+          <div id="view-cli" class="showcase-view active">
+            <img src="assets/demo.gif" alt="UIT CLI Live Demo" class="showcase-media" loading="lazy">
+          </div>
+
+          <!-- Studio Courses View -->
+          <div id="view-studio" class="showcase-view">
+            <img src="assets/studio-courses.png" alt="UIT Studio Courses Workspace" class="showcase-media" loading="lazy">
+          </div>
+
+          <!-- Codex AI View -->
+          <div id="view-codex" class="showcase-view">
+            <img src="assets/studio-chat.png" alt="UIT Studio Codex AI Chat" class="showcase-media" loading="lazy">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Core Features Section -->
+  <section id="features" class="features-section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-subtitle">Engineered for Speed</div>
+        <h2 class="section-title">Everything you need for UIT Moodle</h2>
+        <p class="section-lead">Say goodbye to slow web interfaces. Experience frictionless study workflows in your terminal or desktop.</p>
+      </div>
+
+      <div class="features-grid">
+        <!-- Feature 1 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">⚡</div>
+          <h3 class="feature-title">Lightning-Fast CLI</h3>
+          <p class="feature-desc">Query course announcements, assignment due dates, and semester grades in milliseconds. Supports rich JSON output for scripting.</p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">🖥️</div>
+          <h3 class="feature-title">Native Desktop Studio</h3>
+          <p class="feature-desc">A polished desktop app built with Electron. View syllabus topics, read PDF slides directly, and organize your semester offline.</p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">🤖</div>
+          <h3 class="feature-title">Codex AI Copilot</h3>
+          <p class="feature-desc">Chat with an AI study tutor grounded in your actual course materials, lecture slides, and assignments via OpenAI Codex.</p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">🔐</div>
+          <h3 class="feature-title">Seamless UIT SSO</h3>
+          <p class="feature-desc">One-click interactive browser login with UIT SSO. Sessions are securely persisted in mode <code>0600</code> and shared between CLI and Studio.</p>
+        </div>
+
+        <!-- Feature 5 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">📦</div>
+          <h3 class="feature-title">Smart Offline Cache</h3>
+          <p class="feature-desc">Batch download entire course archives with structured folder hierarchies. Keep studying even when campus Wi-Fi drops.</p>
+        </div>
+
+        <!-- Feature 6 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">🔌</div>
+          <h3 class="feature-title">Agentic MCP Server</h3>
+          <p class="feature-desc">Includes a native Model Context Protocol (MCP) server so coding agents like Claude Code or Codex CLI can query your courses directly.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Commands Explorer -->
+  <section id="commands" class="commands-section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-subtitle">Command Cheat Sheet</div>
+        <h2 class="section-title">Master the Terminal Workflow</h2>
+        <p class="section-lead">Intuitive commands designed around your everyday study needs. URLs or IDs are both supported.</p>
+      </div>
+
+      <div class="command-filters">
+        <button class="filter-btn active" data-category="all">All Commands</button>
+        <button class="filter-btn" data-category="auth">Auth & SSO</button>
+        <button class="filter-btn" data-category="courses">Courses</button>
+        <button class="filter-btn" data-category="assignments">Assignments</button>
+        <button class="filter-btn" data-category="grades">Grades</button>
+        <button class="filter-btn" data-category="studio">Studio</button>
+      </div>
+
+      <div class="commands-grid">
+        <!-- Login -->
+        <div class="cmd-card" data-category="auth">
+          <div class="cmd-code-row">
+            <code>uit login</code>
+            <button class="cmd-copy-small" onclick="copyText('uit login', this)" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+          </div>
+          <p class="cmd-card-desc">Interactive SSO login via browser. Supports <code>--legacy</code> for the classic Moodle portal.</p>
+        </div>
+
+        <!-- Courses -->
+        <div class="cmd-card" data-category="courses">
+          <div class="cmd-code-row">
+            <code>uit courses</code>
+            <button class="cmd-copy-small" onclick="copyText('uit courses', this)" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+          </div>
+          <p class="cmd-card-desc">List enrolled courses for the current semester with course IDs and progress.</p>
+        </div>
+
+        <!-- Contents -->
+        <div class="cmd-card" data-category="courses">
+          <div class="cmd-code-row">
+            <code>uit contents &lt;course-id&gt;</code>
+            <button class="cmd-copy-small" onclick="copyText('uit contents 19207', this)" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+          </div>
+          <p class="cmd-card-desc">Inspect course outline, weekly lecture slides, announcements, and files.</p>
+        </div>
+
+        <!-- Assignments -->
+        <div class="cmd-card" data-category="assignments">
+          <div class="cmd-code-row">
+            <code>uit assignments</code>
+            <button class="cmd-copy-small" onclick="copyText('uit assignments', this)" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+          </div>
+          <p class="cmd-card-desc">List upcoming deadlines, overdue items, and submission status across all subjects.</p>
+        </div>
+
+        <!-- Grades -->
+        <div class="cmd-card" data-category="grades">
+          <div class="cmd-code-row">
+            <code>uit grades &lt;course-id&gt;</code>
+            <button class="cmd-copy-small" onclick="copyText('uit grades 19207', this)" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+          </div>
+          <p class="cmd-card-desc">Display gradebook breakdown including quizzes, midterms, labs, and final marks.</p>
+        </div>
+
+        <!-- Studio -->
+        <div class="cmd-card" data-category="studio">
+          <div class="cmd-code-row">
+            <code>uit studio</code>
+            <button class="cmd-copy-small" onclick="copyText('uit studio', this)" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+          </div>
+          <p class="cmd-card-desc">Launch the native desktop interface with PDF previews and the Codex AI Copilot.</p>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 36px;">
+        <a href="CLI_REFERENCE.md" class="btn btn-secondary">
+          <span>Read Full CLI Reference (40+ Commands & Flags)</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download & Install Hub -->
+  <section id="install" class="download-section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-subtitle">Get Started in Seconds</div>
+        <h2 class="section-title">Install on your operating system</h2>
+        <p class="section-lead">Available for macOS, Linux, and Windows with automatic updates.</p>
+      </div>
+
+      <div class="download-grid">
+        <!-- macOS -->
+        <div class="download-card">
+          <span class="download-badge">Apple Silicon / Intel</span>
+          <div>
+            <div class="platform-header">
+              <div class="platform-icon">🍎</div>
+              <h3 class="platform-name">macOS</h3>
+            </div>
+            <p class="feature-desc">Install via npm, standalone signed shell script, or download the macOS DMG.</p>
+            
+            <div class="download-snippet">
+              <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh</code>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; flex-direction: column;">
+            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer">
+              Download .DMG / App
+            </a>
+          </div>
+        </div>
+
+        <!-- Linux -->
+        <div class="download-card">
+          <span class="download-badge">AppImage / Tarball</span>
+          <div>
+            <div class="platform-header">
+              <div class="platform-icon">🐧</div>
+              <h3 class="platform-name">Linux</h3>
+            </div>
+            <p class="feature-desc">Standalone binary release and desktop AppImage for Ubuntu, Debian, Arch, and Fedora.</p>
+            
+            <div class="download-snippet">
+              <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio</code>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; flex-direction: column;">
+            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
+              Download AppImage
+            </a>
+          </div>
+        </div>
+
+        <!-- Windows -->
+        <div class="download-card">
+          <span class="download-badge">PowerShell / Installer</span>
+          <div>
+            <div class="platform-header">
+              <div class="platform-icon">🪟</div>
+              <h3 class="platform-name">Windows</h3>
+            </div>
+            <p class="feature-desc">Requires Node.js 20.19+. Install via global npm or download the Windows setup installer.</p>
+            
+            <div class="download-snippet">
+              <code>npm install -g uit-cli uit-studio</code>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; flex-direction: column;">
+            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
+              Download Windows Installer
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section class="faq-section">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-subtitle">Got Questions?</div>
+        <h2 class="section-title">Frequently Asked Questions</h2>
+      </div>
+
+      <div class="faq-list">
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>Does UIT CLI store my university password?</span>
+            <span class="faq-icon">+</span>
+          </div>
+          <div class="faq-answer">
+            <strong>No.</strong> Interactive login opens official UIT Single Sign-On (SSO) in your browser. The CLI receives an authenticated session token, which is saved locally to <code>~/.uit/sessions.json</code> with strict <code>0600</code> Unix file permissions. Your raw password is never intercepted or saved.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>Do I need OpenAI Codex to use UIT Studio?</span>
+            <span class="faq-icon">+</span>
+          </div>
+          <div class="faq-answer">
+            <strong>No.</strong> All core Moodle features (browsing courses, inspecting assignments, viewing grades, and offline downloads) work completely standalone. Codex CLI is only required if you want to enable the AI Study Copilot agent chat.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>Can I integrate UIT CLI into scripts and other tools?</span>
+            <span class="faq-icon">+</span>
+          </div>
+          <div class="faq-answer">
+            <strong>Yes!</strong> Every command supports the <code>--json</code> flag to output clean, structured JSON payloads directly to standard out, making it trivial to pipe into <code>jq</code>, cron jobs, or notification scripts.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span>How do I update to the latest version?</span>
+            <span class="faq-icon">+</span>
+          </div>
+          <div class="faq-answer">
+            Run <code>npm update -g uit-cli uit-studio</code> or re-run the official installer script. You can also check the GitHub Releases page for new binary builds.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA Banner -->
+  <section class="cta-banner">
+    <div class="container">
+      <div class="cta-box">
+        <h2 class="section-title" style="margin-bottom: 12px;">Start learning faster today.</h2>
+        <p class="section-lead" style="margin-bottom: 28px;">Join UIT students saving hours every semester with UIT CLI & UIT Studio.</p>
+        <div style="display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;">
+          <a href="#install" class="btn btn-primary">Install UIT CLI</a>
+          <a href="https://github.com/RyanNg1403/uit-cli" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">Star on GitHub ⭐</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand-col">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <img src="assets/icon.svg" alt="UIT Logo" style="height: 28px;">
+            <span style="font-weight: 700; color: var(--text-primary);">UIT CLI & UIT Studio</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5;">
+            An open-source companion tool for students of the University of Information Technology (VNU-HCM).
+          </p>
+        </div>
+
+        <div class="footer-links-group">
+          <div>
+            <h4 class="footer-col-title">Product</h4>
+            <ul class="footer-links-list">
+              <li><a href="#features" class="footer-link">Features</a></li>
+              <li><a href="#showcase" class="footer-link">Showcase</a></li>
+              <li><a href="#commands" class="footer-link">Commands</a></li>
+              <li><a href="#install" class="footer-link">Installation</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="footer-col-title">Documentation</h4>
+            <ul class="footer-links-list">
+              <li><a href="CLI_REFERENCE.md" class="footer-link">CLI Reference</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/blob/main/.github/CONTRIBUTING.md" class="footer-link" target="_blank" rel="noopener noreferrer">Contributing Guide</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/blob/main/CHANGELOG.md" class="footer-link" target="_blank" rel="noopener noreferrer">Changelog</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="footer-col-title">Community</h4>
+            <ul class="footer-links-list">
+              <li><a href="https://github.com/RyanNg1403/uit-cli" class="footer-link" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/issues" class="footer-link" target="_blank" rel="noopener noreferrer">Report an Issue</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/releases" class="footer-link" target="_blank" rel="noopener noreferrer">Releases</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          Released under the <a href="https://github.com/RyanNg1403/uit-cli/blob/main/LICENSE" style="color: var(--accent-cyan); text-decoration: none;">MIT License</a>.
+        </div>
+        <div>
+          Independent student project. Not officially affiliated with UIT VNU-HCM.
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
