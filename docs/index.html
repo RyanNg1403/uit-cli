@@ -1,20 +1,20 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UIT CLI & UIT Studio — Modern Moodle for Developers & Students</title>
-  <meta name="description" content="Fast terminal access and an AI-powered desktop workspace for courses.uit.edu.vn. Manage courses, track assignments, and study with Codex AI.">
-  <meta name="theme-color" content="#0a0e17">
+  <title>UIT CLI & UIT Studio — Trường Đại học Công nghệ Thông tin (ĐHQG-HCM)</title>
+  <meta name="description" content="Công cụ dòng lệnh và Không gian học tập AI Desktop dành riêng cho sinh viên Trường Đại học Công nghệ Thông tin - ĐHQG-HCM trên hệ thống courses.uit.edu.vn.">
+  <meta name="theme-color" content="#00558F">
 
-  <!-- Open Graph / Social Sharing -->
+  <!-- Open Graph / University Identity -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://ryanng1403.github.io/uit-cli/">
-  <meta property="og:title" content="UIT CLI & UIT Studio">
-  <meta property="og:description" content="The modern command-line tool and AI desktop workspace for UIT Moodle LMS.">
+  <meta property="og:title" content="UIT CLI & UIT Studio — ĐHQG-HCM">
+  <meta property="og:description" content="Bộ công cụ Terminal và AI Desktop Workspace hiện đại cho sinh viên UIT Moodle LMS.">
   <meta property="og:image" content="assets/studio-courses.png">
 
-  <!-- Favicon -->
+  <!-- Favicon / UIT Mascot Đậu Đậu -->
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
 
   <!-- Fonts -->
@@ -25,36 +25,58 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Ambient background glow effects -->
+  <!-- Campus Institutional Top Header -->
+  <aside class="campus-header">
+    <div class="container campus-header-content">
+      <div class="campus-vnu-tag">
+        <span class="badge-pill">ĐHQG-HCM</span>
+        <span>Trường Đại học Công nghệ Thông tin — University of Information Technology</span>
+      </div>
+      <ul class="campus-quicklinks">
+        <li><a href="https://www.uit.edu.vn" target="_blank" rel="noopener noreferrer">UIT Portal</a></li>
+        <li><a href="https://courses.uit.edu.vn" target="_blank" rel="noopener noreferrer">Courses Moodle</a></li>
+        <li><a href="https://portal.uit.edu.vn" target="_blank" rel="noopener noreferrer">Cổng Sinh Viên</a></li>
+        <li><a href="https://github.com/RyanNg1403/uit-cli" target="_blank" rel="noopener noreferrer">GitHub Project</a></li>
+      </ul>
+    </div>
+  </aside>
+
+  <!-- Ambient background glow matching official UIT Blue (#1E63D8) and Flame Orange (#FF6600) -->
   <div class="ambient-glow"></div>
   <div class="grid-overlay"></div>
 
-  <!-- Navbar -->
+  <!-- Main Navigation -->
   <nav class="navbar">
     <div class="container nav-container">
       <a href="#" class="brand">
-        <img src="assets/icon.svg" alt="UIT CLI Logo" class="brand-logo">
-        <span>UIT CLI & Studio</span>
-        <span class="brand-badge">v1.3.4</span>
+        <img src="assets/icon.svg" alt="UIT Mascot Đậu Đậu" class="brand-mascot-icon">
+        <div class="brand-text-block">
+          <div class="brand-title">
+            <span>UIT CLI & Studio</span>
+            <span class="brand-badge">v1.3.4</span>
+          </div>
+          <span class="brand-subtitle">VNU-HCM • Moodle Companion</span>
+        </div>
       </a>
 
       <ul class="nav-links">
-        <li><a href="#features" class="nav-link">Features</a></li>
-        <li><a href="#showcase" class="nav-link">Showcase</a></li>
-        <li><a href="#commands" class="nav-link">Commands</a></li>
-        <li><a href="#install" class="nav-link">Install</a></li>
-        <li><a href="CLI_REFERENCE.md" class="nav-link">Docs</a></li>
+        <li><a href="#features" class="nav-link">Tính năng</a></li>
+        <li><a href="#showcase" class="nav-link">Giao diện</a></li>
+        <li><a href="#terminal-demo" class="nav-link">Terminal Simulator</a></li>
+        <li><a href="#daudau-tips" class="nav-link">Đậu Đậu Tips</a></li>
+        <li><a href="#install" class="nav-link">Cài đặt</a></li>
+        <li><a href="CLI_REFERENCE.md" class="nav-link">Tài liệu CLI</a></li>
       </ul>
 
       <div class="nav-actions">
-        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme">
-          <span id="theme-icon"></span>
+        <button id="theme-toggle" class="btn-icon" aria-label="Đổi giao diện Sáng/Tối">
+          <span id="theme-label">☀️ Light</span>
         </button>
-        <a href="https://github.com/RyanNg1403/uit-cli" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
+        <a href="https://github.com/RyanNg1403/uit-cli" class="btn btn-outline btn-sm" target="_blank" rel="noopener noreferrer">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path>
           </svg>
-          <span>GitHub</span>
+          <span>Star on GitHub</span>
         </a>
       </div>
     </div>
@@ -63,338 +85,441 @@
   <!-- Hero Section -->
   <header class="hero">
     <div class="container">
-      <a href="https://github.com/RyanNg1403/uit-cli/releases" class="hero-pill" target="_blank" rel="noopener noreferrer">
-        <span>✨ UIT CLI & UIT Studio v1.3.4 is out</span>
+      <a href="https://github.com/RyanNg1403/uit-cli/releases" class="hero-identity-tag" target="_blank" rel="noopener noreferrer">
+        <span class="hero-identity-dot"></span>
+        <span>Phát hành chính thức v1.3.4 • Chuẩn hóa trải nghiệm học tập UIT</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </a>
 
       <h1 class="hero-title">
-        Moodle, accelerated for <br>
-        <span class="gradient-text">developers & students.</span>
+        Moodle học tập tại UIT, <br>
+        <span class="text-gradient-uit">tốc độ & chuẩn mực cho lập trình viên.</span>
       </h1>
 
-      <p class="hero-description">
-        Fast terminal access and an AI desktop workspace for <strong>courses.uit.edu.vn</strong>.
-        Sync courses, track deadlines, download lecture slides, and study with Codex AI.
+      <p class="hero-lead">
+        Truy xuất tài liệu, kiểm tra deadline bài tập, tra cứu điểm số và học tập cùng AI trên hệ thống
+        <strong>courses.uit.edu.vn</strong> chỉ với vài dòng lệnh trong Terminal hoặc giao diện Desktop hiện đại.
       </p>
+
+      <!-- Mascot Welcome speech bubble -->
+      <div class="mascot-welcome-row">
+        <img src="assets/icon.svg" alt="Đậu Đậu" class="mascot-avatar-small">
+        <div class="mascot-bubble">
+          <strong>Gấu Đậu Đậu nhắn nhủ:</strong> "Mùa nộp đồ án hay ôn thi không còn sợ server Moodle quay đều nữa! Đăng nhập UIT SSO một lần và dùng mượt mà cả kỳ."
+        </div>
+      </div>
 
       <!-- Quick Install Box -->
       <div class="install-card">
         <div class="install-tabs">
-          <button class="tab-btn install-tab-btn active" data-platform="npm">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-            npm
+          <button class="install-tab-btn active" data-platform="npm">
+            <span>⚡ npm CLI</span>
           </button>
-          <button class="tab-btn install-tab-btn" data-platform="curl">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-            macOS / Linux (curl)
+          <button class="install-tab-btn" data-platform="curl">
+            <span>🍎 macOS / Linux (curl)</span>
           </button>
-          <button class="tab-btn install-tab-btn" data-platform="windows">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
-            Windows
+          <button class="install-tab-btn" data-platform="studio">
+            <span>🖥️ App UIT Studio</span>
+          </button>
+          <button class="install-tab-btn" data-platform="windows">
+            <span>🪟 Windows</span>
           </button>
         </div>
+
         <div class="install-body">
-          <div class="code-wrapper">
-            <span class="prompt-prefix">$</span>
+          <div class="install-code-group">
+            <span class="terminal-prompt">uit@campus:~$</span>
             <code id="install-code">npm install -g uit-cli</code>
           </div>
-          <button id="install-copy-btn" class="copy-btn" onclick="copyText('npm install -g uit-cli', this)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-            Copy
+          <button id="btn-copy-install" class="copy-btn" onclick="copyCommand('npm install -g uit-cli', this)">
+            Sao chép
           </button>
         </div>
       </div>
 
-      <div class="hero-ctas">
-        <a href="#install" class="btn btn-primary">
-          <span>Get Started</span>
+      <div class="hero-actions">
+        <a href="#install" class="btn btn-uit-blue">
+          <span>Bắt đầu cài đặt</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
         </a>
-        <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+        <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-uit-orange" target="_blank" rel="noopener noreferrer">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-          <span>Download Studio App</span>
+          <span>Tải UIT Studio App</span>
         </a>
-        <a href="CLI_REFERENCE.md" class="btn btn-ghost">
-          <span>CLI Reference</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        <a href="CLI_REFERENCE.md" class="btn btn-outline">
+          <span>Tra cứu toàn bộ lệnh</span>
         </a>
+      </div>
+
+      <!-- ASCII UIT Crest Card -->
+      <div class="crest-ascii-card" title="UIT Crest ASCII Logo">
+        <img src="assets/logo.svg" alt="UIT ASCII Crest Logo" class="crest-svg-image">
       </div>
     </div>
   </header>
 
-  <!-- Showcase / Visual Preview Section -->
+  <!-- Showcase Section -->
   <section id="showcase" class="showcase-section">
     <div class="container">
-      <div class="showcase-tabs-container">
-        <div class="showcase-tab-bar">
-          <button class="showcase-pill active" data-target="view-cli">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-            UIT CLI in Action
-          </button>
-          <button class="showcase-pill" data-target="view-studio">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-            UIT Studio Dashboard
-          </button>
-          <button class="showcase-pill" data-target="view-codex">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-            Codex AI Study Copilot
-          </button>
+      <div class="section-head">
+        <div class="section-eyebrow">
+          <span>🔥</span> Trải nghiệm chuyên nghiệp
         </div>
+        <h2 class="section-heading">Giao diện sinh viên & kỹ sư IT</h2>
+        <p class="section-desc">Linh hoạt giữa tốc độ của dòng lệnh Terminal và sự trực quan của ứng dụng Desktop Studio.</p>
+      </div>
+
+      <div class="showcase-switchers">
+        <button class="showcase-switcher-btn active" data-target="view-terminal">
+          <span>💻 1. UIT CLI Terminal</span>
+        </button>
+        <button class="showcase-switcher-btn" data-target="view-dashboard">
+          <span>📚 2. UIT Studio Dashboard</span>
+        </button>
+        <button class="showcase-switcher-btn" data-target="view-copilot">
+          <span>🤖 3. Codex AI Study Copilot</span>
+        </button>
       </div>
 
       <!-- App Window Mockup -->
-      <div class="window-frame">
-        <div class="window-header">
+      <div class="window-mockup">
+        <div class="window-titlebar">
           <div class="window-dots">
-            <div class="dot dot-red"></div>
-            <div class="dot dot-yellow"></div>
-            <div class="dot dot-green"></div>
+            <div class="window-dot dot-red"></div>
+            <div class="window-dot dot-yellow"></div>
+            <div class="window-dot dot-green"></div>
           </div>
-          <div class="window-title">uit — zsh — 110x32</div>
+          <div class="window-caption">uit-cli — zsh (courses.uit.edu.vn)</div>
         </div>
-        <div class="window-content">
-          <!-- CLI Demo GIF -->
-          <div id="view-cli" class="showcase-view active">
-            <img src="assets/demo.gif" alt="UIT CLI Live Demo" class="showcase-media" loading="lazy">
+        <div class="window-stage">
+          <div id="view-terminal" class="stage-view active">
+            <img src="assets/demo.gif" alt="Terminal Demo GIF" loading="lazy">
           </div>
-
-          <!-- Studio Courses View -->
-          <div id="view-studio" class="showcase-view">
-            <img src="assets/studio-courses.png" alt="UIT Studio Courses Workspace" class="showcase-media" loading="lazy">
+          <div id="view-dashboard" class="stage-view">
+            <img src="assets/studio-courses.png" alt="Studio Courses Dashboard" loading="lazy">
           </div>
-
-          <!-- Codex AI View -->
-          <div id="view-codex" class="showcase-view">
-            <img src="assets/studio-chat.png" alt="UIT Studio Codex AI Chat" class="showcase-media" loading="lazy">
+          <div id="view-copilot" class="stage-view">
+            <img src="assets/studio-chat.png" alt="Studio Codex AI Chat" loading="lazy">
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Core Features Section -->
-  <section id="features" class="features-section">
+  <!-- Real UIT Course Interactive Terminal Simulation -->
+  <section id="terminal-demo" class="terminal-demo-section">
     <div class="container">
-      <div class="section-header">
-        <div class="section-subtitle">Engineered for Speed</div>
-        <h2 class="section-title">Everything you need for UIT Moodle</h2>
-        <p class="section-lead">Say goodbye to slow web interfaces. Experience frictionless study workflows in your terminal or desktop.</p>
+      <div class="section-head">
+        <div class="section-eyebrow">
+          <span>⚡</span> Thao tác thực tế
+        </div>
+        <h2 class="section-heading">Mô phỏng Terminal trực quan</h2>
+        <p class="section-desc">Bấm vào các nút lệnh dưới đây để xem cách UIT CLI hiển thị các môn học thực tế tại trường.</p>
       </div>
 
-      <div class="features-grid">
+      <div class="terminal-interactive-box">
+        <div class="terminal-menu-bar">
+          <div class="terminal-tab-buttons">
+            <button class="term-cmd-btn active" data-cmd="courses" data-fullcmd="uit courses">uit courses</button>
+            <button class="term-cmd-btn" data-cmd="assignments" data-fullcmd="uit assignments">uit assignments</button>
+            <button class="term-cmd-btn" data-cmd="grades" data-fullcmd="uit grades 19207">uit grades IT003</button>
+            <button class="term-cmd-btn" data-cmd="download" data-fullcmd="uit download 19207">uit download</button>
+          </div>
+          <div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+            sso.uit.edu.vn • HK1 2025-2026
+          </div>
+        </div>
+
+        <div class="terminal-viewport">
+          <div class="term-prompt-line">
+            <span class="uit-usr">sinhvien</span>@<span class="uit-host">uit-macbook</span>:~$ <span class="uit-cmd" id="term-active-cmd">uit courses</span>
+          </div>
+
+          <!-- Tab 1: uit courses -->
+          <div id="term-block-courses" class="term-output-block active">
+            <p style="color: #60a5fa; margin-bottom: 8px;">Đang kết nối courses.uit.edu.vn qua phiên UIT SSO...</p>
+            <table class="tbl-term">
+              <thead>
+                <tr>
+                  <th>MÃ MÔN</th>
+                  <th>ID MOODLE</th>
+                  <th>TÊN KHÓA HỌC</th>
+                  <th>GIẢNG VIÊN</th>
+                  <th>TIẾN ĐỘ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>IT003.P11</strong></td>
+                  <td><span class="badge-course-id">19207</span></td>
+                  <td>Cấu trúc dữ liệu và giải thuật</td>
+                  <td>ThS. Nguyễn Văn A</td>
+                  <td><span class="badge-status-ok">100% hoàn thành</span></td>
+                </tr>
+                <tr>
+                  <td><strong>NT106.P12</strong></td>
+                  <td><span class="badge-course-id">19245</span></td>
+                  <td>Lập trình mạng căn bản</td>
+                  <td>TS. Lê Thị B</td>
+                  <td><span class="badge-status-ok">85% hoàn thành</span></td>
+                </tr>
+                <tr>
+                  <td><strong>CS112.P11</strong></td>
+                  <td><span class="badge-course-id">19310</span></td>
+                  <td>Phân tích và thiết kế thuật toán</td>
+                  <td>PGS.TS. Trần C</td>
+                  <td><span class="badge-status-ok">92% hoàn thành</span></td>
+                </tr>
+                <tr>
+                  <td><strong>IS201.P13</strong></td>
+                  <td><span class="badge-course-id">19402</span></td>
+                  <td>Hệ quản trị cơ sở dữ liệu</td>
+                  <td>ThS. Phạm D</td>
+                  <td><span class="badge-status-ok">78% hoàn thành</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <p style="margin-top: 8px; color: var(--text-muted);">Tìm thấy 4 môn học trong học kỳ hiện tại. Dùng <code>uit contents &lt;id&gt;</code> để xem chi tiết bài học.</p>
+          </div>
+
+          <!-- Tab 2: uit assignments -->
+          <div id="term-block-assignments" class="term-output-block">
+            <p style="color: var(--uit-orange); margin-bottom: 8px;">Kiểm tra hạn nộp bài tập trên toàn bộ các môn học:</p>
+            <table class="tbl-term">
+              <thead>
+                <tr>
+                  <th>MÔN HỌC</th>
+                  <th>TÊN BÀI TẬP / LAB</th>
+                  <th>HẠN CHÓT</th>
+                  <th>TRẠNG THÁI</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>NT106.P12</td>
+                  <td>Lab 3 - Xây dựng Socket Server TCP/UDP</td>
+                  <td style="color: #f87171;">Hôm nay lúc 23:59</td>
+                  <td><span class="badge-status-due">Chưa nộp (Cần nộp ngay)</span></td>
+                </tr>
+                <tr>
+                  <td>IT003.P11</td>
+                  <td>Đồ án Cây AVL & Cây Đỏ Đen (Final)</td>
+                  <td>Chủ Nhật, 23:59</td>
+                  <td><span class="badge-status-ok">Đã nộp bài (rev 2)</span></td>
+                </tr>
+                <tr>
+                  <td>CS112.P11</td>
+                  <td>Bài tập Quy hoạch động & Knapsack</td>
+                  <td>15/10/2026</td>
+                  <td><span class="badge-status-ok">Đã nộp bài</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Tab 3: uit grades -->
+          <div id="term-block-grades" class="term-output-block">
+            <p style="color: #34d399; margin-bottom: 8px;">Bảng điểm môn: Cấu trúc dữ liệu và giải thuật (ID: 19207):</p>
+            <table class="tbl-term">
+              <thead>
+                <tr>
+                  <th>HẠNG MỤC ĐÁNH GIÁ</th>
+                  <th>TRỌNG SỐ</th>
+                  <th>ĐIỂM ĐẠT</th>
+                  <th>PHẢN HỒI GIẢNG VIÊN</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Điểm danh & Quá trình</td>
+                  <td>10%</td>
+                  <td><strong>10.0</strong> / 10</td>
+                  <td>Tham gia đầy đủ</td>
+                </tr>
+                <tr>
+                  <td>Thực hành Lab (Lab 1 - Lab 5)</td>
+                  <td>20%</td>
+                  <td><strong>9.5</strong> / 10</td>
+                  <td>Code tối ưu tốt, cấu trúc rõ ràng</td>
+                </tr>
+                <tr>
+                  <td>Kiểm tra giữa kỳ</td>
+                  <td>30%</td>
+                  <td><strong>8.5</strong> / 10</td>
+                  <td>Đạt yêu cầu phần Cây nhị phân</td>
+                </tr>
+                <tr>
+                  <td>Đồ án môn học</td>
+                  <td>40%</td>
+                  <td><strong>9.0</strong> / 10</td>
+                  <td>Giao diện trực quan, giải thuật chuẩn</td>
+                </tr>
+              </tbody>
+            </table>
+            <p style="margin-top: 6px; color: #60a5fa;"><strong>Tổng kết tạm tính:</strong> 9.0 (Điểm A) — Xếp loại Xuất sắc.</p>
+          </div>
+
+          <!-- Tab 4: uit download -->
+          <div id="term-block-download" class="term-output-block">
+            <p style="color: #60a5fa; margin-bottom: 8px;">Đang đồng bộ và tải toàn bộ tài liệu môn học về máy:</p>
+            <div style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 6px; font-size: 0.82rem;">
+              [1/5] Tải Slide-Chuong-01-Tong-Quan.pdf ... <span style="color: #34d399;">xong (2.4MB)</span><br>
+              [2/5] Tải Slide-Chuong-02-Cay-Nhi-Phan.pdf ... <span style="color: #34d399;">xong (4.1MB)</span><br>
+              [3/5] Tải De-Cuong-Chi-Tiet-IT003.docx ... <span style="color: #34d399;">xong (540KB)</span><br>
+              [4/5] Tải Huong-Dan-Thuc-Hanh-Lab3.pdf ... <span style="color: #34d399;">xong (1.8MB)</span><br>
+              [5/5] Tải Tai-Lieu-Tham-Khao-Algorithms.pdf ... <span style="color: #34d399;">xong (12.6MB)</span><br>
+              <br>
+              <span style="color: var(--uit-orange);">✓ Đã lưu tại: ~/UIT-Courses/HK1-2025-2026/IT003-CTDL-GT/</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Core Academic & Developer Features Grid -->
+  <section id="features" class="values-section">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-eyebrow">
+          <span>🏛️</span> Giá trị thực tiễn
+        </div>
+        <h2 class="section-heading">Giải pháp toàn diện cho sinh viên UIT</h2>
+        <p class="section-desc">Được xây dựng từ nhu cầu thực tế của sinh viên Công nghệ Thông tin ĐHQG-HCM.</p>
+      </div>
+
+      <div class="values-grid">
         <!-- Feature 1 -->
-        <div class="feature-card">
-          <div class="feature-icon-wrapper">⚡</div>
-          <h3 class="feature-title">Lightning-Fast CLI</h3>
-          <p class="feature-desc">Query course announcements, assignment due dates, and semester grades in milliseconds. Supports rich JSON output for scripting.</p>
+        <div class="value-card highlight-orange">
+          <div class="value-icon-box">⚡</div>
+          <h3 class="value-title">Tốc độ Terminal tuyệt đỉnh</h3>
+          <p class="value-body">Không cần mở trình duyệt và đợi Moodle tải từng trang. Tra cứu deadline, xem thông báo mới, điểm số chỉ trong nửa giây ngay tại command line.</p>
         </div>
 
         <!-- Feature 2 -->
-        <div class="feature-card">
-          <div class="feature-icon-wrapper">🖥️</div>
-          <h3 class="feature-title">Native Desktop Studio</h3>
-          <p class="feature-desc">A polished desktop app built with Electron. View syllabus topics, read PDF slides directly, and organize your semester offline.</p>
+        <div class="value-card">
+          <div class="value-icon-box">🖥️</div>
+          <h3 class="value-title">UIT Studio Native Desktop</h3>
+          <p class="value-body">Ứng dụng desktop đa nền tảng tối ưu cho macOS, Linux và Windows. Tích hợp trình đọc PDF slide bài giảng, phân chia học kỳ thông minh và Dark Mode dịu mắt.</p>
         </div>
 
         <!-- Feature 3 -->
-        <div class="feature-card">
-          <div class="feature-icon-wrapper">🤖</div>
-          <h3 class="feature-title">Codex AI Copilot</h3>
-          <p class="feature-desc">Chat with an AI study tutor grounded in your actual course materials, lecture slides, and assignments via OpenAI Codex.</p>
+        <div class="value-card">
+          <div class="value-icon-box">🤖</div>
+          <h3 class="value-title">Codex AI Trợ lý Học tập</h3>
+          <p class="value-body">Tận dụng OpenAI Codex để giải đáp thắc mắc dựa trên chính slide và bài tập của giảng viên UIT. Giúp bạn tóm tắt bài giảng, gợi ý giải thuật và chuẩn bị thi cuối kỳ.</p>
         </div>
 
         <!-- Feature 4 -->
-        <div class="feature-card">
-          <div class="feature-icon-wrapper">🔐</div>
-          <h3 class="feature-title">Seamless UIT SSO</h3>
-          <p class="feature-desc">One-click interactive browser login with UIT SSO. Sessions are securely persisted in mode <code>0600</code> and shared between CLI and Studio.</p>
+        <div class="value-card">
+          <div class="value-icon-box">🔐</div>
+          <h3 class="value-title">Xác thực UIT SSO Chuẩn mực</h3>
+          <p class="value-body">Đăng nhập một lần qua cổng UIT Central SSO. Tuyệt đối không lưu mật khẩu ở dạng plaintext. Token phiên được lưu phân quyền an toàn <code>0600</code> dùng chung cho cả CLI và Studio.</p>
         </div>
 
         <!-- Feature 5 -->
-        <div class="feature-card">
-          <div class="feature-icon-wrapper">📦</div>
-          <h3 class="feature-title">Smart Offline Cache</h3>
-          <p class="feature-desc">Batch download entire course archives with structured folder hierarchies. Keep studying even when campus Wi-Fi drops.</p>
+        <div class="value-card">
+          <div class="value-icon-box">📁</div>
+          <h3 class="value-title">Học tập Offline bất cứ lúc nào</h3>
+          <p class="value-body">Tự động tải và đồng bộ toàn bộ tài nguyên môn học vào cấu trúc thư mục rõ ràng trên máy tính cá nhân. Thoải mái học tập ôn thi ngay cả khi mạng trường bị bảo trì.</p>
         </div>
 
         <!-- Feature 6 -->
-        <div class="feature-card">
-          <div class="feature-icon-wrapper">🔌</div>
-          <h3 class="feature-title">Agentic MCP Server</h3>
-          <p class="feature-desc">Includes a native Model Context Protocol (MCP) server so coding agents like Claude Code or Codex CLI can query your courses directly.</p>
+        <div class="value-card">
+          <div class="value-icon-box">🔌</div>
+          <h3 class="value-title">Model Context Protocol (MCP)</h3>
+          <p class="value-body">Tích hợp sẵn MCP Server chuẩn mở, cho phép Claude Code, Codex CLI hoặc Cursor gọi trực tiếp dữ liệu bài tập và tiến độ Moodle vào phiên lập trình của bạn.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Interactive Commands Explorer -->
-  <section id="commands" class="commands-section">
+  <!-- Mascot Đậu Đậu Spotlight -->
+  <section id="daudau-tips" class="mascot-spotlight-section">
     <div class="container">
-      <div class="section-header">
-        <div class="section-subtitle">Command Cheat Sheet</div>
-        <h2 class="section-title">Master the Terminal Workflow</h2>
-        <p class="section-lead">Intuitive commands designed around your everyday study needs. URLs or IDs are both supported.</p>
-      </div>
-
-      <div class="command-filters">
-        <button class="filter-btn active" data-category="all">All Commands</button>
-        <button class="filter-btn" data-category="auth">Auth & SSO</button>
-        <button class="filter-btn" data-category="courses">Courses</button>
-        <button class="filter-btn" data-category="assignments">Assignments</button>
-        <button class="filter-btn" data-category="grades">Grades</button>
-        <button class="filter-btn" data-category="studio">Studio</button>
-      </div>
-
-      <div class="commands-grid">
-        <!-- Login -->
-        <div class="cmd-card" data-category="auth">
-          <div class="cmd-code-row">
-            <code>uit login</code>
-            <button class="cmd-copy-small" onclick="copyText('uit login', this)" title="Copy">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
+      <div class="mascot-card-wide">
+        <div class="mascot-card-left">
+          <div class="mascot-badge">
+            <span>🐼</span> GÓC HỌC TẬP CÙNG GẤU ĐẬU ĐẬU
           </div>
-          <p class="cmd-card-desc">Interactive SSO login via browser. Supports <code>--legacy</code> for the classic Moodle portal.</p>
-        </div>
-
-        <!-- Courses -->
-        <div class="cmd-card" data-category="courses">
-          <div class="cmd-code-row">
-            <code>uit courses</code>
-            <button class="cmd-copy-small" onclick="copyText('uit courses', this)" title="Copy">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
+          <h3 class="mascot-card-title">Bí quyết đạt GPA cao tại UIT</h3>
+          <p class="mascot-card-text">
+            "Tại UIT, kiến thức các môn chuyên ngành như Cấu trúc dữ liệu, Mạng máy tính hay Hệ điều hành rất rộng. Hãy dùng lệnh <code>uit download &lt;id&gt;</code> để lưu toàn bộ slide ngay từ tuần 1, sau đó mở UIT Studio và nhờ Codex AI tóm tắt các đề mục quan trọng trước mỗi buổi thực hành Lab nhé!"
+          </p>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <a href="CLI_REFERENCE.md" class="btn btn-uit-orange btn-sm">Xem hướng dẫn chi tiết</a>
+            <a href="https://github.com/RyanNg1403/uit-cli" class="btn btn-outline btn-sm" target="_blank" rel="noopener noreferrer">Đóng góp cho dự án</a>
           </div>
-          <p class="cmd-card-desc">List enrolled courses for the current semester with course IDs and progress.</p>
         </div>
-
-        <!-- Contents -->
-        <div class="cmd-card" data-category="courses">
-          <div class="cmd-code-row">
-            <code>uit contents &lt;course-id&gt;</code>
-            <button class="cmd-copy-small" onclick="copyText('uit contents 19207', this)" title="Copy">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
-          </div>
-          <p class="cmd-card-desc">Inspect course outline, weekly lecture slides, announcements, and files.</p>
+        <div class="mascot-card-right">
+          <img src="assets/icon.svg" alt="Đậu Đậu Mascot" class="mascot-hero-avatar">
         </div>
-
-        <!-- Assignments -->
-        <div class="cmd-card" data-category="assignments">
-          <div class="cmd-code-row">
-            <code>uit assignments</code>
-            <button class="cmd-copy-small" onclick="copyText('uit assignments', this)" title="Copy">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
-          </div>
-          <p class="cmd-card-desc">List upcoming deadlines, overdue items, and submission status across all subjects.</p>
-        </div>
-
-        <!-- Grades -->
-        <div class="cmd-card" data-category="grades">
-          <div class="cmd-code-row">
-            <code>uit grades &lt;course-id&gt;</code>
-            <button class="cmd-copy-small" onclick="copyText('uit grades 19207', this)" title="Copy">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
-          </div>
-          <p class="cmd-card-desc">Display gradebook breakdown including quizzes, midterms, labs, and final marks.</p>
-        </div>
-
-        <!-- Studio -->
-        <div class="cmd-card" data-category="studio">
-          <div class="cmd-code-row">
-            <code>uit studio</code>
-            <button class="cmd-copy-small" onclick="copyText('uit studio', this)" title="Copy">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
-          </div>
-          <p class="cmd-card-desc">Launch the native desktop interface with PDF previews and the Codex AI Copilot.</p>
-        </div>
-      </div>
-
-      <div style="text-align: center; margin-top: 36px;">
-        <a href="CLI_REFERENCE.md" class="btn btn-secondary">
-          <span>Read Full CLI Reference (40+ Commands & Flags)</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
-        </a>
       </div>
     </div>
   </section>
 
-  <!-- Download & Install Hub -->
+  <!-- Multi-Platform Installation Hub -->
   <section id="install" class="download-section">
     <div class="container">
-      <div class="section-header">
-        <div class="section-subtitle">Get Started in Seconds</div>
-        <h2 class="section-title">Install on your operating system</h2>
-        <p class="section-lead">Available for macOS, Linux, and Windows with automatic updates.</p>
+      <div class="section-head">
+        <div class="section-eyebrow">
+          <span>📦</span> Hỗ trợ đa nền tảng
+        </div>
+        <h2 class="section-heading">Cài đặt dễ dàng trong 1 phút</h2>
+        <p class="section-desc">Hoạt động trơn tru trên macOS, Linux và Windows.</p>
       </div>
 
       <div class="download-grid">
         <!-- macOS -->
-        <div class="download-card">
-          <span class="download-badge">Apple Silicon / Intel</span>
+        <div class="platform-card">
+          <span class="platform-badge">Apple Silicon / Intel</span>
           <div>
-            <div class="platform-header">
-              <div class="platform-icon">🍎</div>
-              <h3 class="platform-name">macOS</h3>
-            </div>
-            <p class="feature-desc">Install via npm, standalone signed shell script, or download the macOS DMG.</p>
-            
-            <div class="download-snippet">
+            <div class="platform-icon">🍎</div>
+            <h3 class="platform-name">macOS</h3>
+            <p class="value-body">Cài đặt CLI nhanh qua script tự động kiểm tra checksum, hoặc tải bản ứng dụng Desktop DMG.</p>
+            <div class="platform-snippet">
               <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh</code>
             </div>
           </div>
-          <div style="display: flex; gap: 8px; flex-direction: column;">
-            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer">
-              Download .DMG / App
+          <div style="display: flex; gap: 10px; flex-direction: column;">
+            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-uit-blue btn-sm" target="_blank" rel="noopener noreferrer">
+              Tải file .DMG cho macOS
             </a>
           </div>
         </div>
 
         <!-- Linux -->
-        <div class="download-card">
-          <span class="download-badge">AppImage / Tarball</span>
+        <div class="platform-card">
+          <span class="platform-badge">AppImage / Binary</span>
           <div>
-            <div class="platform-header">
-              <div class="platform-icon">🐧</div>
-              <h3 class="platform-name">Linux</h3>
-            </div>
-            <p class="feature-desc">Standalone binary release and desktop AppImage for Ubuntu, Debian, Arch, and Fedora.</p>
-            
-            <div class="download-snippet">
+            <div class="platform-icon">🐧</div>
+            <h3 class="platform-name">Linux</h3>
+            <p class="value-body">Phù hợp cho các bạn sinh viên dùng Ubuntu, Arch, Fedora hoặc môi trường WSL2.</p>
+            <div class="platform-snippet">
               <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio</code>
             </div>
           </div>
-          <div style="display: flex; gap: 8px; flex-direction: column;">
-            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
-              Download AppImage
+          <div style="display: flex; gap: 10px; flex-direction: column;">
+            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-outline btn-sm" target="_blank" rel="noopener noreferrer">
+              Tải AppImage cho Linux
             </a>
           </div>
         </div>
 
         <!-- Windows -->
-        <div class="download-card">
-          <span class="download-badge">PowerShell / Installer</span>
+        <div class="platform-card">
+          <span class="platform-badge">PowerShell / Installer</span>
           <div>
-            <div class="platform-header">
-              <div class="platform-icon">🪟</div>
-              <h3 class="platform-name">Windows</h3>
-            </div>
-            <p class="feature-desc">Requires Node.js 20.19+. Install via global npm or download the Windows setup installer.</p>
-            
-            <div class="download-snippet">
+            <div class="platform-icon">🪟</div>
+            <h3 class="platform-name">Windows</h3>
+            <p class="value-body">Yêu cầu Node.js 20.19+. Cài đặt toàn cục qua npm hoặc tải bộ cài Windows Setup.</p>
+            <div class="platform-snippet">
               <code>npm install -g uit-cli uit-studio</code>
             </div>
           </div>
-          <div style="display: flex; gap: 8px; flex-direction: column;">
-            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
-              Download Windows Installer
+          <div style="display: flex; gap: 10px; flex-direction: column;">
+            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-outline btn-sm" target="_blank" rel="noopener noreferrer">
+              Tải bản cài đặt Windows (.exe)
             </a>
           </div>
         </div>
@@ -405,120 +530,125 @@
   <!-- FAQ Section -->
   <section class="faq-section">
     <div class="container">
-      <div class="section-header">
-        <div class="section-subtitle">Got Questions?</div>
-        <h2 class="section-title">Frequently Asked Questions</h2>
+      <div class="section-head">
+        <div class="section-eyebrow">
+          <span>❓</span> Giải đáp thắc mắc
+        </div>
+        <h2 class="section-heading">Câu hỏi thường gặp</h2>
       </div>
 
-      <div class="faq-list">
-        <div class="faq-item">
-          <div class="faq-question">
-            <span>Does UIT CLI store my university password?</span>
-            <span class="faq-icon">+</span>
-          </div>
-          <div class="faq-answer">
-            <strong>No.</strong> Interactive login opens official UIT Single Sign-On (SSO) in your browser. The CLI receives an authenticated session token, which is saved locally to <code>~/.uit/sessions.json</code> with strict <code>0600</code> Unix file permissions. Your raw password is never intercepted or saved.
-          </div>
-        </div>
-
-        <div class="faq-item">
-          <div class="faq-question">
-            <span>Do I need OpenAI Codex to use UIT Studio?</span>
-            <span class="faq-icon">+</span>
-          </div>
-          <div class="faq-answer">
-            <strong>No.</strong> All core Moodle features (browsing courses, inspecting assignments, viewing grades, and offline downloads) work completely standalone. Codex CLI is only required if you want to enable the AI Study Copilot agent chat.
+      <div class="faq-container">
+        <div class="faq-box">
+          <button class="faq-trigger">
+            <span>Ứng dụng có lưu mật khẩu tài khoản trường của tôi không?</span>
+            <span class="faq-symbol">+</span>
+          </button>
+          <div class="faq-content">
+            <strong>Tuyệt đối không.</strong> Lệnh <code>uit login</code> sẽ mở trang đăng nhập chính thức của UIT Single Sign-On (CAS/SSO) trên trình duyệt web của bạn. Ứng dụng chỉ nhận session token đã xác thực từ trường và lưu cục bộ tại <code>~/.uit/sessions.json</code> với phân quyền bảo vệ nghiêm ngặt <code>0600</code> (chỉ tài khoản người dùng máy bạn đọc được).
           </div>
         </div>
 
-        <div class="faq-item">
-          <div class="faq-question">
-            <span>Can I integrate UIT CLI into scripts and other tools?</span>
-            <span class="faq-icon">+</span>
-          </div>
-          <div class="faq-answer">
-            <strong>Yes!</strong> Every command supports the <code>--json</code> flag to output clean, structured JSON payloads directly to standard out, making it trivial to pipe into <code>jq</code>, cron jobs, or notification scripts.
+        <div class="faq-box">
+          <button class="faq-trigger">
+            <span>Tôi có bắt buộc phải có tài khoản OpenAI Codex không?</span>
+            <span class="faq-symbol">+</span>
+          </button>
+          <div class="faq-content">
+            <strong>Không bắt buộc.</strong> Tất cả tính năng tra cứu môn học, danh sách bài tập, xem điểm số, tải bài giảng và giao diện Desktop Studio đều hoạt động hoàn toàn độc lập mà không cần Codex. Bạn chỉ cần cài đặt Codex CLI nếu muốn sử dụng tính năng Trợ lý AI trao đổi bài tập.
           </div>
         </div>
 
-        <div class="faq-item">
-          <div class="faq-question">
-            <span>How do I update to the latest version?</span>
-            <span class="faq-icon">+</span>
+        <div class="faq-box">
+          <button class="faq-trigger">
+            <span>Dự án này có hỗ trợ cổng Moodle cũ (coursesold) không?</span>
+            <span class="faq-symbol">+</span>
+          </button>
+          <div class="faq-content">
+            <strong>Có.</strong> Bạn chỉ cần chạy lệnh <code>uit login --legacy</code> để đăng nhập vào cổng Moodle truyền thống bằng Mã số sinh viên và Mật khẩu.
           </div>
-          <div class="faq-answer">
-            Run <code>npm update -g uit-cli uit-studio</code> or re-run the official installer script. You can also check the GitHub Releases page for new binary builds.
+        </div>
+
+        <div class="faq-box">
+          <button class="faq-trigger">
+            <span>Tôi có thể pipe dữ liệu ra JSON để viết bot Telegram / Discord báo deadline không?</span>
+            <span class="faq-symbol">+</span>
+          </button>
+          <div class="faq-content">
+            <strong>Rất dễ dàng!</strong> Tất cả các lệnh của UIT CLI đều hỗ trợ flag <code>--json</code>. Bạn có thể kết hợp với <code>jq</code>, <code>cron</code> hoặc viết script Python/Node.js để tự động gửi thông báo bài tập sắp đến hạn.
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Bottom CTA Banner -->
+  <!-- Final Call to Action -->
   <section class="cta-banner">
     <div class="container">
-      <div class="cta-box">
-        <h2 class="section-title" style="margin-bottom: 12px;">Start learning faster today.</h2>
-        <p class="section-lead" style="margin-bottom: 28px;">Join UIT students saving hours every semester with UIT CLI & UIT Studio.</p>
-        <div style="display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;">
-          <a href="#install" class="btn btn-primary">Install UIT CLI</a>
-          <a href="https://github.com/RyanNg1403/uit-cli" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">Star on GitHub ⭐</a>
+      <div class="cta-academic-box">
+        <h2 class="section-heading" style="margin-bottom: 14px;">Bắt đầu kỳ học mới với trải nghiệm thông minh hơn.</h2>
+        <p class="section-desc" style="margin-bottom: 30px;">Gia nhập cộng đồng sinh viên UIT tiết kiệm hàng giờ mỗi tuần cùng UIT CLI & UIT Studio.</p>
+        <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+          <a href="#install" class="btn btn-uit-blue">Cài đặt UIT CLI ngay</a>
+          <a href="https://github.com/RyanNg1403/uit-cli" class="btn btn-uit-orange" target="_blank" rel="noopener noreferrer">Tặng 1 sao trên GitHub ⭐</a>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Footer -->
+  <!-- Institutional Footer -->
   <footer class="footer">
     <div class="container">
-      <div class="footer-top">
-        <div class="footer-brand-col">
-          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-            <img src="assets/icon.svg" alt="UIT Logo" style="height: 28px;">
-            <span style="font-weight: 700; color: var(--text-primary);">UIT CLI & UIT Studio</span>
+      <div class="footer-main">
+        <div class="footer-info-col">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+            <img src="assets/icon.svg" alt="UIT Logo" style="height: 36px;">
+            <div>
+              <div style="font-weight: 800; color: var(--text-primary); font-size: 1.05rem;">UIT CLI & UIT Studio</div>
+              <div style="font-size: 0.75rem; color: var(--uit-orange); font-weight: 700;">ĐẠI HỌC CÔNG NGHỆ THÔNG TIN - ĐHQG-HCM</div>
+            </div>
           </div>
-          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5;">
-            An open-source companion tool for students of the University of Information Technology (VNU-HCM).
+          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6;">
+            Dự án mã nguồn mở phục vụ cộng đồng sinh viên và giảng viên Trường Đại học Công nghệ Thông tin (ĐHQG-HCM).
           </p>
         </div>
 
-        <div class="footer-links-group">
+        <div class="footer-links-grid">
           <div>
-            <h4 class="footer-col-title">Product</h4>
-            <ul class="footer-links-list">
-              <li><a href="#features" class="footer-link">Features</a></li>
-              <li><a href="#showcase" class="footer-link">Showcase</a></li>
-              <li><a href="#commands" class="footer-link">Commands</a></li>
-              <li><a href="#install" class="footer-link">Installation</a></li>
+            <h4 class="footer-heading">Cổng Thông Tin UIT</h4>
+            <ul class="footer-list">
+              <li><a href="https://www.uit.edu.vn" target="_blank" rel="noopener noreferrer">Trang chủ UIT</a></li>
+              <li><a href="https://courses.uit.edu.vn" target="_blank" rel="noopener noreferrer">Courses Moodle</a></li>
+              <li><a href="https://portal.uit.edu.vn" target="_blank" rel="noopener noreferrer">Cổng Sinh Viên</a></li>
+              <li><a href="https://daa.uit.edu.vn" target="_blank" rel="noopener noreferrer">Phòng Đào Tạo</a></li>
             </ul>
           </div>
 
           <div>
-            <h4 class="footer-col-title">Documentation</h4>
-            <ul class="footer-links-list">
-              <li><a href="CLI_REFERENCE.md" class="footer-link">CLI Reference</a></li>
-              <li><a href="https://github.com/RyanNg1403/uit-cli/blob/main/.github/CONTRIBUTING.md" class="footer-link" target="_blank" rel="noopener noreferrer">Contributing Guide</a></li>
-              <li><a href="https://github.com/RyanNg1403/uit-cli/blob/main/CHANGELOG.md" class="footer-link" target="_blank" rel="noopener noreferrer">Changelog</a></li>
+            <h4 class="footer-heading">Tài Liệu & Hướng Dẫn</h4>
+            <ul class="footer-list">
+              <li><a href="CLI_REFERENCE.md">Sổ tay lệnh CLI Reference</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/blob/main/.github/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Quy chuẩn đóng góp Git</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Nhật ký phiên bản</a></li>
             </ul>
           </div>
 
           <div>
-            <h4 class="footer-col-title">Community</h4>
-            <ul class="footer-links-list">
-              <li><a href="https://github.com/RyanNg1403/uit-cli" class="footer-link" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
-              <li><a href="https://github.com/RyanNg1403/uit-cli/issues" class="footer-link" target="_blank" rel="noopener noreferrer">Report an Issue</a></li>
-              <li><a href="https://github.com/RyanNg1403/uit-cli/releases" class="footer-link" target="_blank" rel="noopener noreferrer">Releases</a></li>
+            <h4 class="footer-heading">Dự Án & Mã Nguồn</h4>
+            <ul class="footer-list">
+              <li><a href="https://github.com/RyanNg1403/uit-cli" target="_blank" rel="noopener noreferrer">Kho mã nguồn GitHub</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/issues" target="_blank" rel="noopener noreferrer">Báo lỗi & Góp ý</a></li>
+              <li><a href="https://github.com/RyanNg1403/uit-cli/releases" target="_blank" rel="noopener noreferrer">Bản phát hành Releases</a></li>
             </ul>
           </div>
         </div>
       </div>
 
-      <div class="footer-bottom">
+      <div class="footer-legal-bar">
         <div>
-          Released under the <a href="https://github.com/RyanNg1403/uit-cli/blob/main/LICENSE" style="color: var(--accent-cyan); text-decoration: none;">MIT License</a>.
+          Bản quyền phần mềm theo giấy phép <a href="https://github.com/RyanNg1403/uit-cli/blob/main/LICENSE" style="color: var(--uit-blue-cyan); text-decoration: none;">MIT License</a>.
         </div>
         <div>
-          Independent student project. Not officially affiliated with UIT VNU-HCM.
+          Dự án mã nguồn mở độc lập do sinh viên phát triển, đồng hành cùng môi trường học tập UIT VNU-HCM.
         </div>
       </div>
     </div>
