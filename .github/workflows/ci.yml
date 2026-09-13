@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  linux-electron:
+    name: Linux Electron
     runs-on: ubuntu-latest
 
     steps:
