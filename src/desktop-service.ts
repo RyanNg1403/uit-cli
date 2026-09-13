@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
@@ -972,13 +972,154 @@ export async function previewFile(courseId: number, fileUrl: string, _filename: 
 
 export interface CourseIdentity { baseUrl: string; userId: number; shortname?: string }
 
-export function workspacePath(courseId: number, baseUrl: string, userId: number): string {
-  if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error("A valid course and account identity is required for the workspace.");
+type MaterializedFileVerification = { dev: number; ino: number; digest: string };
+
+interface MaterializedFileRecord extends MaterializedFileVerification {
+  sourceVersion: string;
+}
+
+interface CourseManifestEntry {
+  baseUrl: string;
+  moodleUserId: number;
+  courseId: number;
+  studentId: string;
+  studentName: string;
+  courseCode: string;
+  path: string;
+}
+
+interface CourseManifest {
+  version: 1;
+  courses: CourseManifestEntry[];
+  materializedFiles: Record<string, MaterializedFileRecord>;
+}
+
+const COURSE_MANIFEST_VERSION = 1 as const;
+const MANIFEST_LOCK_STALE_MS = 60_000;
+const MANIFEST_LOCK_ATTEMPTS = 100;
+const coursesDirectory = () => resolve(homedir(), ".uit", "courses");
+const courseManifestPath = () => join(coursesDirectory(), "manifest.json");
+
+function canonicalBaseUrl(baseUrl: string): string {
   const site = new URL(baseUrl);
-  if (!/^https?:$/.test(site.protocol) || site.username || site.password) throw new Error("Invalid course site URL.");
-  const canonical = `${site.origin}${site.pathname.replace(/\/+$/, "")}`;
+  if (!/^https?:$/.test(site.protocol) || site.username || site.password || site.search || site.hash) throw new Error("Invalid course site URL.");
+  return `${site.origin}${site.pathname.replace(/\/+$/, "")}`;
+}
+
+function portalFolder(baseUrl: string): string {
+  const site = new URL(canonicalBaseUrl(baseUrl));
+  if (site.hostname === "courses.uit.edu.vn" && site.pathname === "/") return "current";
+  if (site.hostname === "coursesold.uit.edu.vn" && site.pathname === "/sdh") return "graduate-legacy";
+  if (site.hostname === "coursesold.uit.edu.vn" && site.pathname === "/") return "legacy";
+  return `${site.hostname}${site.pathname.replace(/\//g, "-")}`.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+function safePathSegment(value: string, fallback: string, compact = false): string {
+  const normalized = value.normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[đĐ]/g, (character) => character === "đ" ? "d" : "D")
+    .replace(/[^A-Za-z0-9._-]+/g, compact ? "" : "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100);
+  return normalized || fallback;
+}
+
+function courseKey(baseUrl: string, userId: number, courseId: number): string {
+  return JSON.stringify([canonicalBaseUrl(baseUrl), userId, courseId]);
+}
+
+function emptyCourseManifest(): CourseManifest {
+  return { version: COURSE_MANIFEST_VERSION, courses: [], materializedFiles: {} };
+}
+
+function validMaterializedVerification(value: unknown): value is MaterializedFileVerification {
+  return Boolean(value && typeof value === "object" && Number.isFinite((value as MaterializedFileVerification).dev) &&
+    Number.isFinite((value as MaterializedFileVerification).ino) && typeof (value as MaterializedFileVerification).digest === "string" &&
+    /^[a-f0-9]{64}$/.test((value as MaterializedFileVerification).digest));
+}
+
+function readCourseManifestEntry(value: unknown): CourseManifestEntry | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entry = value as Record<string, unknown>;
+  if (typeof entry.baseUrl !== "string" || !Number.isSafeInteger(entry.moodleUserId) || !Number.isSafeInteger(entry.courseId) ||
+      typeof entry.studentId !== "string" || typeof entry.studentName !== "string" || typeof entry.courseCode !== "string" || typeof entry.path !== "string") return undefined;
+  try {
+    const path = entry.path.replace(/\\/g, "/");
+    if (!path || path.startsWith("/") || path.split("/").some((part) => !part || part === "." || part === "..")) return undefined;
+    return { baseUrl: canonicalBaseUrl(entry.baseUrl), moodleUserId: Number(entry.moodleUserId), courseId: Number(entry.courseId), studentId: entry.studentId, studentName: entry.studentName, courseCode: entry.courseCode, path };
+  } catch { return undefined; }
+}
+
+async function readCourseManifest(): Promise<CourseManifest> {
+  try {
+    const raw: unknown = JSON.parse(await readFile(courseManifestPath(), "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || (raw as { version?: unknown }).version !== COURSE_MANIFEST_VERSION) return emptyCourseManifest();
+    const entries = Array.isArray((raw as { courses?: unknown }).courses)
+      ? (raw as { courses: unknown[] }).courses.map(readCourseManifestEntry).filter((entry): entry is CourseManifestEntry => Boolean(entry))
+      : [];
+    const materializedFiles = Object.fromEntries(Object.entries((raw as { materializedFiles?: unknown }).materializedFiles || {})
+      .filter(([path, value]) => typeof path === "string" && validMaterializedVerification(value) && typeof (value as { sourceVersion?: unknown }).sourceVersion === "string")
+      .map(([path, value]) => [path, value as MaterializedFileRecord]));
+    return { version: COURSE_MANIFEST_VERSION, courses: entries, materializedFiles };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyCourseManifest();
+    throw new Error("Could not read the UIT course manifest. Existing course files were left untouched.", { cause: error });
+  }
+}
+
+async function writeCourseManifest(manifest: CourseManifest): Promise<void> {
+  const path = courseManifestPath();
+  const temporary = `${path}.part-${randomUUID()}`;
+  await mkdir(dirname(path), { recursive: true });
+  try {
+    await writeFile(temporary, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function sleep(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function withCourseManifest<T>(operation: (manifest: CourseManifest) => Promise<T>): Promise<T> {
+  const lockPath = `${courseManifestPath()}.lock`;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  await mkdir(dirname(lockPath), { recursive: true });
+  for (let attempt = 0; attempt < MANIFEST_LOCK_ATTEMPTS; attempt += 1) {
+    try {
+      handle = await open(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - (await stat(lockPath)).mtimeMs > MANIFEST_LOCK_STALE_MS) await unlink(lockPath);
+      } catch { /* Another process may have released or renewed the lock. */ }
+      await sleep(25);
+    }
+  }
+  if (!handle) throw new Error("UIT course storage is busy. Try again in a moment.");
+  try {
+    return await operation(await readCourseManifest());
+  } finally {
+    await handle.close().catch(() => undefined);
+    await unlink(lockPath).catch(() => undefined);
+  }
+}
+
+export function workspacePath(courseId: number, baseUrl: string, userId: number, shortname = `course-${courseId}`): string {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error("A valid course and account identity is required for the workspace.");
+  return resolve(coursesDirectory(), portalFolder(baseUrl), `user-${userId}`, safePathSegment(shortname, `course-${courseId}`));
+}
+
+function legacyWorkspacePath(courseId: number, baseUrl: string, userId: number): string {
+  const canonical = canonicalBaseUrl(baseUrl);
+  const site = new URL(canonical);
   const siteKey = `${site.hostname.replace(/[^a-zA-Z0-9.-]/g, "_")}-${createHash("sha256").update(canonical).digest("hex").slice(0, 16)}`;
-  return resolve(homedir(), ".uit", "courses", siteKey, `user-${userId}`, `course-${courseId}`);
+  return resolve(coursesDirectory(), siteKey, `user-${userId}`, `course-${courseId}`);
 }
 
 async function ensureWorkspaceDirectories(root: string, children: string[]): Promise<void> {
@@ -1011,9 +1152,7 @@ async function ensureWorkspaceDirectories(root: string, children: string[]): Pro
 }
 
 const downloads = new Map<string, Promise<string>>();
-type MaterializedFileVerification = { dev: number; ino: number; digest: string };
 const materializedFiles = new Map<string, MaterializedFileVerification>();
-const MATERIALIZED_INDEX = "materialized-files.json";
 
 function samePath(left: string, right: string): boolean {
   const normalizedLeft = resolve(left);
@@ -1021,36 +1160,6 @@ function samePath(left: string, right: string): boolean {
   return process.platform === "win32"
     ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
     : normalizedLeft === normalizedRight;
-}
-
-function validMaterializedVerification(value: unknown): value is MaterializedFileVerification {
-  return Boolean(value && typeof value === "object" && Number.isFinite((value as MaterializedFileVerification).dev) &&
-    Number.isFinite((value as MaterializedFileVerification).ino) && typeof (value as MaterializedFileVerification).digest === "string" &&
-    /^[a-f0-9]{64}$/.test((value as MaterializedFileVerification).digest));
-}
-
-async function readMaterializedIndex(): Promise<Record<string, MaterializedFileVerification>> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(join(homedir(), ".uit", MATERIALIZED_INDEX), "utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => validMaterializedVerification(value))) as Record<string, MaterializedFileVerification>;
-  } catch {
-    return {};
-  }
-}
-
-async function persistMaterializedVerification(path: string, verification: MaterializedFileVerification): Promise<void> {
-  const indexPath = join(homedir(), ".uit", MATERIALIZED_INDEX);
-  const temporary = `${indexPath}.tmp-${process.pid}-${randomUUID()}`;
-  try {
-    const index = await readMaterializedIndex();
-    index[path] = verification;
-    await mkdir(dirname(indexPath), { recursive: true });
-    await writeFile(temporary, JSON.stringify(index), { mode: 0o600 });
-    await rename(temporary, indexPath);
-  } catch {
-    await rm(temporary, { force: true }).catch(() => undefined);
-  }
 }
 
 function sameFile(left: { dev: number; ino: number }, right: { dev: number; ino: number }): boolean {
@@ -1066,6 +1175,162 @@ async function assertMaterializedDirectory(directory: string, expected?: { dev: 
   return info;
 }
 
+function manifestFileKey(path: string): string {
+  const key = relative(coursesDirectory(), resolve(path)).split(sep).join("/");
+  if (!key || key.startsWith("../") || key === "..") throw new Error("Material file is outside the UIT course storage.");
+  return key;
+}
+
+async function accountFolder(api: ApiClient, userId: number): Promise<{ studentId: string; studentName: string }> {
+  let username = "";
+  let fullname = "";
+  try {
+    const records = await api.call<unknown>("core_user_get_users_by_field", { field: "id", values: [userId] });
+    const account = Array.isArray(records) ? records.find((item) => Number((item as MoodleRecord)?.id) === userId) : undefined;
+    username = typeof (account as MoodleRecord | undefined)?.username === "string" ? (account as MoodleRecord).username.trim() : "";
+    fullname = typeof (account as MoodleRecord | undefined)?.fullname === "string" ? (account as MoodleRecord).fullname.trim() : "";
+  } catch {
+    // A portal may not expose this optional profile endpoint to the active role.
+  }
+  const studentId = /^\d{5,}$/.test(username) ? username : `user-${userId}`;
+  const studentName = safePathSegment(fullname, "", true);
+  return { studentId, studentName };
+}
+
+function studentFolder(identity: { studentId: string; studentName: string }): string {
+  return identity.studentName ? `${identity.studentId}-${identity.studentName}` : identity.studentId;
+}
+
+function workspaceEntryPath(baseUrl: string, account: { studentId: string; studentName: string }, courseCode: string): string {
+  return join(portalFolder(baseUrl), studentFolder(account), courseCode).split(sep).join("/");
+}
+
+async function moveWorkspace(from: string, to: string): Promise<void> {
+  if (samePath(from, to)) return;
+  try {
+    const source = await lstat(from);
+    if (source.isSymbolicLink() || !source.isDirectory()) throw new Error("UIT workspace is unsafe to move.");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  try {
+    await lstat(to);
+    throw new Error("Cannot migrate UIT course storage because the destination folder already exists.");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  await mkdir(dirname(to), { recursive: true });
+  await rename(from, to);
+}
+
+function numberedMaterialPath(directory: string, filename: string, number: number): string {
+  const extension = extname(filename);
+  const stem = extension ? filename.slice(0, -extension.length) : filename;
+  return join(directory, number === 1 ? filename : `${stem} (${number})${extension}`);
+}
+
+async function migrateLegacyMaterialDirectories(root: string, courseId: number, api: ApiClient): Promise<void> {
+  const materials = join(root, "materials");
+  let entries: Array<{ name: string; isDirectory(): boolean }>;
+  try { entries = await readdir(materials, { withFileTypes: true }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const legacyDirectories = entries.filter((entry) => entry.isDirectory() && /^[a-f0-9]{64}$/.test(entry.name));
+  if (!legacyDirectories.length) return;
+
+  const modulesByFilename = new Map<string, number[]>();
+  try {
+    for (const module of await getCourseContents(courseId, api)) {
+      for (const file of module.files) {
+        const key = file.filename.normalize("NFC");
+        modulesByFilename.set(key, [...new Set([...(modulesByFilename.get(key) || []), module.id])]);
+      }
+    }
+  } catch {
+    // Preserve any source that the current portal can no longer describe.
+  }
+
+  for (const legacy of legacyDirectories) {
+    const legacyPath = join(materials, legacy.name);
+    const files = await readdir(legacyPath, { withFileTypes: true });
+    for (const item of files) {
+      if (!item.isFile()) continue;
+      const source = join(legacyPath, item.name);
+      const sourceInfo = await lstat(source);
+      if (sourceInfo.isSymbolicLink() || !sourceInfo.isFile()) continue;
+      const moduleIds = modulesByFilename.get(item.name.normalize("NFC")) || [];
+      const destinationDirectory = join(materials, moduleIds.length === 1 ? `module-${moduleIds[0]}` : "imported");
+      await ensureWorkspaceDirectories(root, [relative(root, destinationDirectory)]);
+      let destination = numberedMaterialPath(destinationDirectory, item.name, 1);
+      for (let number = 2; ; number += 1) {
+        try {
+          await lstat(destination);
+          destination = numberedMaterialPath(destinationDirectory, item.name, number);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          break;
+        }
+      }
+      await rename(source, destination);
+    }
+    if (!(await readdir(legacyPath)).length) await rm(legacyPath, { recursive: false, force: true });
+  }
+}
+
+async function resolveWorkspace(courseId: number, shortname: string, baseUrl: string, userId: number, api: ApiClient): Promise<{ path: string; created: boolean }> {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error("A valid course and account identity is required for the workspace.");
+  const canonical = canonicalBaseUrl(baseUrl);
+  const account = await accountFolder(api, userId);
+  const courseCode = safePathSegment(shortname, `course-${courseId}`);
+  const desiredRelativePath = workspaceEntryPath(canonical, account, courseCode);
+
+  return await withCourseManifest(async (manifest) => {
+    const key = courseKey(canonical, userId, courseId);
+    const existingIndex = manifest.courses.findIndex((entry) => courseKey(entry.baseUrl, entry.moodleUserId, entry.courseId) === key);
+    const existing = existingIndex >= 0 ? manifest.courses[existingIndex] : undefined;
+    let relativePath = existing?.path || desiredRelativePath;
+    let root = resolve(coursesDirectory(), relativePath);
+    if (relative(coursesDirectory(), root).startsWith("..")) throw new Error("Invalid UIT course manifest path.");
+    if (existing && relativePath !== desiredRelativePath) {
+      const renamedRoot = resolve(coursesDirectory(), desiredRelativePath);
+      if (relative(coursesDirectory(), renamedRoot).startsWith("..")) throw new Error("Invalid UIT course manifest path.");
+      await moveWorkspace(root, renamedRoot);
+      root = renamedRoot;
+      relativePath = desiredRelativePath;
+    }
+    let created = false;
+    try { await stat(root); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const legacyRoot = legacyWorkspacePath(courseId, canonical, userId);
+      await moveWorkspace(legacyRoot, root);
+      try { await stat(root); } catch (missing) {
+        if ((missing as NodeJS.ErrnoException).code !== "ENOENT") throw missing;
+        created = true;
+      }
+    }
+    await ensureWorkspaceDirectories(root, [".uit", join(".uit", "context"), "materials", "artifacts"]);
+    await migrateLegacyMaterialDirectories(root, courseId, api);
+
+    const entry: CourseManifestEntry = {
+      baseUrl: canonical,
+      moodleUserId: userId,
+      courseId,
+      studentId: account.studentId,
+      studentName: account.studentName,
+      courseCode,
+      path: relativePath
+    };
+    if (existingIndex >= 0) manifest.courses[existingIndex] = entry;
+    else manifest.courses.push(entry);
+    await writeCourseManifest(manifest);
+    return { path: root, created };
+  });
+}
+
 async function digestHandle(handle: Awaited<ReturnType<typeof open>>): Promise<string> {
   const hash = createHash("sha256");
   for await (const chunk of handle.createReadStream({ autoClose: false, start: 0 })) hash.update(chunk);
@@ -1074,7 +1339,7 @@ async function digestHandle(handle: Awaited<ReturnType<typeof open>>): Promise<s
 
 export async function verifyMaterializedFile(path: string): Promise<{ dev: number; ino: number; digest: string }> {
   const destination = resolve(path);
-  const expected = materializedFiles.get(destination) || (await readMaterializedIndex())[destination];
+  const expected = materializedFiles.get(destination) || (await readCourseManifest()).materializedFiles[manifestFileKey(destination)];
   if (!expected) throw new Error("This UIT material was not verified in the current session.");
   materializedFiles.set(destination, expected);
   const handle = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -1092,10 +1357,29 @@ export async function verifyMaterializedFile(path: string): Promise<{ dev: numbe
   }
 }
 
-async function materializeResolvedFile(courseId: number, file: CourseFile, api: ApiClient, identity?: CourseIdentity): Promise<string> {
+async function courseCodeForWorkspace(courseId: number, api: ApiClient, owner: CourseIdentity): Promise<string> {
+  if (owner.shortname) return owner.shortname;
+  try {
+    return (await listCourses(api, owner.userId)).find((course) => course.id === courseId)?.shortname || `course-${courseId}`;
+  } catch {
+    return `course-${courseId}`;
+  }
+}
+
+async function moduleIdForFile(courseId: number, fileUrl: string, api: ApiClient): Promise<number> {
+  const canonicalUrl = credentialFreeUrl(fileUrl);
+  if (!canonicalUrl) throw new Error("Invalid course file reference.");
+  const module = (await getCourseContents(courseId, api)).find((item) => item.files.some((file) => file.fileurl === canonicalUrl));
+  if (!module) throw new Error("This file does not belong to a current course module. Refresh the course and try again.");
+  return module.id;
+}
+
+async function materializeResolvedFile(courseId: number, moduleId: number, file: CourseFile, api: ApiClient, identity?: CourseIdentity): Promise<string> {
   const owner = identity || (api === defaultApiClient ? { baseUrl: get("baseUrl"), userId: Number(get("userId")) } : undefined);
   if (!owner) throw new Error("Site and account identity are required to download a course file.");
-  const root = workspacePath(courseId, owner.baseUrl, owner.userId);
+  if (!Number.isSafeInteger(moduleId) || moduleId <= 0) throw new Error("A valid course module ID is required to download a course file.");
+  const workspace = await resolveWorkspace(courseId, await courseCodeForWorkspace(courseId, api, owner), owner.baseUrl, owner.userId, api);
+  const root = workspace.path;
   const safeName = basename(file.filename.replace(/\\/g, "/"))
     .replace(/\p{Cc}/gu, "_")
     .replace(/[/:*?"<>|]/g, "_")
@@ -1106,20 +1390,23 @@ async function materializeResolvedFile(courseId: number, file: CourseFile, api: 
   if (url.origin !== new URL(owner.baseUrl).origin) throw new Error("Course file belongs to another origin.");
   // Credentials rotate independently of content; metadata revisions invalidate same-URL updates.
   url.searchParams.sort();
-  const hash = createHash("sha256").update(JSON.stringify([url.href, file.filesize, file.timemodified || 0])).digest("hex");
-  const destination = join(root, "materials", hash, safeName);
+  const sourceVersion = createHash("sha256").update(JSON.stringify([url.href, file.filesize, file.timemodified || 0])).digest("hex");
+  const destination = join(root, "materials", `module-${moduleId}`, safeName);
   const existing = downloads.get(destination);
   if (existing) return existing;
   const pending = (async () => {
-    await ensureWorkspaceDirectories(root, ["materials", join("materials", hash)]);
+    await ensureWorkspaceDirectories(root, ["materials", join("materials", `module-${moduleId}`)]);
     const directory = dirname(destination);
     const directoryInfo = await assertMaterializedDirectory(directory);
     try {
       const info = await lstat(destination);
       if (info.isSymbolicLink() || !info.isFile()) throw new Error("Course download destination is not a regular file.");
       try {
-        await verifyMaterializedFile(destination);
-        return destination;
+        const record = (await readCourseManifest()).materializedFiles[manifestFileKey(destination)];
+        if (record?.sourceVersion === sourceVersion) {
+          await verifyMaterializedFile(destination);
+          return destination;
+        }
       } catch {
         // Unknown or modified cached files are recreated from the authenticated source.
       }
@@ -1184,7 +1471,10 @@ async function materializeResolvedFile(courseId: number, file: CourseFile, api: 
       }
       const verification = { dev: completedInfo.dev, ino: completedInfo.ino, digest: materialized.digest };
       materializedFiles.set(destination, verification);
-      await persistMaterializedVerification(destination, verification);
+      await withCourseManifest(async (manifest) => {
+        manifest.materializedFiles[manifestFileKey(destination)] = { ...verification, sourceVersion };
+        await writeCourseManifest(manifest);
+      });
       complete = true;
       return destination;
     } finally {
@@ -1212,24 +1502,16 @@ async function materializeResolvedFile(courseId: number, file: CourseFile, api: 
 }
 
 export async function materializeFile(courseId: number, fileUrl: string, _filename: string, api: ApiClient = defaultApiClient, identity?: CourseIdentity): Promise<string> {
-  return materializeResolvedFile(courseId, await courseFile(courseId, fileUrl, api), api, identity);
+  return materializeResolvedFile(courseId, await moduleIdForFile(courseId, fileUrl, api), await courseFile(courseId, fileUrl, api), api, identity);
 }
 
 export async function materializeCourseFile(courseId: number, moduleId: number, filename: string, api: ApiClient = defaultApiClient, identity?: CourseIdentity): Promise<string> {
-  return materializeResolvedFile(courseId, await resolveCourseFile(courseId, moduleId, filename, api), api, identity);
+  return materializeResolvedFile(courseId, moduleId, await resolveCourseFile(courseId, moduleId, filename, api), api, identity);
 }
 
-export async function courseWorkspace(courseId: number, _shortname: string, baseUrl = CURRENT_SITE_BASE_URL, userId = Number(get("userId"))): Promise<WorkspaceInfo> {
-  const path = workspacePath(courseId, baseUrl, userId);
-  let created = false;
-  try {
-    await stat(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    created = true;
-  }
-  await ensureWorkspaceDirectories(path, [".uit", join(".uit", "context"), "materials", "artifacts"]);
-  return { path, courseId, created };
+export async function courseWorkspace(courseId: number, shortname: string, baseUrl = CURRENT_SITE_BASE_URL, userId = Number(get("userId")), api: ApiClient = defaultApiClient): Promise<WorkspaceInfo> {
+  const workspace = await resolveWorkspace(courseId, shortname, baseUrl, userId, api);
+  return { path: workspace.path, courseId, created: workspace.created };
 }
 
 export type CodexStatusState = "missing" | "unavailable" | "unauthenticated" | "ready";

@@ -614,13 +614,13 @@ describe("deterministic materialization", () => {
     await mkdir(state.home, { recursive: true });
   }
 
-  it("isolates site/account/course, ignores renames and the calendar, and single-flights downloads", async () => {
+  it("isolates site, account, course, and the calendar while single-flighting downloads", async () => {
     await home();
     const api = client();
     vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
     const identity = { baseUrl: site, userId: 7, shortname: "CS101" };
     const workspace = await courseWorkspace(42, "CS101", site, 7);
-    expect((await courseWorkspace(42, "Renamed", `${site}/`, 7)).path).toBe(workspace.path);
+    expect((await courseWorkspace(42, "CS101", `${site}/`, 7)).path).toBe(workspace.path);
     expect((await courseWorkspace(42, "CS101", `${site}/sdh`, 7)).path).not.toBe(workspace.path);
     expect((await courseWorkspace(42, "CS101", site, 8)).path).not.toBe(workspace.path);
     const [first, duplicate] = await Promise.all([materializeFile(42, file.fileurl, "bad-name", api, identity), materializeFile(42, file.fileurl, file.filename, api, identity)]);
@@ -629,9 +629,27 @@ describe("deterministic materialization", () => {
     expect(await readFile(first, "utf8")).toBe("complete");
     expect(api.downloadFile).toHaveBeenCalledOnce();
     const second = await materializeFile(42, secondFile.fileurl, secondFile.filename, api, identity);
-    expect(second).not.toBe(first);
+    expect(second).toBe(first);
     await materializeFile(42, file.fileurl, file.filename, api, identity);
-    expect(api.downloadFile).toHaveBeenCalledTimes(2);
+    expect(api.downloadFile).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses one manifest for stable identities and concise course directories", async () => {
+    await home();
+    const api = client({
+      core_user_get_users_by_field: [{ id: 7, username: "23521146", fullname: "Nguyễn Thuận Phát" }]
+    });
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
+
+    const workspace = await courseWorkspace(42, "SE362.Q21", site, 7, api);
+    expect(workspace.path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q21"));
+    const destination = await materializeCourseFile(42, 20, "project.txt", api, { baseUrl: site, userId: 7, shortname: "SE362.Q21" });
+    expect(destination).toBe(join(workspace.path, "materials", "module-20", "project.txt"));
+    expect(JSON.parse(await readFile(join(state.home, ".uit", "courses", "manifest.json"), "utf8"))).toMatchObject({
+      version: 1,
+      courses: [{ baseUrl: site, moodleUserId: 7, courseId: 42, studentId: "23521146", studentName: "NguyenThuanPhat", courseCode: "SE362.Q21", path: "current/23521146-NguyenThuanPhat/SE362.Q21" }]
+    });
+    expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q22"));
   });
 
   it("uses a same-directory .part path compatible with Windows", async () => {
@@ -715,7 +733,7 @@ describe("deterministic materialization", () => {
   it("keeps a download pinned when its verified directory is swapped mid-write", async () => {
     await home();
     const api = client();
-    const identity = { baseUrl: site, userId: 7 };
+    const identity = { baseUrl: site, userId: 7, shortname: "CS" };
     const workspace = await courseWorkspace(42, "CS", site, 7);
     const outside = join(state.home, "outside-race-target");
     await mkdir(outside);
@@ -745,10 +763,10 @@ describe("deterministic materialization", () => {
     revision.timemodified++;
     clearCourseCache(api);
     const updated = await materializeFile(42, file.fileurl, file.filename, api, identity);
-    expect(updated).not.toBe(first);
+    expect(updated).toBe(first);
     revision.filesize++;
     clearCourseCache(api);
-    expect(await materializeFile(42, file.fileurl, file.filename, api, identity)).not.toBe(updated);
+    expect(await materializeFile(42, file.fileurl, file.filename, api, identity)).toBe(updated);
     expect(api.downloadFile).toHaveBeenCalledTimes(3);
     expect(api.downloadFile).toHaveBeenLastCalledWith(file.fileurl, expect.any(String), { atomic: false });
   });
@@ -757,8 +775,9 @@ describe("deterministic materialization", () => {
     await home();
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([{ modules: [{ id: 10, contents: [file] }] }])))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 7, username: "23521146", fullname: "Nguyễn Thuận Phát" }])))
       .mockResolvedValueOnce(new Response("from-production-client")));
-    const identity = { baseUrl: site, userId: 7 };
+    const identity = { baseUrl: site, userId: 7, shortname: "CS" };
     const destination = await materializeFile(42, file.fileurl, file.filename, createTokenApiClient(site, "secret"), identity);
     expect(await readFile(destination, "utf8")).toBe("from-production-client");
   });

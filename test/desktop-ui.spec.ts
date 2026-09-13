@@ -802,7 +802,7 @@ test("explicit overflow and reader downloads save only the selected file; Moodle
   await expect(page.locator("#resource-menu-preview")).toHaveCount(0);
   await page.getByRole("menuitem", { name: "Download", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Saved to");
-  expect((await calls(page, "courses.materialize"))[0].input).toEqual({ courseId: 1, baseUrl: LEGACY, userId: 202, filename: "lecture.txt", shortname: "LEGACY-CS01", fileUrl: `${LEGACY}/pluginfile.php/1/0/lecture.txt` });
+  expect((await calls(page, "courses.materialize"))[0].input).toEqual({ courseId: 1, baseUrl: LEGACY, userId: 202, moduleId: 501, filename: "lecture.txt" });
   expect(await calls(page, "courses.preview")).toHaveLength(0);
   await page.keyboard.press("Escape");
   await row.locator(".resource-open").click();

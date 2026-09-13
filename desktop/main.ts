@@ -464,8 +464,8 @@ async function requireOpenableMaterialPath(value: unknown): Promise<string> {
   const path = requireWorkspacePath(value, "Material path");
   const root = resolve(homedir(), ".uit", "courses");
   const parts = relative(root, path).split(sep);
-  if (parts.length !== 6 || !/^user-[1-9]\d*$/.test(parts[1]) || !/^course-[1-9]\d*$/.test(parts[2]) ||
-      parts[3] !== "materials" || !/^[a-f0-9]{64}$/.test(parts[4]) || !OPENABLE_MATERIAL_EXTENSIONS.has(extname(parts[5]).toLowerCase())) {
+  if (!parts.length || parts[0] === ".." || parts.includes("..") || !parts.includes("materials") ||
+      !OPENABLE_MATERIAL_EXTENSIONS.has(extname(path).toLowerCase())) {
     throw new Error("Only verified, non-executable UIT material files can be opened.");
   }
   let expected = verifiedMaterialPaths.get(path);
@@ -490,12 +490,12 @@ async function requireOpenableMaterialPath(value: unknown): Promise<string> {
 
 async function materializeVerified(
   courseId: number,
-  fileUrl: string,
+  moduleId: number,
   filename: string,
   api: ApiClient,
   identity?: CourseIdentity
 ): Promise<string> {
-  const path = resolve(await service.materializeFile(courseId, fileUrl, filename, api, identity));
+  const path = resolve(await service.materializeCourseFile(courseId, moduleId, filename, api, identity));
   verifiedMaterialPaths.set(path, await service.verifyMaterializedFile(path));
   return path;
 }
@@ -1061,7 +1061,7 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
   if (effort !== undefined && (effort.length > 20 || !/^[A-Za-z0-9._-]+$/.test(effort))) throw new Error("Unknown reasoning effort.");
   if (!Array.isArray(input.resources || []) || (input.resources || []).length > 30) throw new Error("Attach at most 30 resources per message.");
   const resources = await Promise.all((input.resources as CourseResourceReference[] || []).map((resource: CourseResourceReference) => service.resolveCourseResource(courseId, resource, account.api)));
-  const workspace = await service.courseWorkspace(courseId, course.shortname, account.baseUrl, account.userId);
+  const workspace = await service.courseWorkspace(courseId, course.shortname, account.baseUrl, account.userId, account.api);
   checkAccount();
   let threadId: string;
   let binding: ThreadBinding;
@@ -1083,6 +1083,7 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     if (resumed.status.type !== "idle") throw new Error(`This thread is unavailable because Codex reported status ${resumed.status.type}.`);
     binding.busy = true;
     binding.locked = false;
+    binding.workspace = workspace.path;
     binding.yolo = yolo;
     binding.fast = fast;
     binding.turnId = undefined;
@@ -1265,10 +1266,14 @@ function registerIpc(): void {
       return service.getAssignmentSubmission(courseId, reference, session.api);
     },
     "course:forum": (_event, rawInput) => { const input = requireObject(rawInput, "Forum input"); const { courseId, session } = courseSession(input); return service.listForumDiscussions(courseId, requirePositiveId(input.moduleId, "Forum module"), session.api); },
-    "course:materialize": (_event, rawInput) => { const input = requireObject(rawInput, "Materialization input"); const { courseId, session } = courseSession(input); return materializeVerified(courseId, requireCourseFileUrl(input.fileUrl, session.baseUrl), requireString(input.filename, "Filename"), session.api, session); },
+    "course:materialize": async (_event, rawInput) => {
+      const input = requireObject(rawInput, "Materialization input");
+      const { courseId, session, course } = await verifiedCourse(input);
+      return materializeVerified(courseId, requirePositiveId(input.moduleId, "Course module"), requireString(input.filename, "Filename"), session.api, { ...session, shortname: course.shortname });
+    },
     "course:preview": (_event, rawInput) => { const input = requireObject(rawInput, "Preview input"); const { courseId, session } = courseSession(input); return service.previewFile(courseId, requireCourseFileUrl(input.fileUrl, session.baseUrl), requireString(input.filename, "Filename"), session.api); },
     "course:open": (_event, rawInput) => openCourseWebsite(rawInput),
-    "workspace:create": async (_event, rawInput) => { const { courseId, course, session } = await verifiedCourse(rawInput); return service.courseWorkspace(courseId, course.shortname, session.baseUrl, session.userId); },
+    "workspace:create": async (_event, rawInput) => { const { courseId, course, session } = await verifiedCourse(rawInput); return service.courseWorkspace(courseId, course.shortname, session.baseUrl, session.userId, session.api); },
     "codex:status": () => service.codexStatus(),
     "codex:models": async () => {
       if (cachedModels && cachedModels.expires > Date.now()) return cachedModels.models;

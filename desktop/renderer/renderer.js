@@ -1205,7 +1205,7 @@ async function downloadResource(course, resource, control) {
   const previous = control.textContent;
   control.textContent = "Saving...";
   try {
-    const path = await window.uit.courses.materialize({ ...courseRef(course), fileUrl: resource.fileUrl, filename: resource.filename || resource.name, shortname: course.shortname || course.fullname });
+    const path = await window.uit.courses.materialize({ ...courseRef(course), moduleId: resource.moduleId || resource.id, filename: resource.filename || resource.name });
     const message = `Saved to ${path}`;
     if (state.reader?.resource === resource) $("#reader-status").textContent = message;
     toast(message);

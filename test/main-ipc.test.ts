@@ -69,6 +69,7 @@ async function harness(saved: unknown[] = [], options: {
     resolveCourseResource: vi.fn().mockResolvedValue({ kind: "assignment", id: 601, description: "Authoritative reference" }),
     courseWorkspace: vi.fn().mockResolvedValue({ path: workspace }),
     materializeFile: vi.fn().mockResolvedValue(path.join(workspace, "materials", "slide.pdf")),
+    materializeCourseFile: vi.fn().mockResolvedValue(path.join(workspace, "materials", "module-10", "slide.pdf")),
     verifyMaterializedFile: vi.fn(async () => ({
       dev: materialDevice,
       ino: materialInode,
@@ -458,18 +459,19 @@ describe("main IPC trust and routing", () => {
     const h = await harness(); h.connect();
     for (const ref of [reference, legacyReference]) {
       const api = ref === reference ? h.currentApi : h.legacyApi;
-      const input = { ...ref, fileUrl: `${ref.baseUrl}/pluginfile.php/1/slide.pdf`, filename: "slide.pdf" };
-      await h.invoke("course:preview", input);
-      expect(h.service.previewFile).toHaveBeenLastCalledWith(1, input.fileUrl, "slide.pdf", api);
-      expect(h.service.materializeFile).toHaveBeenCalledTimes(ref === reference ? 0 : 1);
+      const previewInput = { ...ref, fileUrl: `${ref.baseUrl}/pluginfile.php/1/slide.pdf`, filename: "slide.pdf" };
+      const input = { ...ref, moduleId: 10, filename: "slide.pdf" };
+      await h.invoke("course:preview", previewInput);
+      expect(h.service.previewFile).toHaveBeenLastCalledWith(1, previewInput.fileUrl, "slide.pdf", api);
+      expect(h.service.materializeCourseFile).toHaveBeenCalledTimes(ref === reference ? 0 : 1);
       await h.invoke("course:materialize", input);
-      expect(h.service.materializeFile).toHaveBeenLastCalledWith(1, input.fileUrl, "slide.pdf", api, expect.objectContaining({ baseUrl: ref.baseUrl, userId: ref.userId }));
+      expect(h.service.materializeCourseFile).toHaveBeenLastCalledWith(1, 10, "slide.pdf", api, expect.objectContaining({ baseUrl: ref.baseUrl, userId: ref.userId, shortname: "CS01" }));
       for (const fileUrl of ["https://example.invalid/a", `${ref === reference ? LEGACY : CURRENT}/a`, `${ref.baseUrl}:8443/a`, `http://${new URL(ref.baseUrl).hostname}/a`, `https://user:pass@${new URL(ref.baseUrl).hostname}/a`, "file:///etc/passwd"]) {
-        for (const channel of ["course:preview", "course:materialize"]) await expect(h.invoke(channel, { ...input, fileUrl })).rejects.toThrow("selected UIT course site");
+        await expect(h.invoke("course:preview", { ...previewInput, fileUrl })).rejects.toThrow("selected UIT course site");
       }
     }
     expect(h.service.previewFile).toHaveBeenCalledTimes(2);
-    expect(h.service.materializeFile).toHaveBeenCalledTimes(2);
+    expect(h.service.materializeCourseFile).toHaveBeenCalledTimes(2);
     expect(h.shell.openPath).not.toHaveBeenCalled();
   });
 
@@ -502,10 +504,10 @@ describe("main IPC trust and routing", () => {
       home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
       "materials", "a".repeat(64), "lecture.pdf"
     );
-    h.service.materializeFile.mockResolvedValueOnce(material);
+    h.service.materializeCourseFile.mockResolvedValueOnce(material);
     await h.invoke("course:materialize", {
       ...reference,
-      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      moduleId: 10,
       filename: "lecture.pdf"
     });
     await h.invoke("shell:open", material);
@@ -537,10 +539,10 @@ describe("main IPC trust and routing", () => {
       home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
       "materials", "a".repeat(64), "lecture.pdf"
     );
-    h.service.materializeFile.mockResolvedValueOnce(material);
+    h.service.materializeCourseFile.mockResolvedValueOnce(material);
     await h.invoke("course:materialize", {
       ...reference,
-      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      moduleId: 10,
       filename: "lecture.pdf"
     });
     h.replaceMaterial("attacker replacement");
@@ -555,10 +557,10 @@ describe("main IPC trust and routing", () => {
       home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
       "materials", "a".repeat(64), "lecture.pdf"
     );
-    h.service.materializeFile.mockResolvedValueOnce(material);
+    h.service.materializeCourseFile.mockResolvedValueOnce(material);
     await h.invoke("course:materialize", {
       ...reference,
-      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      moduleId: 10,
       filename: "lecture.pdf"
     });
     h.service.verifyMaterializedFile.mockImplementationOnce(async () => {
@@ -577,7 +579,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     const resource = { kind: "assignment", id: 601, moduleId: 701, description: "FORGED RESOURCE" };
     const result = await h.start({ resources: [resource], context: "FORGED CONTEXT", cwd: "/outside", shortname: "FORGED NAME" });
     expect(h.service.resolveCourseResource).toHaveBeenCalledWith(1, resource, h.currentApi);
-    expect(h.service.courseWorkspace).toHaveBeenCalledWith(1, "CS01", CURRENT, 101);
+    expect(h.service.courseWorkspace).toHaveBeenCalledWith(1, "CS01", CURRENT, 101, h.currentApi);
     const [cwd, options] = h.codex.startThread.mock.calls[0] as unknown as [string, any];
     expect(cwd).toBe(workspace);
     expect(options).not.toHaveProperty("dynamicTools");
