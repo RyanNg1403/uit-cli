@@ -1,16 +1,18 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="UIT CLI & UIT Studio" width="460">
+  <img src="assets/logo.svg" alt="UIT STUDIO" width="460">
 </p>
 
+<h1 align="center">UIT STUDIO</h1>
+
 <p align="center">
-  <strong>The modern command-line tool and AI desktop workspace for UIT Moodle LMS.</strong>
+  <strong>One workspace. Every course.</strong>
 </p>
 
 ---
 
 ## UIT CLI
 
-Fast terminal access to courses, assignments, grades, and materials.
+Your Moodle, at terminal speed.
 
 <details>
 <summary>macOS</summary>
@@ -66,7 +68,7 @@ Use `uit login --legacy` for the legacy Moodle portal. An SSO session from UIT S
 
 ## UIT Studio
 
-Desktop course workspace with an optional Codex study copilot.
+Your course space. Built to focus.
 
 <details>
 <summary>macOS</summary>
@@ -123,13 +125,13 @@ codex --login
 The ChatGPT desktop app alone is not sufficient. Sign in to UIT Studio with UIT SSO or a legacy Moodle account.
 
 <p align="center">
-  <img src="assets/studio-courses.png" alt="UIT Studio courses dashboard" width="860">
+  <img src="docs/assets/studio-courses.png" alt="UIT Studio courses workspace" width="860">
 </p>
 
 Chat with Codex using course context, then continue the same thread in Codex CLI or the ChatGPT desktop app.
 
 <p align="center">
-  <img src="assets/studio-chat.png" alt="Codex AI Workspace" width="860" style="border-radius: 8px;">
+  <img src="docs/assets/studio-chat.png" alt="UIT Studio agent workspace" width="860" style="border-radius: 8px;">
 </p>
 
 ---
