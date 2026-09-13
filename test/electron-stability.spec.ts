@@ -48,7 +48,6 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
     env, timeout: 20_000,
   });
   const child = app.process();
-  log.pid = child.pid!;
   const lifecycle = (event: string, detail?: unknown) => {
     log.lifecycle.push({ event, detail, intentional, atMs: performance.now() - started });
     if (!intentional) log.failures.push(`Unexpected ${event}${detail === undefined ? "" : `: ${JSON.stringify(detail)}`}`);
@@ -62,6 +61,9 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
   // Electron 41 can crash on macOS when an inspector evaluation races hidden
   // NSWindow creation. Establish the first window before evaluating in main.
   const window = await app.firstWindow();
+  // Playwright launches through a shell on Windows, so app.process().pid can
+  // identify cmd.exe rather than Electron. Track Electron's own PID instead.
+  log.pid = await app.evaluate(() => process.pid);
 
   try {
     await app.evaluate(({ app, BrowserWindow, session }) => {
