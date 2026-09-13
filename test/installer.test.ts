@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
@@ -10,6 +10,19 @@ afterEach(async () => {
 });
 
 describe("curl installer", () => {
+  it("rejects Windows shells and points users to the Node installer", async () => {
+    const directory = await mkdtemp(`${tmpdir()}/uit-windows-installer-test-`);
+    directories.push(directory);
+    const uname = `${directory}/uname`;
+    await writeFile(uname, '#!/bin/sh\n[ "$1" = "-s" ] && printf "MINGW64_NT-10.0\\n" || printf "x86_64\\n"\n');
+    await chmod(uname, 0o755);
+
+    await expect(promisify(execFile)("sh", ["scripts/install.sh", "--cli"], {
+      cwd: process.cwd(),
+      env: { ...process.env, PATH: `${directory}:/usr/bin:/bin` }
+    })).rejects.toThrow("use npm on Windows");
+  });
+
   it("rejects Intel Macs instead of requesting an unavailable release", async () => {
     const directory = await mkdtemp(`${tmpdir()}/uit-intel-installer-test-`);
     directories.push(directory);
@@ -21,31 +34,6 @@ describe("curl installer", () => {
       cwd: process.cwd(),
       env: { ...process.env, PATH: `${directory}:/usr/bin:/bin` }
     })).rejects.toThrow("unsupported Mac architecture: x86_64");
-  });
-
-  it("passes a requested release version to npm CLI installation", async () => {
-    const directory = await mkdtemp(`${tmpdir()}/uit-installer-test-`);
-    directories.push(directory);
-    const record = `${directory}/npm-args`;
-    const node = `${directory}/node`;
-    const npm = `${directory}/npm`;
-    const uname = `${directory}/uname`;
-    await writeFile(node, "#!/bin/sh\nexit 0\n");
-    await writeFile(npm, '#!/bin/sh\nprintf "%s\\n" "$@" > "$UIT_TEST_RECORD"\n');
-    await writeFile(uname, '#!/bin/sh\n[ "$1" = "-s" ] && printf "FreeBSD\\n" || printf "x86_64\\n"\n');
-    await Promise.all([chmod(node, 0o755), chmod(npm, 0o755), chmod(uname, 0o755)]);
-
-    await promisify(execFile)("sh", ["scripts/install.sh", "--cli"], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        PATH: `${directory}:/usr/bin:/bin`,
-        UIT_INSTALL_VERSION: "v1.2.0",
-        UIT_TEST_RECORD: record
-      }
-    });
-
-    expect((await readFile(record, "utf8")).trim().split("\n")).toEqual(["install", "--global", "uit-cli@1.2.0"]);
   });
 
   it("restores the previous Studio app when replacement is interrupted", async () => {
@@ -75,5 +63,33 @@ describe("curl installer", () => {
     })).rejects.toThrow();
 
     expect(await readFile(`${applications}/UIT Studio.app/marker`, "utf8")).toBe("previous\n");
+  });
+
+  it("installs the Linux Studio AppImage under the UIT directory", async () => {
+    const directory = await mkdtemp(`${tmpdir()}/uit-linux-studio-installer-test-`);
+    directories.push(directory);
+    const bin = `${directory}/bin`;
+    const studio = `${directory}/studio`;
+    const launcherDirectory = `${directory}/local-bin`;
+    await promisify(execFile)("mkdir", ["-p", bin]);
+    await writeFile(`${bin}/uname`, '#!/bin/sh\n[ "$1" = "-s" ] && printf "Linux\\n" || printf "x86_64\\n"\n');
+    await writeFile(`${bin}/curl`, '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--output" ]; then shift; printf "AppImage\\n" > "$1"; fi\n  shift\ndone\n');
+    await writeFile(`${bin}/sha256sum`, "#!/bin/sh\nexit 0\n");
+    await Promise.all(["uname", "curl", "sha256sum"].map((name) => chmod(`${bin}/${name}`, 0o755)));
+
+    await promisify(execFile)("sh", ["scripts/install.sh", "--studio"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATH: `${bin}:/usr/bin:/bin`,
+        UIT_INSTALL_BASE_URL: "https://example.invalid",
+        UIT_INSTALL_STUDIO_DIR: studio,
+        UIT_INSTALL_BIN_DIR: launcherDirectory
+      }
+    });
+
+    const target = `${studio}/UIT-Studio.AppImage`;
+    expect(await readFile(target, "utf8")).toBe("AppImage\n");
+    expect(await readlink(`${launcherDirectory}/uit-studio`)).toBe(target);
   });
 });

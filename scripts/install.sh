@@ -2,18 +2,22 @@
 
 set -eu
 
+# This bootstrap script intentionally requires a POSIX shell. Windows users
+# should use `npm install -g uit-cli` or `npm install -g uit-studio` instead.
 repository="${UIT_INSTALL_REPOSITORY:-RyanNg1403/uit-cli}"
 release="${UIT_INSTALL_VERSION:-latest}"
 mode="cli"
 
 usage() {
   cat <<'EOF'
-Install UIT CLI, UIT Studio for macOS, or both.
+Install UIT CLI, UIT Studio, or both from release assets.
+
+This curl installer is POSIX-only. Windows users should use npm.
 
 Usage:
   install.sh                 Install UIT CLI (default)
   install.sh --cli           Install UIT CLI
-  install.sh --studio        Install UIT Studio for macOS
+  install.sh --studio        Install UIT Studio for macOS or Linux
   install.sh --all           Install UIT CLI and UIT Studio
   install.sh --help          Show this help
 
@@ -39,6 +43,11 @@ case "${1:-}" in
   *) usage >&2; fail "unknown option: $1" ;;
 esac
 
+host_system="$(uname -s 2>/dev/null || printf 'unknown')"
+case "$host_system" in
+  MINGW*|MSYS*|CYGWIN*) fail "the curl installer requires a POSIX macOS/Linux shell; use npm on Windows." ;;
+esac
+
 release_base_url() {
   if [ -n "${UIT_INSTALL_BASE_URL:-}" ]; then
     printf '%s\n' "${UIT_INSTALL_BASE_URL%/}"
@@ -51,23 +60,6 @@ release_base_url() {
     esac
     printf 'https://github.com/%s/releases/download/%s\n' "$repository" "$release"
   fi
-}
-
-install_cli_with_npm() {
-  command -v node >/dev/null 2>&1 || fail "Node.js 20.19 or later is required to install UIT CLI."
-  command -v npm >/dev/null 2>&1 || fail "npm is required to install UIT CLI."
-  node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 20 || (major === 20 && minor >= 19) ? 0 : 1)' \
-    || fail "Node.js 20.19 or later is required to install UIT CLI."
-  if [ "$release" = "latest" ]; then
-    package="uit-cli"
-  else
-    case "$release" in
-      v[0-9]*) package="uit-cli@${release#v}" ;;
-      *) fail "UIT_INSTALL_VERSION must be a release tag such as v1.2.0." ;;
-    esac
-  fi
-  printf 'Installing UIT CLI and its MCP server from npm...\n'
-  npm install --global "$package"
 }
 
 install_standalone_cli() (
@@ -109,7 +101,7 @@ install_standalone_cli() (
   base_url="$(release_base_url)"
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/uit-cli.XXXXXX")"
   replacement_directory=""
-  target_directory="${UIT_INSTALL_CLI_DIR:-$HOME/.local/share/uit-cli}"
+  target_directory="${UIT_INSTALL_CLI_DIR:-$HOME/.uit/cli}"
   backup_directory=""
   replacement_started=0
   cleanup() {
@@ -194,13 +186,12 @@ install_cli() {
   case "$(uname -s)" in
     Darwin|Linux)
     install_standalone_cli
-      ;;
-    *) install_cli_with_npm ;;
+    ;;
+    *) fail "UIT CLI standalone releases are available for macOS and Linux; use npm on Windows." ;;
   esac
 }
 
-install_studio() {
-  [ "$(uname -s)" = "Darwin" ] || fail "UIT Studio currently supports macOS only."
+install_macos_studio() {
   command -v curl >/dev/null 2>&1 || fail "curl is required."
   command -v shasum >/dev/null 2>&1 || fail "shasum is required."
   command -v ditto >/dev/null 2>&1 || fail "ditto is required."
@@ -271,6 +262,86 @@ install_studio() {
 
   printf '\nUIT Studio was installed at %s\n' "$target_application"
   printf 'This free build is unsigned. If macOS blocks the first launch, use Open Anyway in System Settings > Privacy & Security.\n'
+}
+
+install_linux_studio() (
+  command -v curl >/dev/null 2>&1 || fail "curl is required."
+  case "$(uname -m)" in
+    x86_64|amd64) architecture="x64" ;;
+    *) fail "unsupported Linux architecture for UIT Studio: $(uname -m)" ;;
+  esac
+  if command -v sha256sum >/dev/null 2>&1; then
+    verify_checksum() { sha256sum --check "$1"; }
+  elif command -v shasum >/dev/null 2>&1; then
+    verify_checksum() { shasum --algorithm 256 --check "$1"; }
+  else
+    fail "sha256sum or shasum is required."
+  fi
+
+  asset="UIT-Studio-linux-${architecture}.AppImage"
+  base_url="$(release_base_url)"
+  studio_directory="${UIT_INSTALL_STUDIO_DIR:-$HOME/.uit/studio/app}"
+  target_application="$studio_directory/UIT-Studio.AppImage"
+  binary_directory="${UIT_INSTALL_BIN_DIR:-$HOME/.local/bin}"
+  launcher="$binary_directory/uit-studio"
+  temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/uit-studio.XXXXXX")"
+  temporary_application=""
+  temporary_launcher=""
+  cleanup() {
+    status=$?
+    trap - EXIT HUP INT TERM
+    [ -z "$temporary_application" ] || rm -f "$temporary_application"
+    [ -z "$temporary_launcher" ] || rm -f "$temporary_launcher"
+    rm -rf "$temporary_directory"
+    exit "$status"
+  }
+  trap cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  mkdir -p "$studio_directory" "$binary_directory"
+  if [ -e "$launcher" ] || [ -L "$launcher" ]; then
+    if [ ! -L "$launcher" ] || [ "$(readlink "$launcher")" != "$target_application" ]; then
+      fail "$launcher already exists and is not managed by the UIT installer."
+    fi
+  fi
+
+  printf 'Downloading UIT Studio for Linux (%s)...\n' "$architecture"
+  curl --fail --silent --show-error --location \
+    --output "$temporary_directory/$asset" "$base_url/$asset"
+  curl --fail --silent --show-error --location \
+    --output "$temporary_directory/$asset.sha256" "$base_url/$asset.sha256"
+  (
+    cd "$temporary_directory"
+    verify_checksum "$asset.sha256"
+  ) || fail "the downloaded UIT Studio archive failed checksum verification."
+
+  temporary_application="$(mktemp "$studio_directory/.UIT-Studio.AppImage.XXXXXX")"
+  cp "$temporary_directory/$asset" "$temporary_application"
+  chmod 700 "$temporary_application"
+  mv -f "$temporary_application" "$target_application"
+  temporary_application=""
+
+  temporary_launcher="$binary_directory/.uit-studio-launcher.$$"
+  rm -f "$temporary_launcher"
+  ln -s "$target_application" "$temporary_launcher"
+  mv -f "$temporary_launcher" "$launcher"
+  temporary_launcher=""
+
+  printf '\nUIT Studio was installed at %s\n' "$target_application"
+  case ":$PATH:" in
+    *":$binary_directory:"*) ;;
+    *) printf 'Add %s to your PATH to run uit-studio from any terminal.\n' "$binary_directory" ;;
+  esac
+)
+
+install_studio() {
+  case "$(uname -s)" in
+    Darwin) install_macos_studio ;;
+    Linux) install_linux_studio ;;
+    *) fail "UIT Studio release assets are available for macOS and Linux; use npm on Windows." ;;
+  esac
 }
 
 case "$mode" in

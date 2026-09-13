@@ -488,6 +488,19 @@ export class MoodleSessionApi implements ApiClient {
     }
   }
 
+  async getAuthenticatedUserProfile(userId: number): Promise<MoodleRecord> {
+    if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error("Invalid authenticated user ID.");
+    return await this.pageQuery<MoodleRecord>(`/user/edit.php?id=${userId}`, String.raw`(doc)=>{
+      const id=Number(doc.querySelector('input[name="id"]')?.value);
+      if(id!==${userId})throw new Error('Moodle returned a different user profile.');
+      const username=doc.querySelector('input[name="username"]')?.value?.trim()||'';
+      const firstname=doc.querySelector('input[name="firstname"]')?.value?.trim()||'';
+      const lastname=doc.querySelector('input[name="lastname"]')?.value?.trim()||'';
+      if(!username||!firstname||!lastname)throw new Error('Moodle did not expose the authenticated profile fields.');
+      return {id,username,firstname,lastname,fullname:(firstname+' '+lastname).trim()};
+    }`);
+  }
+
   async uploadFile(_filepath: string): Promise<MoodleRecord> {
     throw new Error("SSO file uploads will be enabled with the assignment submission workflow.");
   }

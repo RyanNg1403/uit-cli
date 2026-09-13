@@ -23,9 +23,9 @@ export interface UitToolServices {
   listCourseParticipants(courseId: number, api: ApiClient): Promise<Array<{ roles: string[] }>>;
   getCourseGrades(courseId: number, api: ApiClient, userId: number): Promise<unknown>;
   resolveCourseResource(courseId: number, reference: Record<string, unknown>, api: ApiClient): Promise<unknown>;
-  materializeFile(
+  materializeCourseFile(
     courseId: number,
-    fileUrl: string,
+    moduleId: number,
     filename: string,
     api: ApiClient,
     identity: { baseUrl: string; userId: number }
@@ -35,11 +35,11 @@ export interface UitToolServices {
 const resourceSchema: Record<string, unknown> = {
   type: "object",
   properties: {
-    courseId: { type: "integer", description: "Course ID (positive integer)" },
-    kind: { type: "string", enum: ["module", "file", "assignment", "announcement"] },
-    id: { type: "integer" },
-    moduleId: { type: "integer" },
-    fileUrl: { type: "string" }
+    courseId: { type: "integer", description: "Course ID from uit_courses or the current course." },
+    kind: { type: "string", enum: ["module", "file", "assignment", "announcement"], description: "Resource type; use file for an attachment." },
+    id: { type: "integer", description: "Resource ID from uit_course_contents; file resources use their owning course-module ID." },
+    moduleId: { type: "integer", description: "Owning course-module ID (cmid) from course contents." },
+    filename: { type: "string", description: "Exact filename from the selected course module; required for file resources; do not provide a URL." }
   },
   required: ["courseId", "kind", "id"],
   additionalProperties: false
@@ -56,10 +56,10 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: "uit_course_contents",
-    description: "Read course modules, sections, assignments, and announcements for a UIT course.",
+    description: "Read course modules, sections, assignments, and announcements. For downloads, reuse the returned module ID and exact filename; never reconstruct a file URL.",
     inputSchema: {
       type: "object",
-      properties: { courseId: { type: "integer", description: "Course ID (positive integer)" } },
+      properties: { courseId: { type: "integer", description: "Course ID from uit_courses or the current course." } },
       required: ["courseId"],
       additionalProperties: false
     }
@@ -67,7 +67,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: "uit_read_resource",
-    description: "Read a course resource's authoritative description and file references.",
+    description: "Read one current course resource. Call uit_course_contents first and reuse its kind, IDs, and exact filename; do not provide a file URL.",
     inputSchema: resourceSchema
   },
   {
@@ -77,7 +77,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
-        courseId: { type: "integer", description: "Course ID (positive integer)" },
+        courseId: { type: "integer", description: "Course ID from uit_courses or the current course." },
         role: {
           type: "string",
           enum: ["all", "teacher", "student"],
@@ -94,7 +94,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
     description: "Read student grade report, scores, maximum points, and teacher feedback for a course.",
     inputSchema: {
       type: "object",
-      properties: { courseId: { type: "integer", description: "Course ID (positive integer)" } },
+      properties: { courseId: { type: "integer", description: "Course ID from uit_courses or the current course." } },
       required: ["courseId"],
       additionalProperties: false
     }
@@ -102,15 +102,15 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: "uit_download_material",
-    description: "Explicitly download a course file into that course's managed materials folder. Returns the local filepath.",
+    description: "Download one file from a course module into its managed materials folder. Use the module ID and exact filename from uit_course_contents; the tool resolves the file URL itself.",
     inputSchema: {
       type: "object",
       properties: {
-        courseId: { type: "integer", description: "Source course ID (positive integer)" },
-        fileUrl: { type: "string", description: "Full URL of the file from course contents" },
-        filename: { type: "string", description: "Optional filename to save as" }
+        courseId: { type: "integer", description: "Course ID from uit_courses or the current course." },
+        moduleId: { type: "integer", description: "Course-module ID (cmid) from uit_course_contents; do not use a file instance ID." },
+        filename: { type: "string", description: "Exact filename from the selected module in uit_course_contents; do not provide a URL." }
       },
-      required: ["courseId", "fileUrl"],
+      required: ["courseId", "moduleId", "filename"],
       additionalProperties: false
     }
   }
@@ -143,6 +143,10 @@ function courseIdFor(args: Record<string, unknown>, context: UitToolContext): nu
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} must be a non-empty string.`);
   return value;
+}
+
+function rejectFileUrl(args: Record<string, unknown>): void {
+  if (args.fileUrl !== undefined) throw new Error("File URL is not accepted. Use the course-module ID and exact filename from course contents.");
 }
 
 function filterParticipants(
@@ -181,6 +185,7 @@ export function createUitToolExecutor(services: UitToolServices) {
         return Object.fromEntries(results.map((entry, index) => [["modules", "assignments", "announcements"][index], entry.status === "fulfilled" ? entry.value : { error: errorMessage(entry.reason) }]));
       }
       case "uit_read_resource": {
+        rejectFileUrl(args);
         const courseId = courseIdFor(args, context);
         const reference = { ...args };
         delete reference.courseId;
@@ -194,10 +199,11 @@ export function createUitToolExecutor(services: UitToolServices) {
       case "uit_course_grades":
         return await services.getCourseGrades(courseIdFor(args, context), context.api, context.userId);
       case "uit_download_material": {
+        rejectFileUrl(args);
         const courseId = courseIdFor(args, context);
-        const fileUrl = requiredString(args.fileUrl, "File URL");
-        const filename = args.filename === undefined ? "material" : requiredString(args.filename, "Filename");
-        const path = await services.materializeFile(courseId, fileUrl, filename, context.api, {
+        const moduleId = positiveId(args.moduleId, "Module ID");
+        const filename = requiredString(args.filename, "Filename");
+        const path = await services.materializeCourseFile(courseId, moduleId, filename, context.api, {
           baseUrl: context.baseUrl,
           userId: context.userId
         });

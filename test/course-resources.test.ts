@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
-import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeFile, previewableMime, previewFile, resolveCourseResource } from "../src/desktop-service.js";
+import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeCourseFile, materializeFile, previewableMime, previewFile, resolveCourseFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
 
 const state = vi.hoisted(() => ({ home: "" }));
@@ -376,7 +376,9 @@ describe("trusted course resource resolution", () => {
     [{ kind: "assignment", id: 200, moduleId: 20 }, "Trusted assignment intro"],
     [{ kind: "announcement", id: 400, moduleId: 30 }, "Trusted announcement message"],
     [{ kind: "file", id: 20, fileUrl: assignmentFile.fileurl }, "Trusted assignment intro"],
-    [{ kind: "file", id: 30, fileUrl: announcementFile.fileurl }, "Trusted announcement message"]
+    [{ kind: "file", id: 30, fileUrl: announcementFile.fileurl }, "Trusted announcement message"],
+    [{ kind: "file", id: 20, filename: "project.txt" }, "Trusted assignment intro"],
+    [{ kind: "file", id: 30, filename: "notice.txt" }, "Trusted announcement message"]
   ] as const)("resolves %j using service-owned context", async (reference, description) => {
     await expect(resolveCourseResource(42, reference, client())).resolves.toMatchObject({ kind: reference.kind, id: reference.id, description });
   });
@@ -612,13 +614,13 @@ describe("deterministic materialization", () => {
     await mkdir(state.home, { recursive: true });
   }
 
-  it("isolates site/account/course, ignores renames and the calendar, and single-flights downloads", async () => {
+  it("isolates site, account, course, and the calendar while single-flighting downloads", async () => {
     await home();
     const api = client();
     vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
     const identity = { baseUrl: site, userId: 7, shortname: "CS101" };
     const workspace = await courseWorkspace(42, "CS101", site, 7);
-    expect((await courseWorkspace(42, "Renamed", `${site}/`, 7)).path).toBe(workspace.path);
+    expect((await courseWorkspace(42, "CS101", `${site}/`, 7)).path).toBe(workspace.path);
     expect((await courseWorkspace(42, "CS101", `${site}/sdh`, 7)).path).not.toBe(workspace.path);
     expect((await courseWorkspace(42, "CS101", site, 8)).path).not.toBe(workspace.path);
     const [first, duplicate] = await Promise.all([materializeFile(42, file.fileurl, "bad-name", api, identity), materializeFile(42, file.fileurl, file.filename, api, identity)]);
@@ -627,9 +629,75 @@ describe("deterministic materialization", () => {
     expect(await readFile(first, "utf8")).toBe("complete");
     expect(api.downloadFile).toHaveBeenCalledOnce();
     const second = await materializeFile(42, secondFile.fileurl, secondFile.filename, api, identity);
-    expect(second).not.toBe(first);
+    expect(second).toBe(first);
     await materializeFile(42, file.fileurl, file.filename, api, identity);
-    expect(api.downloadFile).toHaveBeenCalledTimes(2);
+    expect(api.downloadFile).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses one manifest for stable identities and concise course directories", async () => {
+    await home();
+    const api = client({
+      core_user_get_users_by_field: [{ id: 7, username: "23521146", fullname: "Nguyễn Thuận Phát" }]
+    });
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
+
+    const workspace = await courseWorkspace(42, "SE362.Q21", site, 7, api);
+    expect(workspace.path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q21"));
+    const destination = await materializeCourseFile(42, 20, "project.txt", api, { baseUrl: site, userId: 7, shortname: "SE362.Q21" });
+    expect(destination).toBe(join(workspace.path, "materials", "module-20", "project.txt"));
+    expect(JSON.parse(await readFile(join(state.home, ".uit", "courses", "manifest.json"), "utf8"))).toMatchObject({
+      version: 1,
+      courses: [{ baseUrl: site, moodleUserId: 7, courseId: 42, studentId: "23521146", studentName: "NguyenThuanPhat", courseCode: "SE362.Q21", path: "current/23521146-NguyenThuanPhat/SE362.Q21" }]
+    });
+    expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q22"));
+  });
+
+  it("upgrades a fallback student directory when Moodle site info becomes available", async () => {
+    await home();
+    const fallback = await courseWorkspace(42, "SE362.Q21", site, 7, client({ core_user_get_users_by_field: [] }));
+    await writeFile(join(fallback.path, "artifacts", "keep.txt"), "preserved");
+    const api = client({
+      core_user_get_users_by_field: [],
+      core_webservice_get_site_info: { userid: 7, username: "23521146", firstname: "Nguyễn Thuận", lastname: "Phát" }
+    });
+
+    const upgraded = await courseWorkspace(42, "SE362.Q21", site, 7, api);
+    expect(upgraded.path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q21"));
+    expect(await readFile(join(upgraded.path, "artifacts", "keep.txt"), "utf8")).toBe("preserved");
+  });
+
+  it("uses a same-directory .part path compatible with Windows", async () => {
+    await home();
+    const api = client();
+    let temporary = "";
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => {
+      temporary = path;
+      await writeFile(path, "complete");
+    });
+    const identity = { baseUrl: site, userId: 7 };
+    const destination = await materializeFile(42, file.fileurl, file.filename, api, identity);
+
+    expect(temporary).toMatch(/\.part-[0-9a-f-]+$/i);
+    expect(dirname(temporary)).toBe(dirname(destination));
+    expect(temporary).not.toContain("/dev/fd/");
+    expect(temporary).not.toContain("/proc/self/fd/");
+    expect(await readdir(dirname(destination))).toEqual([basename(destination)]);
+  });
+
+  it("resolves a course file by module ID and exact filename, rejecting ambiguity", async () => {
+    await home();
+    const api = client();
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
+    const identity = { baseUrl: site, userId: 7 };
+
+    await expect(resolveCourseFile(42, 20, "project.txt", api)).resolves.toMatchObject({ filename: "project.txt", fileurl: assignmentFile.fileurl });
+    await expect(materializeCourseFile(42, 20, "project.txt", api, identity)).resolves.toContain("project.txt");
+    await expect(resolveCourseFile(42, 10, "lecture.pdf", api)).rejects.toThrow("Multiple files");
+
+    const localized = { ...file, filename: "CNTT.CNXHKH. PHÂN ĐOẠN HỌC LIỆU.pdf" };
+    const localizedApi = client({ core_course_get_contents: [{ modules: [{ id: 10, contents: [localized] }] }] });
+    vi.mocked(localizedApi.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
+    await expect(materializeCourseFile(42, 10, localized.filename, localizedApi, identity)).resolves.toContain(localized.filename);
   });
 
   it("cleans failed partial downloads and allows retry", async () => {
@@ -679,16 +747,16 @@ describe("deterministic materialization", () => {
   it("keeps a download pinned when its verified directory is swapped mid-write", async () => {
     await home();
     const api = client();
-    const identity = { baseUrl: site, userId: 7 };
+    const identity = { baseUrl: site, userId: 7, shortname: "CS" };
     const workspace = await courseWorkspace(42, "CS", site, 7);
     const outside = join(state.home, "outside-race-target");
     await mkdir(outside);
     vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => {
       const materials = join(workspace.path, "materials");
       const [hash] = await readdir(materials);
+      await writeFile(path, "complete");
       await rename(join(materials, hash), join(state.home, "displaced-hash-directory"));
       await symlink(outside, join(materials, hash), "dir");
-      await writeFile(path, "complete");
     });
 
     await expect(materializeFile(42, file.fileurl, file.filename, api, identity)).rejects.toThrow("symbolic links");
@@ -709,10 +777,10 @@ describe("deterministic materialization", () => {
     revision.timemodified++;
     clearCourseCache(api);
     const updated = await materializeFile(42, file.fileurl, file.filename, api, identity);
-    expect(updated).not.toBe(first);
+    expect(updated).toBe(first);
     revision.filesize++;
     clearCourseCache(api);
-    expect(await materializeFile(42, file.fileurl, file.filename, api, identity)).not.toBe(updated);
+    expect(await materializeFile(42, file.fileurl, file.filename, api, identity)).toBe(updated);
     expect(api.downloadFile).toHaveBeenCalledTimes(3);
     expect(api.downloadFile).toHaveBeenLastCalledWith(file.fileurl, expect.any(String), { atomic: false });
   });
@@ -721,8 +789,9 @@ describe("deterministic materialization", () => {
     await home();
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([{ modules: [{ id: 10, contents: [file] }] }])))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 7, username: "23521146", fullname: "Nguyễn Thuận Phát" }])))
       .mockResolvedValueOnce(new Response("from-production-client")));
-    const identity = { baseUrl: site, userId: 7 };
+    const identity = { baseUrl: site, userId: 7, shortname: "CS" };
     const destination = await materializeFile(42, file.fileurl, file.filename, createTokenApiClient(site, "secret"), identity);
     expect(await readFile(destination, "utf8")).toBe("from-production-client");
   });
