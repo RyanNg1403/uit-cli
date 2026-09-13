@@ -160,11 +160,12 @@ async function harness(saved: unknown[] = [], options: {
     whenReady: () => ({ then: (callback: () => Promise<void>) => { ready = callback; return { catch: vi.fn() }; } }),
   });
   const shell = { openPath: vi.fn(), openExternal: vi.fn().mockResolvedValue(undefined) };
+  const mcp = { installMcpServer: vi.fn() };
   const imports: Record<string, unknown> = {
     "../dist/desktop-service.js": service,
     "../dist/moodle-session-client.js": { MoodleSessionApi: class {} },
     "../dist/codex-client.js": { CodexClient: class { constructor() { return codex; } } },
-    "../dist/mcp-server.js": { installMcpServer: vi.fn() },
+    "../dist/mcp-server.js": mcp,
   };
   const clipboard = { writeText: vi.fn(), readText: vi.fn() };
   const existsSync = vi.fn().mockReturnValue(false);
@@ -183,7 +184,7 @@ async function harness(saved: unknown[] = [], options: {
   const context = createContext({
     exports: {}, module: { exports: {} },
     URL, console, setTimeout, clearTimeout, __dirname: path.dirname(mainPath),
-    process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: options.platform || process.platform },
+    process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: options.platform || process.platform, execPath: "/test/Electron" },
     require: (name: string) => { if (!(name in modules)) throw new Error(`Unexpected require: ${name}`); return modules[name]; },
     importService: async (name: string) => { if (!(name in imports)) throw new Error(`Unexpected import: ${name}`); return imports[name]; },
     injected: { service, codex },
@@ -213,12 +214,21 @@ async function harness(saved: unknown[] = [], options: {
   const request = (input: any) => { context.request = input; return runInContext("handleAgentRequest(request)", context); };
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
   return {
-    context, app, window, windows, views, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
+    context, app, window, windows, views, handlers, event, invoke, service, codex, mcp, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
     replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; }
   };
 }
 
 describe("main IPC trust and routing", () => {
+  it("registers Studio MCP through Electron Node mode without launching an Electron app", async () => {
+    const h = await harness([], { configEnabled: true });
+    expect(h.mcp.installMcpServer).toHaveBeenCalledWith({
+      command: "/test/Electron",
+      args: [path.join(path.dirname(mainPath), "..", "dist", "mcp-entry.js")],
+      env: { ELECTRON_RUN_AS_NODE: "1" }
+    });
+  });
+
   it.each(["darwin", "linux", "win32"] as const)("uses the mascot icon for shell-launched Studio on %s", async (platform) => {
     const h = await harness([], { platform });
     const icon = path.join(path.dirname(mainPath), "renderer", "assets", "uit-dau-dau-icon.png");

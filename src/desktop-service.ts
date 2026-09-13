@@ -1184,13 +1184,41 @@ function manifestFileKey(path: string): string {
 async function accountFolder(api: ApiClient, userId: number): Promise<{ studentId: string; studentName: string }> {
   let username = "";
   let fullname = "";
+  const readProfile = (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const profile = value as MoodleRecord;
+    const profileId = Number(profile.id ?? profile.userid);
+    if (profileId !== userId) return;
+    if (!username && typeof profile.username === "string") username = profile.username.trim();
+    if (!fullname && typeof profile.fullname === "string") fullname = profile.fullname.trim();
+    if (!fullname && typeof profile.firstname === "string" && typeof profile.lastname === "string") {
+      fullname = `${profile.firstname} ${profile.lastname}`.trim();
+    }
+  };
   try {
     const records = await api.call<unknown>("core_user_get_users_by_field", { field: "id", values: [userId] });
-    const account = Array.isArray(records) ? records.find((item) => Number((item as MoodleRecord)?.id) === userId) : undefined;
-    username = typeof (account as MoodleRecord | undefined)?.username === "string" ? (account as MoodleRecord).username.trim() : "";
-    fullname = typeof (account as MoodleRecord | undefined)?.fullname === "string" ? (account as MoodleRecord).fullname.trim() : "";
+    if (Array.isArray(records)) readProfile(records.find((item) => Number((item as MoodleRecord)?.id) === userId));
   } catch {
     // A portal may not expose this optional profile endpoint to the active role.
+  }
+  if (!username || !fullname) {
+    try {
+      // This is Moodle's self-service identity endpoint. Unlike arbitrary user
+      // lookup, it is intended to expose the authenticated account itself.
+      readProfile(await api.call<unknown>("core_webservice_get_site_info"));
+    } catch {
+      // Keep storage usable on portals which do not expose either profile API.
+    }
+  }
+  if ((!username || !fullname) && api.getAuthenticatedUserProfile) {
+    try {
+      // Browser-session portals can always verify the signed-in user's own
+      // edit form, even when their AJAX profile APIs are disabled.
+      readProfile(await api.getAuthenticatedUserProfile(userId));
+    } catch {
+      // A conservative user-ID fallback remains available if profile fields
+      // are intentionally hidden by a portal.
+    }
   }
   const studentId = /^\d{5,}$/.test(username) ? username : `user-${userId}`;
   const studentName = safePathSegment(fullname, "", true);

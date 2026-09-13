@@ -652,6 +652,20 @@ describe("deterministic materialization", () => {
     expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q22"));
   });
 
+  it("upgrades a fallback student directory when Moodle site info becomes available", async () => {
+    await home();
+    const fallback = await courseWorkspace(42, "SE362.Q21", site, 7, client({ core_user_get_users_by_field: [] }));
+    await writeFile(join(fallback.path, "artifacts", "keep.txt"), "preserved");
+    const api = client({
+      core_user_get_users_by_field: [],
+      core_webservice_get_site_info: { userid: 7, username: "23521146", firstname: "Nguyễn Thuận", lastname: "Phát" }
+    });
+
+    const upgraded = await courseWorkspace(42, "SE362.Q21", site, 7, api);
+    expect(upgraded.path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q21"));
+    expect(await readFile(join(upgraded.path, "artifacts", "keep.txt"), "utf8")).toBe("preserved");
+  });
+
   it("uses a same-directory .part path compatible with Windows", async () => {
     await home();
     const api = client();

@@ -95,11 +95,13 @@ describe("mcp-server workspace gating and tools", () => {
     const updated = upsertMcpConfig(
       existing,
       "/Users/Student/Applications/UIT Studio.app/Contents/MacOS/UIT Studio",
-      ["--uit-mcp"]
+      ["mcp-entry.js"],
+      { ELECTRON_RUN_AS_NODE: "1" }
     );
 
     expect(updated).toContain('command = "/Users/Student/Applications/UIT Studio.app/Contents/MacOS/UIT Studio"');
-    expect(updated).toContain('args = ["--uit-mcp"]');
+    expect(updated).toContain('args = ["mcp-entry.js"]');
+    expect(updated).toContain('env = { ELECTRON_RUN_AS_NODE = "1" }');
     expect(updated).toContain("enabled = true");
     expect(updated).toContain('[mcp_servers.other]\ncommand = "other"');
   });
@@ -108,6 +110,15 @@ describe("mcp-server workspace gating and tools", () => {
     expect(upsertMcpConfig("", "uit", ["mcp"])).toBe(
       '[mcp_servers.uit]\ncommand = "uit"\nargs = ["mcp"]\n'
     );
+  });
+
+  it("removes a managed Electron Node-mode environment when the CLI owns the launch", () => {
+    const updated = upsertMcpConfig(
+      '[mcp_servers.uit]\ncommand = "Electron"\nargs = ["mcp-entry.js"]\nenv = { ELECTRON_RUN_AS_NODE = "1" }\n',
+      "node",
+      ["cli.js", "mcp"]
+    );
+    expect(updated).toBe('[mcp_servers.uit]\ncommand = "node"\nargs = ["cli.js", "mcp"]\n');
   });
 
   it("registers the real Node executable and CLI entrypoint directly", () => {

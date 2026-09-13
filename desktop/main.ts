@@ -2,7 +2,7 @@ import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, screen, sessio
 import type { IpcMainInvokeEvent } from "electron";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,7 +79,6 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-const legacyStudioUserData = app.getPath("userData");
 const studioUserData = resolve(homedir(), ".uit", "studio");
 
 if (process.env.UIT_TEST_PROFILE) app.setPath("userData", resolve(process.env.UIT_TEST_PROFILE));
@@ -115,26 +114,6 @@ const TRUSTED_RENDERER_PROTOCOL = "file:";
 const SSO_ALLOWED_HOSTS = new Set(["courses.uit.edu.vn", "sso.uit.edu.vn"]);
 const APPLICATION_ID = "vn.edu.uit.studio";
 const APPLICATION_ICON = join(__dirname, "renderer", "assets", "uit-dau-dau-icon.png");
-
-async function migrateLegacyStudioUserData(): Promise<void> {
-  // Electron localStorage is profile-scoped. Copy the Studio-owned state before
-  // creating a BrowserWindow so existing drafts, UI state, and local thread
-  // mirrors remain available after moving the profile to ~/.uit/studio.
-  if (process.env.UIT_TEST_PROFILE || resolve(legacyStudioUserData) === studioUserData || !existsSync(legacyStudioUserData)) return;
-  await mkdir(studioUserData, { recursive: true });
-  for (const name of ["course-threads.json", "linked-courses.json", "Local Storage", "Session Storage"]) {
-    const source = join(legacyStudioUserData, name);
-    const destination = join(studioUserData, name);
-    if (!existsSync(source) || existsSync(destination)) continue;
-    try {
-      await cp(source, destination, { recursive: true, force: false, errorOnExist: true });
-    } catch (error) {
-      // A legacy profile may be owned by a generic development Electron app.
-      // Never overwrite current Studio data or prevent startup if migration fails.
-      console.warn(`Could not migrate legacy UIT Studio ${name}:`, errorMessage(error));
-    }
-  }
-}
 
 function configureApplicationIdentity(): void {
   app.setName?.("UIT Studio");
@@ -192,7 +171,11 @@ async function loadService() {
       const mcp = await import("../dist/mcp-server.js");
       mcp.installMcpServer?.({
         command: process.execPath,
-        args: app.isPackaged ? ["--uit-mcp"] : [__filename, "--uit-mcp"]
+        // Electron's Node mode runs this entrypoint without initializing an
+        // app, Dock icon, GPU process, or Studio profile. It is available on
+        // every platform supported by Electron, including packaged builds.
+        args: [join(__dirname, "..", "dist", "mcp-entry.js")],
+        env: { ELECTRON_RUN_AS_NODE: "1" }
       });
     } catch { /* MCP registration is best effort during startup. */ }
   }
@@ -1465,32 +1448,22 @@ async function createWindowInternal(): Promise<BrowserWindow> {
   return window;
 }
 
-if ((process.argv || []).includes("--uit-mcp")) {
-  process.stdin.once("end", () => app.quit());
-  import("../dist/mcp-server.js")
-    .then(({ runMcpServer }) => runMcpServer())
-    .catch((error) => {
-      console.error(error);
-      app.exit(1);
-    });
-} else {
-  app.whenReady().then(() => {
-    configureApplicationIdentity();
-    return migrateLegacyStudioUserData().then(createWindow);
-  }).catch((error) => {
-    console.error(error);
-    app.quit();
-  });
+app.whenReady().then(() => {
+  configureApplicationIdentity();
+  return createWindow();
+}).catch((error) => {
+  console.error(error);
+  app.quit();
+});
 
-  app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
-  });
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
 
-  app.on("activate", () => {
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
-  });
+app.on("activate", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+});
 
-  app.on("before-quit", () => {
-    codex?.disconnect();
-  });
-}
+app.on("before-quit", () => {
+  codex?.disconnect();
+});

@@ -32,7 +32,7 @@ function packageVersion(): string {
   }
 }
 
-export type McpLaunch = { command: string; args: string[] };
+export type McpLaunch = { command: string; args: string[]; env?: Record<string, string> };
 
 export function resolveMcpLaunch(options: { nodePath?: string; cliPath?: string } = {}): McpLaunch {
   return {
@@ -115,7 +115,7 @@ export function runMcpServer(): void {
   // A pipe-based smoke test and a real MCP host both signal shutdown by
   // closing stdin. Do not keep the closed input stream referenced after the
   // last response has flushed; active requests still keep their own handles.
-  rl.on("close", () => process.stdin.unref());
+  rl.on("close", () => process.stdin.unref?.());
 
   rl.on("line", async (line) => {
     const trimmed = line.trim();
@@ -236,18 +236,27 @@ function tomlArrayEnd(lines: string[], start: number, limit: number): number {
   return start + 1;
 }
 
-export function upsertMcpConfig(existing: string, command: string, args: string[]): string {
+export function upsertMcpConfig(
+  existing: string,
+  command: string,
+  args: string[],
+  env?: Record<string, string>
+): string {
   const commandLine = `command = ${JSON.stringify(command)}`;
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
+  const envLine = env && Object.keys(env).length > 0
+    ? `env = { ${Object.entries(env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ")} }`
+    : undefined;
   const lines = existing.split("\n");
   const uitSection = new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$`);
   const commandKey = /^\s*(?:command|"command"|'command')\s*=/;
   const argsKey = /^\s*(?:args|"args"|'args')\s*=/;
+  const envKey = /^\s*(?:env|"env"|'env')\s*=/;
   const sectionStart = lines.findIndex((line) => uitSection.test(line));
 
   if (sectionStart === -1) {
     const separator = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
-    return `${existing}${separator}[mcp_servers.uit]\n${commandLine}\n${argsLine}\n`;
+    return `${existing}${separator}[mcp_servers.uit]\n${commandLine}\n${argsLine}${envLine ? `\n${envLine}` : ""}\n`;
   }
 
   let sectionEnd = lines.length;
@@ -284,6 +293,29 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
     lines.splice(currentCommandIndex + 1, 0, argsLine);
   } else {
     lines.splice(argsIndex, tomlArrayEnd(lines, argsIndex, sectionEnd) - argsIndex, argsLine);
+  }
+
+  sectionEnd = lines.length;
+  for (let index = sectionStart + 1; index < lines.length; index += 1) {
+    if (/^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(lines[index])) {
+      sectionEnd = index;
+      break;
+    }
+  }
+  const envIndex = lines.findIndex(
+    (line, index) => index > sectionStart && index < sectionEnd && envKey.test(line)
+  );
+  if (envLine) {
+    if (envIndex === -1) {
+      const currentArgsIndex = lines.findIndex(
+        (line, index) => index > sectionStart && index < sectionEnd && argsKey.test(line)
+      );
+      lines.splice(currentArgsIndex + 1, 0, envLine);
+    } else {
+      lines[envIndex] = envLine;
+    }
+  } else if (envIndex !== -1) {
+    lines.splice(envIndex, 1);
   }
 
   return lines.join("\n");
@@ -323,12 +355,12 @@ function removeLegacyMcpWrapper(): void {
   }
 }
 
-export function installMcpServer(options: { command?: string; args?: string[] } = {}): void {
+export function installMcpServer(options: { command?: string; args?: string[]; env?: Record<string, string> } = {}): void {
   const configPath = codexConfigPath();
   const launch = resolveMcpLaunch();
   const command = options.command ?? launch.command;
   const args = options.args ?? (options.command ? ["mcp"] : launch.args);
-  const configured = (existing: string) => upsertMcpConfig(existing, command, args);
+  const configured = (existing: string) => upsertMcpConfig(existing, command, args, options.env);
 
   if (!existsSync(configPath)) {
     const codexDir = dirname(configPath);

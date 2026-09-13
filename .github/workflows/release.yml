@@ -50,7 +50,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "release/mac-arm64/UIT Studio.app/Contents/MacOS/UIT Studio" --uit-mcp)"
+          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ELECTRON_RUN_AS_NODE=1 "release/mac-arm64/UIT Studio.app/Contents/MacOS/UIT Studio" "release/mac-arm64/UIT Studio.app/Contents/Resources/app.asar/dist/mcp-entry.js")"
           printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
           printf '%s\n' "$response" | grep -F "\"version\":\"${RELEASE_TAG#v}\""
 
