@@ -39,6 +39,11 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
+      - name: Smoke-test packaged Studio
+        run: node scripts/smoke-packaged-studio.mjs
+        env:
+          UIT_PACKAGED_EXECUTABLE: release/mac-arm64/UIT Studio.app/Contents/MacOS/UIT Studio
+
       - name: Verify packaged MCP on native architecture
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -134,6 +139,12 @@ jobs:
             fi
           done
 
+      - name: Smoke-test packaged Studio
+        if: matrix.arch == 'x64'
+        run: xvfb-run --auto-servernum node scripts/smoke-packaged-studio.mjs
+        env:
+          UIT_PACKAGED_EXECUTABLE: release/linux-unpacked/uit-cli
+
       - name: Upload release assets
         uses: actions/upload-artifact@v6
         with:
@@ -170,6 +181,11 @@ jobs:
             $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower()
             Set-Content -Path "$($_.FullName).sha256" -Value "$hash  $($_.Name)"
           }
+
+      - name: Smoke-test packaged Studio
+        run: node scripts/smoke-packaged-studio.mjs
+        env:
+          UIT_PACKAGED_EXECUTABLE: release/win-unpacked/UIT Studio.exe
 
       - name: Upload release assets
         uses: actions/upload-artifact@v6

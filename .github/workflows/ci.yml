@@ -105,7 +105,7 @@ jobs:
 
   macos-electron:
     name: macOS Electron
-    runs-on: macos-latest
+    runs-on: macos-26
 
     steps:
       - name: Checkout
