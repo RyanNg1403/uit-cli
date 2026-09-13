@@ -113,10 +113,10 @@ describe("CodexClient", () => {
 
   it("handles replies received synchronously while writing and preserves start/resume/fork/stop parameters", async () => {
     const server = mockServer((message) => {
-      if (message.id !== undefined) server.send({ id: message.id, result: { thread: { id: "thread" }, turn: { id: "turn" } } });
+      if (message.id !== undefined) server.send({ id: message.id, result: { thread: { id: "thread", status: { type: "idle" } }, turn: { id: "turn" } } });
     });
     await server.client.startThread("/workspace");
-    await server.client.resumeThread("thread");
+    await server.client.resumeThread("thread", { excludeTurns: true });
     await server.client.forkThread("thread", "last");
     await server.client.forkThread("thread");
     await server.client.startTurn("thread", "hello");
@@ -125,7 +125,7 @@ describe("CodexClient", () => {
     await server.client.interruptTurn("thread", "turn");
     expect(server.messages.slice(2).map(({ method, params }) => ({ method, params }))).toEqual([
       { method: "thread/start", params: { cwd: "/workspace", serviceName: "uit_studio", sandbox: "workspace-write", approvalPolicy: "on-request" } },
-      { method: "thread/resume", params: { threadId: "thread" } },
+      { method: "thread/resume", params: { threadId: "thread", excludeTurns: true } },
       { method: "thread/fork", params: { threadId: "thread", lastTurnId: "last" } },
       { method: "thread/fork", params: { threadId: "thread" } },
       { method: "turn/start", params: { threadId: "thread", input: [{ type: "text", text: "hello" }] } },
@@ -169,6 +169,54 @@ describe("CodexClient", () => {
     expect(started?.params).toMatchObject({ model: "gpt-5.6-sol" });
     const turn = server.messages.find((message) => message.method === "turn/start");
     expect(turn?.params).toMatchObject({ model: "gpt-5.6-sol", effort: "high", serviceTierForTurn: "fast" });
+  });
+
+  it("reads only safe account fields after the App Server handshake", async () => {
+    const server = mockServer((message) => {
+      if (message.method === "initialize") server.send({ id: message.id, result: {} });
+      if (message.method === "account/read") server.send({ id: message.id, result: {
+        account: { type: "chatgpt", email: "hidden@example.com", accessToken: "secret" },
+        requiresOpenaiAuth: true
+      } });
+    });
+    await expect(server.client.readAccount()).resolves.toEqual({ account: { type: "chatgpt" }, requiresOpenaiAuth: true });
+    expect(server.messages.find((message) => message.method === "account/read")?.params).toEqual({ refreshToken: false });
+  });
+
+  it("reports method-specific malformed account, resume, and status notifications", async () => {
+    const server = mockServer((message) => {
+      if (message.method === "initialize") server.send({ id: message.id, result: {} });
+      if (message.method === "account/read") server.send({ id: message.id, result: { account: null } });
+      if (message.method === "thread/resume") server.send({ id: message.id, result: { thread: { id: "thread" } } });
+    });
+    await expect(server.client.readAccount()).rejects.toThrow("Malformed account/read response");
+    await expect(server.client.resumeThread("thread")).rejects.toThrow("Malformed thread/resume response");
+
+    const protocolError = vi.fn();
+    const notification = vi.fn();
+    server.client.on("protocolError", protocolError);
+    server.client.on("notification", notification);
+    server.send({ method: "thread/status/changed", params: { threadId: "thread", status: { type: "active" } } });
+    expect(protocolError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: expect.stringContaining("Malformed thread/status/changed notification") }));
+    expect(notification).not.toHaveBeenCalled();
+    server.send({ method: "thread/status/changed", params: { threadId: "thread", status: { type: "active", activeFlags: ["waitingOnApproval"] } } });
+    expect(notification).toHaveBeenCalledExactlyOnceWith({ method: "thread/status/changed", params: { threadId: "thread", status: { type: "active", activeFlags: ["waitingOnApproval"] } } });
+  });
+
+  it("emits process exit after rejecting pending requests", async () => {
+    const server = mockServer((message) => {
+      if (message.method === "initialize") server.send({ id: message.id, result: {} });
+    });
+    await server.client.connect();
+    const exited = vi.fn();
+    server.client.on("exit", exited);
+    const pending = server.client.startThread("/workspace");
+    await Promise.resolve();
+    server.child.emit("exit", 17, null);
+    await expect(pending).rejects.toThrow("Codex app-server exited (17)");
+    expect(exited).toHaveBeenCalledExactlyOnceWith({ code: 17, signal: null });
+    expect(server.client.isConnected).toBe(false);
+    expect(server.child.kill).toHaveBeenCalledOnce();
   });
 
   it.each([0, 1, "1", "approval-id"])("routes server request ID %s independently from pending responses", async (id) => {
@@ -234,9 +282,9 @@ describe("CodexClient", () => {
     const failure = expect(failed).rejects.toMatchObject({ message: "denied", code: -32000, data: { reason: "policy" } });
     await Promise.resolve();
     server.send({ id: 2, error: { message: "denied", code: -32000, data: { reason: "policy" } } });
-    server.send({ id: 3, result: { thread: { id: "thread" } } });
+    server.send({ id: 3, result: { thread: { id: "thread", status: { type: "idle" } } } });
     await failure;
-    await expect(succeeds).resolves.toEqual({ id: "thread" });
+    await expect(succeeds).resolves.toEqual({ id: "thread", status: { type: "idle" } });
     expect(server.client.isConnected).toBe(true);
   });
 

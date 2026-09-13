@@ -55,6 +55,7 @@ if (runtimeUnexpected.length > 0) {
 for (const required of [
   "dist/desktop-service.js",
   "dist/mcp-server.js",
+  "dist/mcp-entry.js",
   "dist/uit-tools.js",
   "desktop-build/main.js",
   "desktop-build/preload.cjs",

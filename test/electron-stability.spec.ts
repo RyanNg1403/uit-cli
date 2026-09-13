@@ -48,7 +48,6 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
     env, timeout: 20_000,
   });
   const child = app.process();
-  log.pid = child.pid!;
   const lifecycle = (event: string, detail?: unknown) => {
     log.lifecycle.push({ event, detail, intentional, atMs: performance.now() - started });
     if (!intentional) log.failures.push(`Unexpected ${event}${detail === undefined ? "" : `: ${JSON.stringify(detail)}`}`);
@@ -59,6 +58,12 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
   child.stderr?.on("data", (chunk) => log.stderr.push(String(chunk)));
   app.on("close", () => lifecycle("app-close"));
   app.on("console", (message) => log.console.push(`main ${message.type()}: ${message.text()}`));
+  // Electron 41 can crash on macOS when an inspector evaluation races hidden
+  // NSWindow creation. Establish the first window before evaluating in main.
+  const window = await app.firstWindow();
+  // Playwright launches through a shell on Windows, so app.process().pid can
+  // identify cmd.exe rather than Electron. Track Electron's own PID instead.
+  log.pid = await app.evaluate(() => process.pid);
 
   try {
     await app.evaluate(({ app, BrowserWindow, session }) => {
@@ -98,7 +103,6 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
       app.on("session-created", blockNetwork);
       globalThis.fetch = async () => { record("main-fetch"); throw new Error("Network forbidden in stability test"); };
     });
-    const window = await app.firstWindow();
     window.setDefaultTimeout(5_000);
     window.on("crash", () => log.failures.push("Renderer crashed"));
     window.on("close", () => lifecycle("renderer-close"));
@@ -284,7 +288,9 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
     await window.getByRole("button", { name: "New project", exact: true }).click();
     await window.locator(".project-option").filter({ hasText: courses[1].fullname }).click();
     await expect(window.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(1));
-    await window.getByLabel("Message Codex").fill("Temporary project draft: never send or retain this thread.");
+    // Adding a project does not create a thread. Its composer is therefore
+    // deliberately disabled until the user explicitly starts one.
+    await expect(window.getByLabel("Message Codex")).toBeDisabled();
     await navigation();
     await window.locator('.nav-item[data-view="courses"]').click();
     await window.locator('.nav-item[data-view="agent"]').click();
@@ -378,19 +384,17 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
       await navigation();
       await window.locator('.nav-item[data-view="agent"]').click();
       await navigation();
-      await window.getByRole("button", { name: `New thread in ${courses[index].shortname}`, exact: true }).click();
-      await expect(window.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(index));
-      await window.getByLabel("Message Codex").fill(`Discard this temporary draft, cycle ${log.cycles}`);
-      await navigation();
+      const project = window.locator("#course-nav .project").filter({
+        has: window.locator(".project-name").getByText(courses[index].shortname, { exact: true })
+      });
+      const toggle = project.locator(".project-collapse");
+      if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
       await window.locator(".thread-link").filter({ hasText: `Offline draft ${index}` }).click();
       await expect(window.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(index));
       await expect(window.getByLabel("Message Codex")).toHaveValue(drafts.get(index)!);
-      drafts.set(index, `Offline unsent draft ${index}, cycle ${log.cycles}\nNo turn requested.`);
-      await window.getByLabel("Message Codex").fill(drafts.get(index)!);
-      await expect.poll(() => window.evaluate(({ STORE, title }) => {
-        const stored = JSON.parse(localStorage.getItem(STORE) || "{}");
-        return { ids: stored.threads.map((thread: { id: string }) => thread.id), draft: stored.threads.find((thread: { title: string }) => thread.title === title)?.draft };
-      }, { STORE, title: `Offline draft ${index}` })).toEqual({ ids: threads.map((thread) => thread.id), draft: drafts.get(index)! });
+      // The fixture intentionally runs without Codex. Existing local threads
+      // remain readable, but their composer is correctly read-only.
+      await expect(window.getByLabel("Message Codex")).toBeDisabled();
       if (log.cycles < 2) await screenshot(mobile ? "stability-mobile-agent" : "stability-agent");
       expect(await window.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await navigation();
@@ -422,6 +426,7 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
     await expect(window.locator(".course-row")).toHaveCount(19);
     await navigation();
     await window.locator('.nav-item[data-view="agent"]').click();
+    await navigation();
     for (const index of [0, 14]) {
       await navigation();
       await expect(window.locator("#course-nav .project")).toHaveCount(3);
