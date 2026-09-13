@@ -72,7 +72,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
       connected.push({ baseUrl: input.baseUrl, userId, authMode: method === "session.ssoLogin" ? "sso" : "token" });
       return save();
     }
-    if (method === "codex.status") return { installed: true, version: "fixture (offline)" };
+    if (method === "codex.status") return { state: "ready", installed: true, message: "Codex App Server is ready" };
     if (method === "codex.models") return [{ id: "gpt-5.6-sol", displayName: "GPT-5.6-Sol", description: "Fixture workhorse", efforts: ["low", "high"] }];
     if (method === "courses.list" || method === "courses.refresh") {
       return [...seed.courses, { ...seed.courses[14], userId: 303, shortname: "OTHER-ACCOUNT", fullname: "Other account algorithms" }];

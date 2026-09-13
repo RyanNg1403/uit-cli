@@ -74,17 +74,86 @@ export interface CodexModelOption {
   defaultServiceTier?: string;
 }
 
+export type CodexThreadStatus =
+  | { type: "notLoaded" }
+  | { type: "idle" }
+  | { type: "systemError" }
+  | { type: "active"; activeFlags: string[] };
+
 export interface CodexThread {
   id: string;
   sessionId?: string;
   name?: string | null;
+  status?: CodexThreadStatus;
   [key: string]: unknown;
+}
+
+export interface CodexAccountReadResult {
+  account: { type: string } | null;
+  requiresOpenaiAuth: boolean;
+}
+
+export interface CodexThreadResumeOptions {
+  excludeTurns?: boolean;
 }
 
 export interface CodexTurn {
   id: string;
   status?: string;
   [key: string]: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function isCodexThreadStatus(value: unknown): value is CodexThreadStatus {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (["notLoaded", "idle", "systemError"].includes(value.type)) return true;
+  return value.type === "active" && Array.isArray(value.activeFlags) && value.activeFlags.every((flag) => typeof flag === "string");
+}
+
+function parseThreadStatus(value: unknown, context: string): CodexThreadStatus {
+  if (!isCodexThreadStatus(value)) {
+    throw new Error(`${context} must contain a valid Codex thread status.`);
+  }
+  return value.type === "active"
+    ? { type: "active", activeFlags: [...value.activeFlags] }
+    : { type: value.type };
+}
+
+function parseAccountReadResult(value: unknown): CodexAccountReadResult {
+  if (!isRecord(value)) throw new Error("Malformed account/read response: result must be an object.");
+  if (typeof value.requiresOpenaiAuth !== "boolean") {
+    throw new Error("Malformed account/read response: result.requiresOpenaiAuth must be a boolean.");
+  }
+  if (value.account !== null && (!isRecord(value.account) || typeof value.account.type !== "string" || value.account.type.trim() === "")) {
+    throw new Error("Malformed account/read response: result.account must be null or contain a non-empty type.");
+  }
+  const account = value.account;
+  return {
+    account: account === null ? null : { type: account.type as string },
+    requiresOpenaiAuth: value.requiresOpenaiAuth
+  };
+}
+
+function parseThreadResumeResult(value: unknown): CodexThread {
+  if (!isRecord(value)) throw new Error("Malformed thread/resume response: result must be an object.");
+  if (!isRecord(value.thread) || typeof value.thread.id !== "string" || value.thread.id.trim() === "") {
+    throw new Error("Malformed thread/resume response: result.thread.id must be a non-empty string.");
+  }
+  const status = parseThreadStatus(value.thread.status, "Malformed thread/resume response: result.thread.status");
+  return { ...value.thread, id: value.thread.id, status };
+}
+
+function parseThreadStatusChangedParams(value: unknown): { threadId: string; status: CodexThreadStatus } {
+  if (!isRecord(value) || typeof value.threadId !== "string" || value.threadId.trim() === "") {
+    throw new Error("Malformed thread/status/changed notification: params.threadId must be a non-empty string.");
+  }
+  return {
+    threadId: value.threadId,
+    status: parseThreadStatus(value.status, "Malformed thread/status/changed notification: params.status")
+  };
 }
 
 export class CodexClient extends EventEmitter {
@@ -179,6 +248,12 @@ export class CodexClient extends EventEmitter {
     return { thread: result.thread as CodexThread, model: typeof result.model === "string" ? result.model : undefined };
   }
 
+  async readAccount(): Promise<CodexAccountReadResult> {
+    await this.connect();
+    const result = await this.request("account/read", { refreshToken: false });
+    return parseAccountReadResult(result);
+  }
+
   async listModels(): Promise<CodexModelOption[]> {
     await this.connect();
     const result = await this.request("model/list", {});
@@ -204,10 +279,13 @@ export class CodexClient extends EventEmitter {
       });
   }
 
-  async resumeThread(threadId: string): Promise<CodexThread> {
+  async resumeThread(threadId: string, options: CodexThreadResumeOptions = {}): Promise<CodexThread> {
     await this.connect();
-    const result = await this.request("thread/resume", { threadId });
-    return result.thread as CodexThread;
+    const result = await this.request("thread/resume", {
+      threadId,
+      ...(options.excludeTurns !== undefined ? { excludeTurns: options.excludeTurns } : {})
+    });
+    return parseThreadResumeResult(result);
   }
 
   async startTurn(threadId: string, text: string, cwd?: string, options: CodexTurnStartOptions = {}): Promise<CodexTurn> {
@@ -311,7 +389,16 @@ export class CodexClient extends EventEmitter {
           this.emit("approval", request);
         }
       } else if (message.id === undefined) {
-        this.emit("notification", message);
+        if (message.method === "thread/status/changed") {
+          try {
+            const params = parseThreadStatusChangedParams(message.params);
+            this.emit("notification", { ...message, params });
+          } catch (error) {
+            this.emit("protocolError", error);
+          }
+        } else {
+          this.emit("notification", message);
+        }
       }
       return;
     }

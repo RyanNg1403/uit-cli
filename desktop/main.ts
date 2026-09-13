@@ -1,11 +1,10 @@
 import { app, BrowserWindow, WebContentsView, clipboard, ipcMain, screen, session, shell } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { constants, existsSync } from "node:fs";
-import { lstat, mkdtemp, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
+import { cp, lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { ApiClient } from "../dist/types.js";
@@ -15,7 +14,8 @@ import type {
   CodexModelOption,
   CodexRequestId,
   CodexServerRequest,
-  CodexThread
+  CodexThread,
+  CodexThreadStatus
 } from "../dist/codex-client.js";
 import type {
   CourseIdentity,
@@ -59,6 +59,7 @@ type ThreadBinding = CourseReference & {
   yolo?: boolean;
   fast?: boolean;
   busy: boolean;
+  locked?: boolean;
   completedTurns?: Set<string>;
 };
 type AgentRequest = CodexServerRequest & { params: JsonRecord };
@@ -78,7 +79,11 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+const legacyStudioUserData = app.getPath("userData");
+const studioUserData = resolve(homedir(), ".uit", "studio");
+
 if (process.env.UIT_TEST_PROFILE) app.setPath("userData", resolve(process.env.UIT_TEST_PROFILE));
+else app.setPath("userData", studioUserData);
 
 let service!: typeof import("../dist/desktop-service.js");
 let codex!: CodexClient;
@@ -97,7 +102,6 @@ let allowAllUitMcpRequests = false;
 const accountGenerations = new Map<string, number>();
 const linkedCourses = new Map<string, CourseReference>();
 const verifiedMaterialPaths = new Map<string, MaterialVerification>();
-const temporaryMaterialDirectories = new Set<string>();
 let linkedWrite = Promise.resolve();
 let portalErrors: PortalError[] = [];
 let cachedModels: CachedModels | undefined;
@@ -111,6 +115,26 @@ const TRUSTED_RENDERER_PROTOCOL = "file:";
 const SSO_ALLOWED_HOSTS = new Set(["courses.uit.edu.vn", "sso.uit.edu.vn"]);
 const APPLICATION_ID = "vn.edu.uit.studio";
 const APPLICATION_ICON = join(__dirname, "renderer", "assets", "uit-dau-dau-icon.png");
+
+async function migrateLegacyStudioUserData(): Promise<void> {
+  // Electron localStorage is profile-scoped. Copy the Studio-owned state before
+  // creating a BrowserWindow so existing drafts, UI state, and local thread
+  // mirrors remain available after moving the profile to ~/.uit/studio.
+  if (process.env.UIT_TEST_PROFILE || resolve(legacyStudioUserData) === studioUserData || !existsSync(legacyStudioUserData)) return;
+  await mkdir(studioUserData, { recursive: true });
+  for (const name of ["course-threads.json", "linked-courses.json", "Local Storage", "Session Storage"]) {
+    const source = join(legacyStudioUserData, name);
+    const destination = join(studioUserData, name);
+    if (!existsSync(source) || existsSync(destination)) continue;
+    try {
+      await cp(source, destination, { recursive: true, force: false, errorOnExist: true });
+    } catch (error) {
+      // A legacy profile may be owned by a generic development Electron app.
+      // Never overwrite current Studio data or prevent startup if migration fails.
+      console.warn(`Could not migrate legacy UIT Studio ${name}:`, errorMessage(error));
+    }
+  }
+}
 
 function configureApplicationIdentity(): void {
   app.setName?.("UIT Studio");
@@ -186,7 +210,7 @@ async function loadService() {
   await restorePersistedSsoSession();
   try {
     const saved = JSON.parse(await readFile(join(app.getPath("userData"), "course-threads.json"), "utf8"));
-    for (const [id, binding] of saved) threadBindings.set(id, { ...binding, yolo: binding.yolo !== false, fast: binding.fast === true, busy: false });
+    for (const [id, binding] of saved) threadBindings.set(id, { ...binding, yolo: binding.yolo !== false, fast: binding.fast === true, busy: false, locked: false });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("Could not restore course thread bindings:", errorMessage(error));
   }
@@ -201,6 +225,9 @@ async function loadService() {
     const params = (message.params || {}) as JsonRecord;
     const notificationThreadId = params.threadId || params.thread?.id;
     const binding = threadBindings.get(notificationThreadId);
+    if (message.method === "thread/status/changed" && notificationThreadId && isThreadStatus(params.status) && binding) {
+      binding.locked = !binding.busy && params.status.type === "active";
+    }
     if (message.method === "thread/deleted" && notificationThreadId) {
       threadBindings.delete(notificationThreadId);
       for (const [id, request] of approvals) if (request.params.threadId === notificationThreadId) approvals.delete(id);
@@ -235,6 +262,12 @@ function sendAgentEvent(message: JsonRecord): void {
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isThreadStatus(value: unknown): value is CodexThreadStatus {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (["notLoaded", "idle", "systemError"].includes(value.type)) return true;
+  return value.type === "active" && Array.isArray(value.activeFlags) && value.activeFlags.every((flag: unknown) => typeof flag === "string");
 }
 
 function isUitMcpToolApproval(request: AgentRequest): boolean {
@@ -427,14 +460,22 @@ const OPENABLE_MATERIAL_EXTENSIONS = new Set([
   ".zip", ".7z", ".rar", ".tar", ".gz", ".h5p"
 ]);
 
-async function requireOpenableMaterialCopy(value: unknown): Promise<string> {
+async function requireOpenableMaterialPath(value: unknown): Promise<string> {
   const path = requireWorkspacePath(value, "Material path");
   const root = resolve(homedir(), ".uit", "courses");
   const parts = relative(root, path).split(sep);
-  const expected = verifiedMaterialPaths.get(path);
-  if (!expected || parts.length !== 6 || !/^user-[1-9]\d*$/.test(parts[1]) || !/^course-[1-9]\d*$/.test(parts[2]) ||
+  if (parts.length !== 6 || !/^user-[1-9]\d*$/.test(parts[1]) || !/^course-[1-9]\d*$/.test(parts[2]) ||
       parts[3] !== "materials" || !/^[a-f0-9]{64}$/.test(parts[4]) || !OPENABLE_MATERIAL_EXTENSIONS.has(extname(parts[5]).toLowerCase())) {
     throw new Error("Only verified, non-executable UIT material files can be opened.");
+  }
+  let expected = verifiedMaterialPaths.get(path);
+  if (!expected) {
+    try {
+      expected = await service.verifyMaterializedFile(path);
+      verifiedMaterialPaths.set(path, expected);
+    } catch {
+      throw new Error("Only verified, non-executable UIT material files can be opened.");
+    }
   }
   const info = await lstat(path);
   if (info.isSymbolicLink() || !info.isFile() || await realpath(path) !== path) {
@@ -444,38 +485,7 @@ async function requireOpenableMaterialCopy(value: unknown): Promise<string> {
   if (verified.dev !== expected.dev || verified.ino !== expected.ino || verified.digest !== expected.digest) {
     throw new Error("Only the original verified UIT material file can be opened.");
   }
-  const source = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  let directory;
-  try {
-    const sourceInfo = await source.stat();
-    if (!sourceInfo.isFile() || sourceInfo.nlink !== 1 || sourceInfo.dev !== expected.dev || sourceInfo.ino !== expected.ino) {
-      throw new Error("Only the original verified UIT material file can be opened.");
-    }
-    directory = await mkdtemp(join(tmpdir(), "uit-studio-material-"));
-    temporaryMaterialDirectories.add(directory);
-    const copyPath = join(directory, basename(path));
-    const target = await open(copyPath, "wx", 0o600);
-    const hash = createHash("sha256");
-    try {
-      for await (const chunk of source.createReadStream({ autoClose: false, start: 0 })) {
-        hash.update(chunk);
-        await target.write(chunk);
-      }
-      await target.sync();
-    } finally {
-      await target.close();
-    }
-    if (hash.digest("hex") !== expected.digest) throw new Error("The verified UIT material changed while opening.");
-    return copyPath;
-  } catch (error) {
-    if (directory) {
-      temporaryMaterialDirectories.delete(directory);
-      await rm(directory, { recursive: true, force: true }).catch(() => undefined);
-    }
-    throw error;
-  } finally {
-    await source.close();
-  }
+  return path;
 }
 
 async function materializeVerified(
@@ -674,22 +684,6 @@ function scheduleIdleLockRelease(): void {
       }
     }
   }, 2500);
-}
-
-async function isThreadExternallyLocked(threadId: string): Promise<boolean> {
-  if (!threadId) return false;
-  const lockPath = join(homedir(), ".codex", "thread-writer-locks", `${threadId}.lock`);
-  if (!existsSync(lockPath)) return false;
-  try {
-    const { stdout } = await execFileAsync("lsof", ["-t", lockPath]);
-    const pids = String(stdout).trim().split(/\s+/).filter(Boolean).map(Number);
-    if (!pids.length) return false;
-    const ourChildPid = (codex as unknown as { process?: { pid?: number } }).process?.pid;
-    const externalPids = pids.filter((pid) => pid !== ourChildPid && pid !== process.pid);
-    return externalPids.length > 0;
-  } catch {
-    return false;
-  }
 }
 
 const rolloutFilePaths = new Map<string, string>();
@@ -1080,13 +1074,18 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     const yolo = requestedYolo === undefined ? binding.yolo !== false : requestedYolo;
     const fast = requestedFast === undefined ? binding.fast === true : requestedFast;
     if (binding.busy) throw new Error("This thread already has an active turn.");
-    if (await isThreadExternallyLocked(threadId)) throw new Error("This thread is currently locked by an external Codex session. Please close it in the terminal or desktop app before sending here.");
+    const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
+    if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
+    if (resumed.status.type === "active") {
+      binding.locked = true;
+      throw new Error("This thread is currently locked by an external Codex session. Please close it in the terminal or desktop app before sending here.");
+    }
+    if (resumed.status.type !== "idle") throw new Error(`This thread is unavailable because Codex reported status ${resumed.status.type}.`);
     binding.busy = true;
+    binding.locked = false;
     binding.yolo = yolo;
     binding.fast = fast;
     binding.turnId = undefined;
-    try { await codex.resumeThread(threadId); }
-    catch (error) { binding.busy = false; throw error; }
   } else {
     const yolo = requestedYolo === undefined ? true : requestedYolo;
     // Keep MCP approval requests enabled so YOLO can auto-accept them in the
@@ -1353,7 +1352,12 @@ function registerIpc(): void {
     "thread:lock-status": async (_event, rawInput) => {
       const input = requireObject(rawInput, "Lock status input");
       const threadId = requireString(input.threadId, "Thread ID");
-      const locked = await isThreadExternallyLocked(threadId);
+      const binding = threadBindings.get(threadId);
+      if (binding?.busy) return { locked: false };
+      const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
+      if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
+      const locked = resumed.status.type === "active";
+      if (binding) binding.locked = locked;
       return { locked };
     },
     "thread:open-desktop": async (_event, rawInput) => {
@@ -1392,7 +1396,7 @@ function registerIpc(): void {
       return rollout || { mtime: 0, messages: [] };
     },
     "shell:open": async (_event, target) => {
-      return shell.openPath(await requireOpenableMaterialCopy(target));
+      return shell.openPath(await requireOpenableMaterialPath(target));
     },
     "shell:open-external": async (_event, rawUrl) => {
       const urlString = requireString(rawUrl, "URL");
@@ -1467,7 +1471,7 @@ if ((process.argv || []).includes("--uit-mcp")) {
 } else {
   app.whenReady().then(() => {
     configureApplicationIdentity();
-    return createWindow();
+    return migrateLegacyStudioUserData().then(createWindow);
   }).catch((error) => {
     console.error(error);
     app.quit();
@@ -1483,7 +1487,5 @@ if ((process.argv || []).includes("--uit-mcp")) {
 
   app.on("before-quit", () => {
     codex?.disconnect();
-    for (const directory of temporaryMaterialDirectories) void rm(directory, { recursive: true, force: true });
-    temporaryMaterialDirectories.clear();
   });
 }

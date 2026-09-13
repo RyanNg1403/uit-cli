@@ -8,26 +8,55 @@
 
 ---
 
-## 1. UIT CLI
+## UIT CLI
 
-Fast, scriptable terminal client for browsing courses, checking assignments, downloading materials, and tracking grades.
+Fast terminal access to courses, assignments, grades, and materials.
 
-### Login
-
-`uit login` uses **UIT SSO** by default. The legacy flow prompts for your Student ID and password, then stores the returned Moodle session token:
+<details>
+<summary>macOS</summary>
 
 ```bash
-# UIT SSO (default; opens a browser window)
-uit login
-
-# Explicit SSO flag
-uit login --sso
-
-# Legacy Moodle: prompts for Student ID and password, then stores the token
-uit login --legacy
+npm install -g uit-cli
 ```
 
-`uit init` remains a backwards-compatible alias for the legacy Student ID/password flow. If you already signed in via **UIT Studio**, your SSO session is automatically shared with the CLI.
+Or install the signed-checksum standalone release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
+```
+</details>
+
+<details>
+<summary>Linux</summary>
+
+```bash
+npm install -g uit-cli
+```
+
+Or use the standalone release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
+```
+</details>
+
+<details>
+<summary>Windows</summary>
+
+Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
+
+```powershell
+npm install -g uit-cli
+```
+</details>
+
+Sign in with UIT SSO:
+
+```bash
+uit login
+```
+
+Use `uit login --legacy` for the legacy Moodle portal. An SSO session from UIT Studio is shared with the CLI.
 
 <p align="center">
   <img src="assets/demo.gif" alt="UIT CLI Demo" width="860">
@@ -35,52 +64,75 @@ uit login --legacy
 
 ---
 
-## 2. UIT Studio
+## UIT Studio
 
-The native desktop workspace combining Moodle course management with an intelligent Codex AI study copilot.
+Desktop course workspace with an optional Codex study copilot.
 
-### Launch
+<details>
+<summary>macOS</summary>
 
 ```bash
 npm install -g uit-studio
 uit-studio
 ```
 
-The curl app install command works only on macOS and installs an unsigned app:
+Or install the Apple Silicon macOS release app:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
 ```
+</details>
 
-### Login
+<details>
+<summary>Linux</summary>
 
-Sign in directly using **UIT SSO** (single sign-on) or your **Legacy Moodle** student account. Sessions are stored securely on your local device.
+```bash
+npm install -g uit-studio
+uit-studio
+```
 
-### What UIT Studio includes
+Or install the Linux AppImage release:
 
-- A unified dashboard for current and legacy UIT Moodle portals.
-- Course materials with PDF, Word, image, text, and code previews.
-- Class members, lecturers, grades, feedback, and deadlines.
-- Codex study threads grounded in selected courses and resources.
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
+```
+</details>
+
+<details>
+<summary>Windows</summary>
+
+Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
+
+```powershell
+npm install -g uit-studio
+uit-studio
+```
+
+Windows release installers are also available on the [Releases page](https://github.com/RyanNg1403/uit-cli/releases).
+</details>
+
+### Agent mode requirement
+
+Course features work without Codex. Agent mode requires the **Codex CLI**:
+
+```bash
+npm install -g @openai/codex
+codex --login
+```
+
+The ChatGPT desktop app alone is not sufficient. Sign in to UIT Studio with UIT SSO or a legacy Moodle account.
 
 <p align="center">
   <img src="assets/studio-courses.png" alt="UIT Studio courses dashboard" width="860">
 </p>
 
-Chat with Codex using direct context from your courses, lecture slides, and assignments, then continue the same thread in Codex CLI or the ChatGPT desktop app.
+Chat with Codex using course context, then continue the same thread in Codex CLI or the ChatGPT desktop app.
 
 <p align="center">
   <img src="assets/studio-chat.png" alt="Codex AI Workspace" width="860" style="border-radius: 8px;">
 </p>
 
 ---
-
-## Installation matrix
-
-| Product | npm | curl | Node requirement | Supported platforms |
-| :--- | :--- | :--- | :--- | :--- |
-| UIT CLI | `npm install -g uit-cli` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh` | 20.19+ for npm; none for curl | npm: macOS, Linux, Windows · curl: macOS arm64, Linux x64/arm64 |
-| UIT Studio | `npm install -g uit-studio` then `uit-studio` | `curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh \| sh -s -- --studio` | 20.19+ for npm; none for curl | macOS arm64 (Apple Silicon) only |
 
 ## Contributing
 

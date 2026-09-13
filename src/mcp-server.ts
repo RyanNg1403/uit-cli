@@ -32,6 +32,15 @@ function packageVersion(): string {
   }
 }
 
+export type McpLaunch = { command: string; args: string[] };
+
+export function resolveMcpLaunch(options: { nodePath?: string; cliPath?: string } = {}): McpLaunch {
+  return {
+    command: options.nodePath ?? process.execPath,
+    args: [options.cliPath ?? fileURLToPath(new URL("cli.js", import.meta.url)), "mcp"]
+  };
+}
+
 export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
   const root = resolve(homedir(), ".uit", "courses");
   const current = resolve(cwd);
@@ -75,7 +84,7 @@ const uitToolServices: UitToolServices = {
   listCourseParticipants: (courseId, api) => desktopService.listCourseParticipants(courseId, api),
   getCourseGrades: (courseId, api, userId) => desktopService.getCourseGrades(courseId, api, userId),
   resolveCourseResource: (courseId, reference, api) => desktopService.resolveCourseResource(courseId, reference as unknown as desktopService.CourseResourceReference, api),
-  materializeFile: (courseId, fileUrl, filename, api, identity) => desktopService.materializeFile(courseId, fileUrl, filename, api, identity)
+  materializeCourseFile: (courseId, moduleId, filename, api, identity) => desktopService.materializeCourseFile(courseId, moduleId, filename, api, identity)
 };
 
 const executeUitTool = createUitToolExecutor(uitToolServices);
@@ -201,46 +210,6 @@ export function runMcpServer(): void {
   });
 }
 
-export function ensureLocalBinWrapper(localBin: string = join(homedir(), ".local", "bin")): string {
-  // Never use the public `uit` name here: npm may already own it via a symlink.
-  const binPath = join(localBin, "uit-mcp");
-  const cliPath = fileURLToPath(new URL("cli.js", import.meta.url));
-  try {
-    if (!existsSync(localBin)) {
-      mkdirSync(localBin, { recursive: true });
-    }
-    const wrapper = `#!/usr/bin/env bash
-# Managed by uit-cli
-if ! command -v node >/dev/null 2>&1; then
-  for p in "$HOME/.nvm/versions/node"/*/bin /opt/homebrew/bin /usr/local/bin; do
-    if [ -x "$p/node" ]; then
-      export PATH="$p:$PATH"
-      break
-    fi
-  done
-fi
-exec node "${cliPath}" "$@"
-`;
-    if (existsSync(binPath)) {
-      const info = lstatSync(binPath);
-      if (info.isSymbolicLink() || !info.isFile() || !readFileSync(binPath, "utf8").startsWith("#!/usr/bin/env bash\n# Managed by uit-cli\n")) {
-        return "uit";
-      }
-      if (readFileSync(binPath, "utf8") === wrapper) return binPath;
-      const temporary = `${binPath}.part-${process.pid}`;
-      try {
-        writeFileSync(temporary, wrapper, { flag: "wx", mode: 0o755 });
-        renameSync(temporary, binPath);
-      } finally { rmSync(temporary, { force: true }); }
-    } else {
-      writeFileSync(binPath, wrapper, { flag: "wx", mode: 0o755 });
-    }
-    return binPath;
-  } catch {
-    return "uit";
-  }
-}
-
 const MCP_PARENT_KEY = String.raw`(?:mcp_servers|"mcp_servers"|'mcp_servers')`;
 
 function tomlArrayEnd(lines: string[], start: number, limit: number): number {
@@ -342,16 +311,23 @@ function codexConfigPath(): string {
   return join(codexHome ? resolve(codexHome) : join(homedir(), ".codex"), "config.toml");
 }
 
+function removeLegacyMcpWrapper(): void {
+  const wrapperPath = join(homedir(), ".local", "bin", "uit-mcp");
+  try {
+    const info = lstatSync(wrapperPath);
+    if (info.isSymbolicLink() || !info.isFile()) return;
+    if (!readFileSync(wrapperPath, "utf8").startsWith("#!/usr/bin/env bash\n# Managed by uit-cli\n")) return;
+    rmSync(wrapperPath);
+  } catch {
+    // A missing or inaccessible legacy wrapper should not block config setup.
+  }
+}
+
 export function installMcpServer(options: { command?: string; args?: string[] } = {}): void {
   const configPath = codexConfigPath();
-  const standalonePath = process.env.UIT_CLI_EXECUTABLE;
-  const binPath = options.command
-    ? undefined
-    : standalonePath && existsSync(standalonePath)
-      ? standalonePath
-      : ensureLocalBinWrapper();
-  const command = options.command || (binPath && existsSync(binPath) ? binPath : "uit");
-  const args = options.args || ["mcp"];
+  const launch = resolveMcpLaunch();
+  const command = options.command ?? launch.command;
+  const args = options.args ?? (options.command ? ["mcp"] : launch.args);
   const configured = (existing: string) => upsertMcpConfig(existing, command, args);
 
   if (!existsSync(configPath)) {
@@ -360,6 +336,7 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
       mkdirSync(codexDir, { recursive: true });
     }
     writeFileAtomically(configPath, configured(""));
+    removeLegacyMcpWrapper();
     console.log(`Created ${configPath} and added [mcp_servers.uit]`);
     return;
   }
@@ -367,10 +344,12 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
   const existing = readFileSync(configPath, "utf8");
   const updated = configured(existing);
   if (updated === existing) {
+    removeLegacyMcpWrapper();
     console.log(`uit MCP server is already configured in ${configPath}`);
     return;
   }
   writeFileAtomically(configPath, updated, statSync(configPath).mode & 0o777);
+  removeLegacyMcpWrapper();
   console.log(new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]`, "m").test(existing)
     ? `Updated uit MCP server path in ${configPath} to ${command}`
     : `Configured uit MCP server in ${configPath}`);

@@ -1,12 +1,13 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rm, stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { lstat, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
 import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
 import { activateSession as selectActiveSession, get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
+import { CodexClient } from "./codex-client.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 
 export interface DesktopLoginInput {
@@ -678,6 +679,7 @@ export interface CourseResourceReference {
   id: number;
   moduleId?: number;
   fileUrl?: string;
+  filename?: string;
 }
 
 export interface ResolvedCourseResource {
@@ -691,6 +693,10 @@ export interface ResolvedCourseResource {
   unavailable?: Record<string, string>;
 }
 
+function sameFilename(left: string, right: string): boolean {
+  return left.normalize("NFC") === right.normalize("NFC");
+}
+
 export async function resolveCourseResource(courseId: number, reference: CourseResourceReference, api: ApiClient = defaultApiClient): Promise<ResolvedCourseResource> {
   if (!Number.isSafeInteger(courseId) || courseId <= 0 || !reference || !Number.isSafeInteger(reference.id) || reference.id <= 0 ||
       (reference.moduleId !== undefined && (!Number.isSafeInteger(reference.moduleId) || reference.moduleId <= 0))) {
@@ -699,6 +705,19 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
   let resource: ResolvedCourseResource | undefined;
   const fileUrl = reference.fileUrl === undefined ? undefined : credentialFreeUrl(reference.fileUrl);
   if (reference.fileUrl !== undefined && !fileUrl) throw new Error("Invalid course file reference.");
+  if (reference.kind === "file" && fileUrl === undefined && (typeof reference.filename !== "string" || reference.filename.trim() === "")) {
+    throw new Error("Filename is required for a file resource.");
+  }
+  const fileCandidates = (files: CourseFile[]): CourseFile[] => {
+    if (fileUrl !== undefined) return files.filter((file) => file.fileurl === fileUrl);
+    if (reference.filename !== undefined) return files.filter((file) => sameFilename(file.filename, reference.filename!));
+    return [];
+  };
+  const selectFile = (files: CourseFile[]): CourseFile | undefined => {
+    const matches = fileCandidates(files);
+    if (matches.length > 1) throw new Error(`Multiple files named "${reference.filename}" were found in course module ${reference.moduleId ?? reference.id}.`);
+    return matches[0];
+  };
   if (reference.kind === "assignment") {
     const assignment = (await listAssignments(courseId, api)).find((item) => item.id === reference.id);
     if (assignment) resource = { kind: reference.kind, id: reference.id, moduleId: assignment.moduleId, name: assignment.name, description: assignment.description || "", url: assignment.url, files: assignment.files, unavailable: assignment.unavailable };
@@ -723,27 +742,26 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
           if (!/^(?:invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/.test(code || "") &&
               (code !== undefined || !/^This UIT site does not expose mod_assign_get_assignments to the SSO session\./.test(String((error as Error)?.message)))) throw error;
         }
-      } else if (module.modname === "forum" && reference.kind === "file" && !files.some((file) => file.fileurl === fileUrl)) {
+      } else if (module.modname === "forum" && reference.kind === "file") {
         const announcements = (await listAnnouncements(courseId, api)).filter((item) => item.moduleId === module.id);
         files = filesFrom(files, ...announcements.map((item) => item.files));
-        const owner = announcements.find((item) => item.files.some((file) => file.fileurl === fileUrl));
+        const owner = announcements.find((item) => fileCandidates(item.files).length > 0);
         if (owner) { description = owner.message; unavailable = unavailableFrom({ ...unavailable, ...owner.unavailable }); }
       }
       if (reference.kind === "file") {
-        const file = files.find((item) => item.fileurl === fileUrl);
+        const file = selectFile(files);
         if (file) resource = { kind: "file", id: reference.id, moduleId: module.id, name: file.filename, description, url: file.fileurl, files: [file], unavailable };
       } else resource = { kind: "module", id: module.id, moduleId: module.id, name: module.name, description, url: module.url, files, unavailable };
     }
-    if (!resource && reference.kind === "file" && fileUrl) {
+    if (!resource && reference.kind === "file" && (fileUrl !== undefined || reference.filename !== undefined)) {
       try {
         const assignments = await listAssignments(courseId, api);
-        const match = assignments.find((a) => (a.moduleId === moduleId || a.id === reference.id || (reference.moduleId !== undefined && a.moduleId === reference.moduleId)) && a.files.some((f) => f.fileurl === fileUrl));
-        if (match) {
-          const file = match.files.find((f) => f.fileurl === fileUrl);
-          if (file) {
-            const resModuleId = match.moduleId ?? reference.moduleId ?? reference.id;
-            resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.description || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
-          }
+        const candidates = assignments.filter((a) => a.moduleId === moduleId || a.id === reference.id || (reference.moduleId !== undefined && a.moduleId === reference.moduleId));
+        const file = selectFile(candidates.flatMap((a) => a.files));
+        const match = candidates.find((a) => a.files.some((candidate) => candidate === file));
+        if (match && file) {
+          const resModuleId = match.moduleId ?? reference.moduleId ?? reference.id;
+          resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.description || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
         }
       } catch {
         // Assignment metadata is an optional fallback for resolving this resource.
@@ -751,13 +769,12 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
       if (!resource) {
         try {
           const announcements = await listAnnouncements(courseId, api);
-          const match = announcements.find((a) => (a.moduleId === moduleId || a.id === reference.id || (reference.moduleId !== undefined && a.moduleId === reference.moduleId)) && a.files.some((f) => f.fileurl === fileUrl));
-          if (match) {
-            const file = match.files.find((f) => f.fileurl === fileUrl);
-            if (file) {
-              const resModuleId = match.moduleId ?? reference.moduleId ?? reference.id;
-              resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.message || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
-            }
+          const candidates = announcements.filter((a) => a.moduleId === moduleId || a.id === reference.id || (reference.moduleId !== undefined && a.moduleId === reference.moduleId));
+          const file = selectFile(candidates.flatMap((a) => a.files));
+          const match = candidates.find((a) => a.files.some((candidate) => candidate === file));
+          if (match && file) {
+            const resModuleId = match.moduleId ?? reference.moduleId ?? reference.id;
+            resource = { kind: "file", id: reference.id, moduleId: resModuleId, name: file.filename, description: match.message || "", url: file.fileurl, files: [file], unavailable: match.unavailable };
           }
         } catch {
           // Announcement metadata is an optional fallback for resolving this resource.
@@ -765,8 +782,11 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
       }
     }
   }
+  const resourceMatchesFile = resource?.files?.some((file) => fileUrl !== undefined
+    ? file.fileurl === fileUrl
+    : reference.filename !== undefined && sameFilename(file.filename, reference.filename));
   if (!resource || (reference.moduleId !== undefined && reference.moduleId !== resource.moduleId) ||
-      (fileUrl !== undefined && !resource.files?.some((file) => file.fileurl === fileUrl))) {
+      ((fileUrl !== undefined || reference.kind === "file") && !resourceMatchesFile)) {
     throw new Error("This resource does not belong to the selected course or is no longer available. Refresh the course and try again.");
   }
   return resource;
@@ -799,6 +819,27 @@ async function courseFile(courseId: number, fileUrl: string, api: ApiClient): Pr
     if (attachment) return attachment;
   }
   throw new Error("This file does not belong to the selected course. Refresh the course and try again.");
+}
+
+export async function resolveCourseFile(courseId: number, moduleId: number, filename: string, api: ApiClient = defaultApiClient): Promise<CourseFile> {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(moduleId) || moduleId <= 0) {
+    throw new Error("Invalid course module reference.");
+  }
+  if (typeof filename !== "string" || filename.trim() === "") throw new Error("Filename must be a non-empty string.");
+
+  const module = (await getCourseContents(courseId, api)).find((item) => item.id === moduleId);
+  if (!module) throw new Error(`Course module ${moduleId} was not found in the selected course.`);
+
+  let files = module.files;
+  if (module.modname === "forum") {
+    const announcements = (await listAnnouncements(courseId, api)).filter((item) => item.moduleId === moduleId);
+    files = filesFrom(files, ...announcements.map((item) => item.files));
+  }
+
+  const matches = files.filter((file) => sameFilename(file.filename, filename));
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) throw new Error(`Multiple files named "${filename}" were found in course module ${moduleId}.`);
+  throw new Error(`No file named "${filename}" was found in course module ${moduleId}. Refresh the course and try again.`);
 }
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -963,23 +1004,66 @@ async function ensureWorkspaceDirectories(root: string, children: string[]): Pro
       if (error.code !== "EEXIST") throw error;
     });
     const info = await lstat(path);
-    if (info.isSymbolicLink() || !info.isDirectory() || await realpath(path) !== resolve(path)) {
+    if (info.isSymbolicLink() || !info.isDirectory() || !samePath(await realpath(path), path)) {
       throw new Error("UIT workspace directories must not be symbolic links.");
     }
   }
 }
 
 const downloads = new Map<string, Promise<string>>();
-const materializedFiles = new Map<string, { dev: number; ino: number; digest: string }>();
+type MaterializedFileVerification = { dev: number; ino: number; digest: string };
+const materializedFiles = new Map<string, MaterializedFileVerification>();
+const MATERIALIZED_INDEX = "materialized-files.json";
 
-function openFilePath(fd: number): string {
-  if (process.platform === "linux") return `/proc/self/fd/${fd}`;
-  if (process.platform === "darwin") return `/dev/fd/${fd}`;
-  throw new Error("Secure course downloads are currently supported on macOS and Linux.");
+function samePath(left: string, right: string): boolean {
+  const normalizedLeft = resolve(left);
+  const normalizedRight = resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+function validMaterializedVerification(value: unknown): value is MaterializedFileVerification {
+  return Boolean(value && typeof value === "object" && Number.isFinite((value as MaterializedFileVerification).dev) &&
+    Number.isFinite((value as MaterializedFileVerification).ino) && typeof (value as MaterializedFileVerification).digest === "string" &&
+    /^[a-f0-9]{64}$/.test((value as MaterializedFileVerification).digest));
+}
+
+async function readMaterializedIndex(): Promise<Record<string, MaterializedFileVerification>> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(join(homedir(), ".uit", MATERIALIZED_INDEX), "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => validMaterializedVerification(value))) as Record<string, MaterializedFileVerification>;
+  } catch {
+    return {};
+  }
+}
+
+async function persistMaterializedVerification(path: string, verification: MaterializedFileVerification): Promise<void> {
+  const indexPath = join(homedir(), ".uit", MATERIALIZED_INDEX);
+  const temporary = `${indexPath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    const index = await readMaterializedIndex();
+    index[path] = verification;
+    await mkdir(dirname(indexPath), { recursive: true });
+    await writeFile(temporary, JSON.stringify(index), { mode: 0o600 });
+    await rename(temporary, indexPath);
+  } catch {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
 }
 
 function sameFile(left: { dev: number; ino: number }, right: { dev: number; ino: number }): boolean {
   return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function assertMaterializedDirectory(directory: string, expected?: { dev: number; ino: number }): Promise<{ dev: number; ino: number }> {
+  const info = await lstat(directory);
+  const canonical = await realpath(directory);
+  if (info.isSymbolicLink() || !info.isDirectory() || !samePath(canonical, directory) || (expected && !sameFile(info, expected))) {
+    throw new Error("UIT workspace directories must not be symbolic links.");
+  }
+  return info;
 }
 
 async function digestHandle(handle: Awaited<ReturnType<typeof open>>): Promise<string> {
@@ -990,15 +1074,16 @@ async function digestHandle(handle: Awaited<ReturnType<typeof open>>): Promise<s
 
 export async function verifyMaterializedFile(path: string): Promise<{ dev: number; ino: number; digest: string }> {
   const destination = resolve(path);
-  const expected = materializedFiles.get(destination);
+  const expected = materializedFiles.get(destination) || (await readMaterializedIndex())[destination];
   if (!expected) throw new Error("This UIT material was not verified in the current session.");
+  materializedFiles.set(destination, expected);
   const handle = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const info = await handle.stat();
     const pathInfo = await lstat(destination);
     const digest = await digestHandle(handle);
     if (!info.isFile() || info.nlink !== 1 || !sameFile(info, pathInfo) ||
-        await realpath(destination).catch(() => "") !== destination || !sameFile(info, expected) || digest !== expected.digest) {
+        !samePath(await realpath(destination).catch(() => ""), destination) || !sameFile(info, expected) || digest !== expected.digest) {
       throw new Error("The downloaded UIT material has changed since verification.");
     }
     return expected;
@@ -1007,12 +1092,15 @@ export async function verifyMaterializedFile(path: string): Promise<{ dev: numbe
   }
 }
 
-export async function materializeFile(courseId: number, fileUrl: string, _filename: string, api: ApiClient = defaultApiClient, identity?: CourseIdentity): Promise<string> {
+async function materializeResolvedFile(courseId: number, file: CourseFile, api: ApiClient, identity?: CourseIdentity): Promise<string> {
   const owner = identity || (api === defaultApiClient ? { baseUrl: get("baseUrl"), userId: Number(get("userId")) } : undefined);
   if (!owner) throw new Error("Site and account identity are required to download a course file.");
   const root = workspacePath(courseId, owner.baseUrl, owner.userId);
-  const file = await courseFile(courseId, fileUrl, api);
-  const safeName = basename(file.filename.replace(/\\/g, "/")).replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180);
+  const safeName = basename(file.filename.replace(/\\/g, "/"))
+    .replace(/\p{Cc}/gu, "_")
+    .replace(/[/:*?"<>|]/g, "_")
+    .normalize("NFC")
+    .slice(0, 180);
   if (!safeName || /^\.+$/.test(safeName)) throw new Error("Invalid course filename.");
   const url = new URL(file.fileurl, owner.baseUrl);
   if (url.origin !== new URL(owner.baseUrl).origin) throw new Error("Course file belongs to another origin.");
@@ -1025,11 +1113,10 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
   const pending = (async () => {
     await ensureWorkspaceDirectories(root, ["materials", join("materials", hash)]);
     const directory = dirname(destination);
-    let destinationExists = false;
+    const directoryInfo = await assertMaterializedDirectory(directory);
     try {
       const info = await lstat(destination);
       if (info.isSymbolicLink() || !info.isFile()) throw new Error("Course download destination is not a regular file.");
-      destinationExists = true;
       try {
         await verifyMaterializedFile(destination);
         return destination;
@@ -1040,44 +1127,96 @@ export async function materializeFile(courseId: number, fileUrl: string, _filena
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 
-    // Create or securely replace through a pinned descriptor. Even if an Agent
-    // swaps a parent after validation, authenticated bytes stay on this inode.
-    const handle = await open(
-      destination,
-      constants.O_RDWR | constants.O_NOFOLLOW |
-        (destinationExists ? 0 : constants.O_CREAT | constants.O_EXCL),
-      0o600
-    );
-    const openedInfo = await handle.stat();
+    await assertMaterializedDirectory(directory, directoryInfo);
+    const temporary = `${destination}.part-${randomUUID()}`;
+    let temporaryCreated = false;
+    let temporaryInfo: { dev: number; ino: number } | undefined;
+    let temporaryHandle: Awaited<ReturnType<typeof open>> | undefined;
     let complete = false;
     try {
-      const pathInfo = await lstat(destination);
-      if (!openedInfo.isFile() || openedInfo.nlink !== 1 || !sameFile(openedInfo, pathInfo) || await realpath(directory) !== directory) {
+      temporaryHandle = await open(
+        temporary,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600
+      );
+      temporaryCreated = true;
+      const openedInfo = await temporaryHandle.stat();
+      const pathInfo = await lstat(temporary);
+      if (!openedInfo.isFile() || openedInfo.nlink !== 1 || !sameFile(openedInfo, pathInfo) ||
+          !samePath(await realpath(temporary), temporary) || !sameFile(await assertMaterializedDirectory(directory, directoryInfo), directoryInfo)) {
         throw new Error("UIT workspace directories must not be symbolic links.");
       }
-      await handle.truncate(0);
-      const download = await api.downloadFile(file.fileurl, openFilePath(handle.fd), { atomic: false });
+      temporaryInfo = { dev: openedInfo.dev, ino: openedInfo.ino };
+      await temporaryHandle.close();
+      temporaryHandle = undefined;
+
+      const download = await api.downloadFile(file.fileurl, temporary, { atomic: false });
+      const materialized = await (async () => {
+        await assertMaterializedDirectory(directory, directoryInfo);
+        const handle = await open(temporary, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          const info = await handle.stat();
+          const pathInfo = await lstat(temporary);
+          if (!info.isFile() || info.nlink !== 1 || !sameFile(info, pathInfo) || !sameFile(info, temporaryInfo!) ||
+              !samePath(await realpath(temporary), temporary)) {
+            throw new Error("UIT workspace directories must not be symbolic links.");
+          }
+          const digest = await digestHandle(handle);
+          const completedInfo = await lstat(temporary).catch(() => undefined);
+          if (!completedInfo || !sameFile(info, completedInfo) || !sameFile(completedInfo, temporaryInfo!) ||
+              !samePath(await realpath(temporary).catch(() => ""), temporary) ||
+              !sameFile(await assertMaterializedDirectory(directory, directoryInfo), directoryInfo)) {
+            throw new Error("UIT workspace directories must not be symbolic links.");
+          }
+          if (download?.sha256 && download.sha256 !== digest) throw new Error("Downloaded UIT material failed integrity verification.");
+          return { info: completedInfo, digest };
+        } finally {
+          await handle.close();
+        }
+      })();
+      await assertMaterializedDirectory(directory, directoryInfo);
+      await rename(temporary, destination);
       const completedInfo = await lstat(destination).catch(() => undefined);
-      if (!completedInfo || !sameFile(openedInfo, completedInfo) || await realpath(directory).catch(() => "") !== directory) {
+      if (!completedInfo || !completedInfo.isFile() || completedInfo.nlink !== 1 || !sameFile(materialized.info, completedInfo) ||
+          !samePath(await realpath(destination).catch(() => ""), destination) ||
+          !sameFile(await assertMaterializedDirectory(directory, directoryInfo), directoryInfo)) {
         throw new Error("UIT workspace directories must not be symbolic links.");
       }
-      const digest = download?.sha256 || await digestHandle(handle);
-      materializedFiles.set(destination, { dev: openedInfo.dev, ino: openedInfo.ino, digest });
+      const verification = { dev: completedInfo.dev, ino: completedInfo.ino, digest: materialized.digest };
+      materializedFiles.set(destination, verification);
+      await persistMaterializedVerification(destination, verification);
       complete = true;
       return destination;
     } finally {
+      if (temporaryHandle) await temporaryHandle.close().catch(() => undefined);
       if (!complete) {
         materializedFiles.delete(destination);
-        await handle.truncate(0).catch(() => undefined);
-        const currentInfo = await lstat(destination).catch(() => undefined);
-        if (currentInfo && sameFile(openedInfo, currentInfo)) await rm(destination, { force: true }).catch(() => undefined);
+        if (temporaryCreated) {
+          try {
+            if (sameFile(await assertMaterializedDirectory(directory, directoryInfo), directoryInfo)) {
+              const currentInfo = await lstat(temporary).catch(() => undefined);
+              if (currentInfo?.isSymbolicLink() || (currentInfo && temporaryInfo && sameFile(temporaryInfo, currentInfo))) {
+                await rm(temporary, { force: true });
+              }
+            }
+          } catch {
+            // Never follow a changed workspace path while cleaning up a failed download.
+          }
+        }
       }
-      await handle.close();
     }
   })();
   downloads.set(destination, pending);
   try { return await pending; }
   finally { if (downloads.get(destination) === pending) downloads.delete(destination); }
+}
+
+export async function materializeFile(courseId: number, fileUrl: string, _filename: string, api: ApiClient = defaultApiClient, identity?: CourseIdentity): Promise<string> {
+  return materializeResolvedFile(courseId, await courseFile(courseId, fileUrl, api), api, identity);
+}
+
+export async function materializeCourseFile(courseId: number, moduleId: number, filename: string, api: ApiClient = defaultApiClient, identity?: CourseIdentity): Promise<string> {
+  return materializeResolvedFile(courseId, await resolveCourseFile(courseId, moduleId, filename, api), api, identity);
 }
 
 export async function courseWorkspace(courseId: number, _shortname: string, baseUrl = CURRENT_SITE_BASE_URL, userId = Number(get("userId"))): Promise<WorkspaceInfo> {
@@ -1093,14 +1232,51 @@ export async function courseWorkspace(courseId: number, _shortname: string, base
   return { path, courseId, created };
 }
 
-export async function codexStatus(): Promise<{ installed: boolean; version?: string; path?: string; message: string }> {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
+export type CodexStatusState = "missing" | "unavailable" | "unauthenticated" | "ready";
+
+export interface CodexStatus {
+  state: CodexStatusState;
+  installed: boolean;
+  message: string;
+}
+
+const CODEX_STATUS_TIMEOUT_MS = 5_000;
+const CODEX_STATUS_REQUEST_TIMEOUT_MS = 4_000;
+
+function errorCode(error: unknown): unknown {
+  return error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+}
+
+function isMissingCodex(error: unknown): boolean {
+  return errorCode(error) === "ENOENT" || /\bENOENT\b/.test(error instanceof Error ? error.message : String(error));
+}
+
+function codexStatusResult(state: CodexStatusState, message: string): CodexStatus {
+  return { state, installed: state !== "missing", message };
+}
+
+export async function codexStatus(): Promise<CodexStatus> {
+  const client = new CodexClient({ requestTimeoutMs: CODEX_STATUS_REQUEST_TIMEOUT_MS });
+  let timeout: NodeJS.Timeout | undefined;
   try {
-    const result = await promisify(execFile)("codex", ["--version"], { timeout: 5_000 });
-    const version = result.stdout.trim() || result.stderr.trim();
-    return { installed: true, version, path: "codex", message: "Codex CLI detected" };
-  } catch {
-    return { installed: false, message: "Install and authenticate Codex CLI to enable Agentic Mode" };
+    const account = await Promise.race([
+      (async () => {
+        await client.connect();
+        return client.readAccount();
+      })(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Codex App Server readiness probe timed out.")), CODEX_STATUS_TIMEOUT_MS);
+      })
+    ]);
+    if (account.account === null && account.requiresOpenaiAuth) {
+      return codexStatusResult("unauthenticated", "Codex CLI is installed but not authenticated. Run codex login to enable Agent mode.");
+    }
+    return codexStatusResult("ready", "Codex App Server is ready");
+  } catch (error) {
+    if (isMissingCodex(error)) return codexStatusResult("missing", "Codex CLI is not installed. Install it to enable Agent mode.");
+    return codexStatusResult("unavailable", "Codex App Server is unavailable or timed out. Check the Codex CLI installation and try again.");
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    await client.disconnect().catch(() => undefined);
   }
 }

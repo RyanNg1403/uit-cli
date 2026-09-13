@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
-import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeFile, previewableMime, previewFile, resolveCourseResource } from "../src/desktop-service.js";
+import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeCourseFile, materializeFile, previewableMime, previewFile, resolveCourseFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
 
 const state = vi.hoisted(() => ({ home: "" }));
@@ -376,7 +376,9 @@ describe("trusted course resource resolution", () => {
     [{ kind: "assignment", id: 200, moduleId: 20 }, "Trusted assignment intro"],
     [{ kind: "announcement", id: 400, moduleId: 30 }, "Trusted announcement message"],
     [{ kind: "file", id: 20, fileUrl: assignmentFile.fileurl }, "Trusted assignment intro"],
-    [{ kind: "file", id: 30, fileUrl: announcementFile.fileurl }, "Trusted announcement message"]
+    [{ kind: "file", id: 30, fileUrl: announcementFile.fileurl }, "Trusted announcement message"],
+    [{ kind: "file", id: 20, filename: "project.txt" }, "Trusted assignment intro"],
+    [{ kind: "file", id: 30, filename: "notice.txt" }, "Trusted announcement message"]
   ] as const)("resolves %j using service-owned context", async (reference, description) => {
     await expect(resolveCourseResource(42, reference, client())).resolves.toMatchObject({ kind: reference.kind, id: reference.id, description });
   });
@@ -632,6 +634,40 @@ describe("deterministic materialization", () => {
     expect(api.downloadFile).toHaveBeenCalledTimes(2);
   });
 
+  it("uses a same-directory .part path compatible with Windows", async () => {
+    await home();
+    const api = client();
+    let temporary = "";
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => {
+      temporary = path;
+      await writeFile(path, "complete");
+    });
+    const identity = { baseUrl: site, userId: 7 };
+    const destination = await materializeFile(42, file.fileurl, file.filename, api, identity);
+
+    expect(temporary).toMatch(/\.part-[0-9a-f-]+$/i);
+    expect(dirname(temporary)).toBe(dirname(destination));
+    expect(temporary).not.toContain("/dev/fd/");
+    expect(temporary).not.toContain("/proc/self/fd/");
+    expect(await readdir(dirname(destination))).toEqual([basename(destination)]);
+  });
+
+  it("resolves a course file by module ID and exact filename, rejecting ambiguity", async () => {
+    await home();
+    const api = client();
+    vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
+    const identity = { baseUrl: site, userId: 7 };
+
+    await expect(resolveCourseFile(42, 20, "project.txt", api)).resolves.toMatchObject({ filename: "project.txt", fileurl: assignmentFile.fileurl });
+    await expect(materializeCourseFile(42, 20, "project.txt", api, identity)).resolves.toContain("project.txt");
+    await expect(resolveCourseFile(42, 10, "lecture.pdf", api)).rejects.toThrow("Multiple files");
+
+    const localized = { ...file, filename: "CNTT.CNXHKH. PHÂN ĐOẠN HỌC LIỆU.pdf" };
+    const localizedApi = client({ core_course_get_contents: [{ modules: [{ id: 10, contents: [localized] }] }] });
+    vi.mocked(localizedApi.downloadFile).mockImplementation(async (_url, path) => { await writeFile(path, "complete"); });
+    await expect(materializeCourseFile(42, 10, localized.filename, localizedApi, identity)).resolves.toContain(localized.filename);
+  });
+
   it("cleans failed partial downloads and allows retry", async () => {
     await home();
     const api = client();
@@ -686,9 +722,9 @@ describe("deterministic materialization", () => {
     vi.mocked(api.downloadFile).mockImplementation(async (_url, path) => {
       const materials = join(workspace.path, "materials");
       const [hash] = await readdir(materials);
+      await writeFile(path, "complete");
       await rename(join(materials, hash), join(state.home, "displaced-hash-directory"));
       await symlink(outside, join(materials, hash), "dir");
-      await writeFile(path, "complete");
     });
 
     await expect(materializeFile(42, file.fileurl, file.filename, api, identity)).rejects.toThrow("symbolic links");

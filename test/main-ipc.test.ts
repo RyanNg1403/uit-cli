@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { EventEmitter } from "node:events";
-import { Readable } from "node:stream";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -34,7 +33,6 @@ async function harness(saved: unknown[] = [], options: {
   let materialContent = Buffer.from("verified material");
   let materialDevice = 1;
   let materialInode = 1;
-  let copiedMaterial = Buffer.alloc(0);
   const handlers = new Map<string, (...args: any[]) => any>();
   const partitions = new Map<string, any>();
   const partitionCookies = new Map<string, Array<Record<string, any>>>();
@@ -55,17 +53,7 @@ async function harness(saved: unknown[] = [], options: {
       isSymbolicLink: () => false, isFile: () => true
     })),
     realpath: vi.fn(async (value: string) => value),
-    mkdtemp: vi.fn().mockResolvedValue(path.join(profile, "material-copy-1")),
     rm: vi.fn().mockResolvedValue(undefined),
-    open: vi.fn(async (_file: string, flags: string | number) => flags === "wx" ? {
-      write: vi.fn(async (chunk: Uint8Array) => { copiedMaterial = Buffer.concat([copiedMaterial, Buffer.from(chunk)]); }),
-      sync: vi.fn().mockResolvedValue(undefined),
-      close: vi.fn().mockResolvedValue(undefined)
-    } : {
-      stat: vi.fn(async () => ({ dev: materialDevice, ino: materialInode, nlink: 1, isFile: () => true })),
-      createReadStream: vi.fn(() => Readable.from([materialContent])),
-      close: vi.fn().mockResolvedValue(undefined)
-    }),
   };
   const service = {
     configuredLegacySession: options.configEnabled
@@ -95,7 +83,7 @@ async function harness(saved: unknown[] = [], options: {
   let turnSequence = 0;
   const codex = Object.assign(new EventEmitter(), {
     startThread: vi.fn(async () => ({ thread: { id: `thread-${++threadSequence}` }, model: "gpt-5.6-sol" })),
-    resumeThread: vi.fn().mockResolvedValue(undefined),
+    resumeThread: vi.fn().mockResolvedValue({ id: "thread", status: { type: "idle" } }),
     startTurn: vi.fn(async (_threadId: string, _prompt: string, _cwd: string) => ({ id: `turn-${++turnSequence}`, status: "inProgress" })),
     forkThread: vi.fn().mockResolvedValue({ id: "fork-1" }),
     deleteThread: vi.fn().mockResolvedValue(undefined),
@@ -181,8 +169,8 @@ async function harness(saved: unknown[] = [], options: {
   const existsSync = vi.fn().mockReturnValue(false);
   const modules: Record<string, unknown> = {
     electron: { app, BrowserWindow, WebContentsView, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
-    "node:os": { homedir: () => home, tmpdir: () => path.join(profile, "tmp") }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
-    "node:fs": { constants: { O_RDONLY: 0, O_NOFOLLOW: 0 }, existsSync },
+    "node:os": { homedir: () => home }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
+    "node:fs": { existsSync },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
     "node:url": { fileURLToPath },
     "node:util": { promisify: (fn: any) => async (...args: any[]) => new Promise((res, rej) => fn(...args, (err: any, out: any) => err ? rej(err) : res(out))) },
@@ -225,8 +213,7 @@ async function harness(saved: unknown[] = [], options: {
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
   return {
     context, app, window, windows, views, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
-    replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; },
-    copiedMaterial: () => copiedMaterial
+    replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; }
   };
 }
 
@@ -522,8 +509,7 @@ describe("main IPC trust and routing", () => {
       filename: "lecture.pdf"
     });
     await h.invoke("shell:open", material);
-    expect(h.shell.openPath).toHaveBeenCalledWith(path.join(profile, "material-copy-1", "lecture.pdf"));
-    expect(h.copiedMaterial().toString()).toBe("verified material");
+    expect(h.shell.openPath).toHaveBeenCalledWith(material);
     for (const unsafe of [
       path.join(home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1", "artifacts", "report.pdf"),
       material.replace("lecture.pdf", "run.command")
@@ -531,6 +517,18 @@ describe("main IPC trust and routing", () => {
     h.fs.lstat.mockResolvedValueOnce({ isSymbolicLink: () => true, isFile: () => true });
     await expect(h.invoke("shell:open", material)).rejects.toThrow("verified regular");
     expect(h.shell.openPath).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a verified material citation restored from a previous process", async () => {
+    const h = await harness(); h.connect();
+    const material = path.join(
+      home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
+      "materials", "a".repeat(64), "lecture.pdf"
+    );
+
+    await h.invoke("shell:open", material);
+    expect(h.service.verifyMaterializedFile).toHaveBeenCalledWith(material);
+    expect(h.shell.openPath).toHaveBeenCalledWith(material);
   });
 
   it("rejects a regular file replacement at a verified material citation path", async () => {
@@ -564,8 +562,8 @@ describe("main IPC trust and routing", () => {
       filename: "lecture.pdf"
     });
     h.service.verifyMaterializedFile.mockImplementationOnce(async () => {
-      h.replaceMaterial("raced replacement");
-      return { dev: 1, ino: 1, digest: crypto.createHash("sha256").update("verified material").digest("hex") };
+      h.replaceMaterial("raced replacement", 3, 3);
+      return { dev: 3, ino: 3, digest: crypto.createHash("sha256").update("raced replacement").digest("hex") };
     });
 
     await expect(h.invoke("shell:open", material)).rejects.toThrow("original verified");
@@ -646,7 +644,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
         resource: { mock: h.service.resolveCourseResource, result: { kind: "assignment", id: 601, description: "Authoritative reference" } },
         workspace: { mock: h.service.courseWorkspace, result: { path: workspace } },
         startThread: { mock: h.codex.startThread, result: { thread: { id: threadId } } },
-        resumeThread: { mock: h.codex.resumeThread, result: undefined },
+        resumeThread: { mock: h.codex.resumeThread, result: { id: threadId, status: { type: "idle" } } },
         startTurn: { mock: h.codex.startTurn, result: { id: "pending-turn", status: "inProgress" } },
       };
       const operation = operations[stage as keyof typeof operations];
@@ -786,7 +784,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     await expect(h.invoke("agent:send", { ...followup, ...legacyReference })).rejects.toThrow("different course or account");
     h.codex.startTurn.mockResolvedValueOnce({ id: "followup-turn", status: "inProgress" });
     await h.invoke("agent:send", followup);
-    expect(h.codex.resumeThread).toHaveBeenCalledExactlyOnceWith(first.threadId);
+    expect(h.codex.resumeThread).toHaveBeenCalledExactlyOnceWith(first.threadId, { excludeTurns: true });
     expect(h.codex.startThread).toHaveBeenCalledTimes(2);
     h.codex.emit("notification", { method: "item/agentMessage/delta", params: { thread: { id: first.threadId }, delta: "followup" } });
     expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", expect.objectContaining({ params: expect.objectContaining({ taskId: "task-followup" }) }));
@@ -796,6 +794,44 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: "followup-turn" } } });
     await expect(h.invoke("agent:fork", { threadId: first.threadId })).resolves.toEqual({ id: "fork-1" });
     expect(h.bindings().get("fork-1")).toMatchObject({ ...reference, taskId: undefined, turnId: undefined, busy: false });
+  });
+
+  it("uses Codex thread/resume status to block active external threads and allow idle ones", async () => {
+    const h = await harness(); h.connect();
+    const first = await h.start();
+    h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: first.turnId } } });
+    const input = { ...reference, threadId: first.threadId, taskId: "external-lock", message: "Continue" };
+
+    h.codex.resumeThread.mockResolvedValueOnce({ id: first.threadId, status: { type: "active", activeFlags: [] } });
+    await expect(h.invoke("agent:send", input)).rejects.toThrow("locked by an external Codex session");
+    expect(h.codex.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.bindings().get(first.threadId)).toMatchObject({ busy: false, locked: true });
+
+    h.codex.resumeThread.mockResolvedValueOnce({ id: first.threadId, status: { type: "idle" } });
+    await expect(h.invoke("agent:send", { ...input, taskId: "idle-again" })).resolves.toMatchObject({ threadId: first.threadId });
+    expect(h.codex.resumeThread).toHaveBeenLastCalledWith(first.threadId, { excludeTurns: true });
+    expect(h.codex.startTurn).toHaveBeenCalledTimes(2);
+  });
+
+  it("tracks Codex thread status transitions and forwards them to the renderer", async () => {
+    const h = await harness(); h.connect();
+    const first = await h.start();
+    h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: first.turnId } } });
+    h.window.webContents.send.mockClear();
+
+    h.codex.emit("notification", { method: "thread/status/changed", params: { threadId: first.threadId, status: { type: "active", activeFlags: [] } } });
+    expect(h.bindings().get(first.threadId)).toMatchObject({ busy: false, locked: true });
+    expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", {
+      method: "thread/status/changed",
+      params: { threadId: first.threadId, status: { type: "active", activeFlags: [] }, taskId: "task-1" }
+    });
+
+    h.codex.emit("notification", { method: "thread/status/changed", params: { threadId: first.threadId, status: { type: "idle" } } });
+    expect(h.bindings().get(first.threadId)).toMatchObject({ busy: false, locked: false });
+    expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", {
+      method: "thread/status/changed",
+      params: { threadId: first.threadId, status: { type: "idle" }, taskId: "task-1" }
+    });
   });
 
   it("persists only account/course bindings atomically and restores idle threads for the same account", async () => {
@@ -812,7 +848,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     await expect(restored.invoke("agent:send", input)).rejects.toThrow("Sign in");
     restored.connect();
     await restored.invoke("agent:send", input);
-    expect(restored.codex.resumeThread).toHaveBeenCalledWith(threadId);
+    expect(restored.codex.resumeThread).toHaveBeenCalledWith(threadId, { excludeTurns: true });
     expect(restored.codex.startThread).not.toHaveBeenCalled();
     expect(restored.bindings().get(threadId).taskId).toBe("restored-task");
   });
@@ -940,6 +976,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
 
     const status = await h.invoke("thread:lock-status", { threadId: "thread-123" });
     expect(status).toEqual({ locked: false });
+    expect(h.codex.resumeThread).toHaveBeenCalledWith("thread-123", { excludeTurns: true });
   });
 
   it("handles thread:open-desktop and thread:read-rollout safely", async () => {
