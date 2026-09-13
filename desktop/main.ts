@@ -395,7 +395,7 @@ function isTrustedRenderer(event: IpcMainInvokeEvent): boolean {
   try {
     const frameUrl = event.senderFrame?.url || event.sender.getURL();
     const parsed = new URL(frameUrl);
-    return parsed.protocol === TRUSTED_RENDERER_PROTOCOL && resolve(decodeURIComponent(parsed.pathname)) === resolve(__dirname, "renderer", "index.html");
+    return parsed.protocol === TRUSTED_RENDERER_PROTOCOL && resolve(fileURLToPath(parsed)) === resolve(__dirname, "renderer", "index.html");
   } catch {
     return false;
   }
