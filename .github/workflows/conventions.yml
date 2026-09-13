@@ -3,11 +3,6 @@ name: Conventions
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - '**'
-    tags-ignore:
-      - '**'
 
 jobs:
   validate-branch-and-commits:
