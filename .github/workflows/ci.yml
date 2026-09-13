@@ -10,6 +10,38 @@ permissions:
   contents: read
 
 jobs:
+  shared:
+    name: Shared CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint -- --quiet
+
+      - name: Test
+        run: npm test
+
+      - name: Check installer
+        run: npm run installer:check
+
+      - name: Verify npm package
+        run: npm run package:check
+
   linux-electron:
     name: Linux Electron
     runs-on: ubuntu-latest
@@ -30,29 +62,14 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint -- --quiet
-
-      - name: Test
-        run: npm test
-
       - name: Check desktop build
         run: npm run desktop:check
-
-      - name: Check installer
-        run: npm run installer:check
 
       - name: Test desktop UI
         run: npx playwright test desktop-ui pdf-preview sidebar
 
-      - name: Test Electron stability
-        run: xvfb-run --auto-servernum npx playwright test electron-stability --workers=1
-
-      - name: Verify npm package
-        run: npm run package:check
+      - name: Test native Electron smoke and stability
+        run: xvfb-run --auto-servernum npx playwright test electron-smoke electron-stability --workers=1
 
   windows-electron:
     name: Windows Electron
