@@ -706,6 +706,27 @@ test("codex file citations render as links that open the workspace file", async 
   expect(await page.evaluate(() => (window as any).__shellOpened)).toBe("/tmp/syllabus.pdf");
 });
 
+test("markdown workspace file paths render as clickable filenames", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await sendAndStop(page, "Download the course file");
+  const threadId = await page.evaluate(() => JSON.parse(localStorage.getItem("uit-studio.threads.v1")!).threads[0].threadId);
+  const path = "/Users/test/.uit/materials/3. CNTT.CNXHKH. PHÂN ĐOẠN HỌC LIỆU.pdf";
+  const encodedPath = path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  await page.evaluate(({ id, path, encodedPath }) => {
+    window.__mock.emit({ method: "item/agentMessage/delta", params: { threadId: id, itemId: "m-local-path", delta: "Downloaded: [" } });
+    window.__mock.emit({ method: "item/completed", params: { threadId: id, item: { id: "m-local-path", type: "agentMessage", text: `Downloaded: [${path.split("/").pop()}](<${encodedPath}>)` } } });
+    (window as any).__shellOpened = null;
+    window.uit.shell.open = async (target: string) => { (window as any).__shellOpened = target; return ""; };
+  }, { id: threadId, path, encodedPath });
+  const link = page.locator(".citation-link");
+  await expect(link).toHaveText("3. CNTT.CNXHKH. PHÂN ĐOẠN HỌC LIỆU.pdf");
+  await expect(page.locator("#agent-messages")).not.toContainText("/Users/test/.uit/materials");
+  await expect(page.locator("#agent-messages")).not.toContainText("](</Users/test/.uit/materials");
+  await link.click();
+  expect(await page.evaluate(() => (window as any).__shellOpened)).toBe(path);
+});
+
 test("streaming respects history reading and jump to latest resumes following", async ({ page, boot }) => {
   await boot();
   await page.setViewportSize({ width: 900, height: 560 });
@@ -781,7 +802,7 @@ test("explicit overflow and reader downloads save only the selected file; Moodle
   await expect(page.locator("#resource-menu-preview")).toHaveCount(0);
   await page.getByRole("menuitem", { name: "Download", exact: true }).click();
   await expect(page.locator("#toast")).toContainText("Saved to");
-  expect((await calls(page, "courses.materialize"))[0].input).toEqual({ courseId: 1, baseUrl: LEGACY, userId: 202, filename: "lecture.txt", shortname: "LEGACY-CS01", fileUrl: `${LEGACY}/pluginfile.php/1/0/lecture.txt` });
+  expect((await calls(page, "courses.materialize"))[0].input).toEqual({ courseId: 1, baseUrl: LEGACY, userId: 202, moduleId: 501, filename: "lecture.txt" });
   expect(await calls(page, "courses.preview")).toHaveLength(0);
   await page.keyboard.press("Escape");
   await row.locator(".resource-open").click();
@@ -2045,7 +2066,7 @@ test("agent messages have no redundant role labels, project Open in Courses, thi
         renamed: true,
         messages: [
           { role: "user", text: "list all pdf files attached in this course" },
-          { role: "assistant", kind: "tool", text: "Read course contents · 0.2s", command: "mcp read_course_contents", output: "Found 22 PDF files in course.", status: "completed" },
+          { role: "assistant", kind: "tool", text: "Read course contents · 0.2s", toolName: "uit.uit_course_contents", command: "uit.uit_course_contents", input: "{\"courseId\":1}", output: "Found 22 PDF files in course.", status: "completed" },
           { role: "assistant", text: "The course has 22 attached PDF files:\n1. SE362.Q21_.pdf\n2. Chapter 1 - Introduction.pdf" }
         ]
       }]
@@ -2106,6 +2127,8 @@ test("agent messages have no redundant role labels, project Open in Courses, thi
 
   const toolCall = page.locator(".tool-call");
   await expect(toolCall).toBeVisible();
+  await expect(toolCall.locator(".tool-section-title").filter({ hasText: "Tool" })).toHaveText("Tool");
+  await expect(toolCall.locator(".tool-arguments")).toHaveText('{"courseId":1}');
 
   const toolBox = await toolCall.boundingBox();
   expect(toolBox).not.toBeNull();

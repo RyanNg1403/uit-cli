@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { EventEmitter } from "node:events";
-import { Readable } from "node:stream";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -34,7 +33,6 @@ async function harness(saved: unknown[] = [], options: {
   let materialContent = Buffer.from("verified material");
   let materialDevice = 1;
   let materialInode = 1;
-  let copiedMaterial = Buffer.alloc(0);
   const handlers = new Map<string, (...args: any[]) => any>();
   const partitions = new Map<string, any>();
   const partitionCookies = new Map<string, Array<Record<string, any>>>();
@@ -55,17 +53,7 @@ async function harness(saved: unknown[] = [], options: {
       isSymbolicLink: () => false, isFile: () => true
     })),
     realpath: vi.fn(async (value: string) => value),
-    mkdtemp: vi.fn().mockResolvedValue(path.join(profile, "material-copy-1")),
     rm: vi.fn().mockResolvedValue(undefined),
-    open: vi.fn(async (_file: string, flags: string | number) => flags === "wx" ? {
-      write: vi.fn(async (chunk: Uint8Array) => { copiedMaterial = Buffer.concat([copiedMaterial, Buffer.from(chunk)]); }),
-      sync: vi.fn().mockResolvedValue(undefined),
-      close: vi.fn().mockResolvedValue(undefined)
-    } : {
-      stat: vi.fn(async () => ({ dev: materialDevice, ino: materialInode, nlink: 1, isFile: () => true })),
-      createReadStream: vi.fn(() => Readable.from([materialContent])),
-      close: vi.fn().mockResolvedValue(undefined)
-    }),
   };
   const service = {
     configuredLegacySession: options.configEnabled
@@ -81,6 +69,7 @@ async function harness(saved: unknown[] = [], options: {
     resolveCourseResource: vi.fn().mockResolvedValue({ kind: "assignment", id: 601, description: "Authoritative reference" }),
     courseWorkspace: vi.fn().mockResolvedValue({ path: workspace }),
     materializeFile: vi.fn().mockResolvedValue(path.join(workspace, "materials", "slide.pdf")),
+    materializeCourseFile: vi.fn().mockResolvedValue(path.join(workspace, "materials", "module-10", "slide.pdf")),
     verifyMaterializedFile: vi.fn(async () => ({
       dev: materialDevice,
       ino: materialInode,
@@ -95,7 +84,7 @@ async function harness(saved: unknown[] = [], options: {
   let turnSequence = 0;
   const codex = Object.assign(new EventEmitter(), {
     startThread: vi.fn(async () => ({ thread: { id: `thread-${++threadSequence}` }, model: "gpt-5.6-sol" })),
-    resumeThread: vi.fn().mockResolvedValue(undefined),
+    resumeThread: vi.fn().mockResolvedValue({ id: "thread", status: { type: "idle" } }),
     startTurn: vi.fn(async (_threadId: string, _prompt: string, _cwd: string) => ({ id: `turn-${++turnSequence}`, status: "inProgress" })),
     forkThread: vi.fn().mockResolvedValue({ id: "fork-1" }),
     deleteThread: vi.fn().mockResolvedValue(undefined),
@@ -171,18 +160,19 @@ async function harness(saved: unknown[] = [], options: {
     whenReady: () => ({ then: (callback: () => Promise<void>) => { ready = callback; return { catch: vi.fn() }; } }),
   });
   const shell = { openPath: vi.fn(), openExternal: vi.fn().mockResolvedValue(undefined) };
+  const mcp = { installMcpServer: vi.fn() };
   const imports: Record<string, unknown> = {
     "../dist/desktop-service.js": service,
     "../dist/moodle-session-client.js": { MoodleSessionApi: class {} },
     "../dist/codex-client.js": { CodexClient: class { constructor() { return codex; } } },
-    "../dist/mcp-server.js": { installMcpServer: vi.fn() },
+    "../dist/mcp-server.js": mcp,
   };
   const clipboard = { writeText: vi.fn(), readText: vi.fn() };
   const existsSync = vi.fn().mockReturnValue(false);
   const modules: Record<string, unknown> = {
     electron: { app, BrowserWindow, WebContentsView, ipcMain: { handle: (name: string, handler: any) => handlers.set(name, handler) }, session: { fromPartition: partition }, shell, dialog: { showMessageBox: vi.fn().mockResolvedValue(undefined) }, clipboard },
-    "node:os": { homedir: () => home, tmpdir: () => path.join(profile, "tmp") }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
-    "node:fs": { constants: { O_RDONLY: 0, O_NOFOLLOW: 0 }, existsSync },
+    "node:os": { homedir: () => home }, "node:path": path, "node:crypto": crypto, "node:fs/promises": fs,
+    "node:fs": { existsSync },
     "node:child_process": { execFile: vi.fn((_cmd: string, _args: any[], cb: any) => { cb?.(null, { stdout: "" }); }) },
     "node:url": { fileURLToPath },
     "node:util": { promisify: (fn: any) => async (...args: any[]) => new Promise((res, rej) => fn(...args, (err: any, out: any) => err ? rej(err) : res(out))) },
@@ -194,7 +184,7 @@ async function harness(saved: unknown[] = [], options: {
   const context = createContext({
     exports: {}, module: { exports: {} },
     URL, console, setTimeout, clearTimeout, __dirname: path.dirname(mainPath),
-    process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: options.platform || process.platform },
+    process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: options.platform || process.platform, execPath: "/test/Electron" },
     require: (name: string) => { if (!(name in modules)) throw new Error(`Unexpected require: ${name}`); return modules[name]; },
     importService: async (name: string) => { if (!(name in imports)) throw new Error(`Unexpected import: ${name}`); return imports[name]; },
     injected: { service, codex },
@@ -224,13 +214,21 @@ async function harness(saved: unknown[] = [], options: {
   const request = (input: any) => { context.request = input; return runInContext("handleAgentRequest(request)", context); };
   const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
   return {
-    context, app, window, windows, views, handlers, event, invoke, service, codex, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
-    replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; },
-    copiedMaterial: () => copiedMaterial
+    context, app, window, windows, views, handlers, event, invoke, service, codex, mcp, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
+    replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; }
   };
 }
 
 describe("main IPC trust and routing", () => {
+  it("registers Studio MCP through Electron Node mode without launching an Electron app", async () => {
+    const h = await harness([], { configEnabled: true });
+    expect(h.mcp.installMcpServer).toHaveBeenCalledWith({
+      command: "/test/Electron",
+      args: [path.join(path.dirname(mainPath), "..", "dist", "mcp-entry.js")],
+      env: { ELECTRON_RUN_AS_NODE: "1" }
+    });
+  });
+
   it.each(["darwin", "linux", "win32"] as const)("uses the mascot icon for shell-launched Studio on %s", async (platform) => {
     const h = await harness([], { platform });
     const icon = path.join(path.dirname(mainPath), "renderer", "assets", "uit-dau-dau-icon.png");
@@ -471,18 +469,19 @@ describe("main IPC trust and routing", () => {
     const h = await harness(); h.connect();
     for (const ref of [reference, legacyReference]) {
       const api = ref === reference ? h.currentApi : h.legacyApi;
-      const input = { ...ref, fileUrl: `${ref.baseUrl}/pluginfile.php/1/slide.pdf`, filename: "slide.pdf" };
-      await h.invoke("course:preview", input);
-      expect(h.service.previewFile).toHaveBeenLastCalledWith(1, input.fileUrl, "slide.pdf", api);
-      expect(h.service.materializeFile).toHaveBeenCalledTimes(ref === reference ? 0 : 1);
+      const previewInput = { ...ref, fileUrl: `${ref.baseUrl}/pluginfile.php/1/slide.pdf`, filename: "slide.pdf" };
+      const input = { ...ref, moduleId: 10, filename: "slide.pdf" };
+      await h.invoke("course:preview", previewInput);
+      expect(h.service.previewFile).toHaveBeenLastCalledWith(1, previewInput.fileUrl, "slide.pdf", api);
+      expect(h.service.materializeCourseFile).toHaveBeenCalledTimes(ref === reference ? 0 : 1);
       await h.invoke("course:materialize", input);
-      expect(h.service.materializeFile).toHaveBeenLastCalledWith(1, input.fileUrl, "slide.pdf", api, expect.objectContaining({ baseUrl: ref.baseUrl, userId: ref.userId }));
+      expect(h.service.materializeCourseFile).toHaveBeenLastCalledWith(1, 10, "slide.pdf", api, expect.objectContaining({ baseUrl: ref.baseUrl, userId: ref.userId, shortname: "CS01" }));
       for (const fileUrl of ["https://example.invalid/a", `${ref === reference ? LEGACY : CURRENT}/a`, `${ref.baseUrl}:8443/a`, `http://${new URL(ref.baseUrl).hostname}/a`, `https://user:pass@${new URL(ref.baseUrl).hostname}/a`, "file:///etc/passwd"]) {
-        for (const channel of ["course:preview", "course:materialize"]) await expect(h.invoke(channel, { ...input, fileUrl })).rejects.toThrow("selected UIT course site");
+        await expect(h.invoke("course:preview", { ...previewInput, fileUrl })).rejects.toThrow("selected UIT course site");
       }
     }
     expect(h.service.previewFile).toHaveBeenCalledTimes(2);
-    expect(h.service.materializeFile).toHaveBeenCalledTimes(2);
+    expect(h.service.materializeCourseFile).toHaveBeenCalledTimes(2);
     expect(h.shell.openPath).not.toHaveBeenCalled();
   });
 
@@ -515,15 +514,14 @@ describe("main IPC trust and routing", () => {
       home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
       "materials", "a".repeat(64), "lecture.pdf"
     );
-    h.service.materializeFile.mockResolvedValueOnce(material);
+    h.service.materializeCourseFile.mockResolvedValueOnce(material);
     await h.invoke("course:materialize", {
       ...reference,
-      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      moduleId: 10,
       filename: "lecture.pdf"
     });
     await h.invoke("shell:open", material);
-    expect(h.shell.openPath).toHaveBeenCalledWith(path.join(profile, "material-copy-1", "lecture.pdf"));
-    expect(h.copiedMaterial().toString()).toBe("verified material");
+    expect(h.shell.openPath).toHaveBeenCalledWith(material);
     for (const unsafe of [
       path.join(home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1", "artifacts", "report.pdf"),
       material.replace("lecture.pdf", "run.command")
@@ -533,16 +531,28 @@ describe("main IPC trust and routing", () => {
     expect(h.shell.openPath).toHaveBeenCalledTimes(1);
   });
 
+  it("opens a verified material citation restored from a previous process", async () => {
+    const h = await harness(); h.connect();
+    const material = path.join(
+      home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
+      "materials", "a".repeat(64), "lecture.pdf"
+    );
+
+    await h.invoke("shell:open", material);
+    expect(h.service.verifyMaterializedFile).toHaveBeenCalledWith(material);
+    expect(h.shell.openPath).toHaveBeenCalledWith(material);
+  });
+
   it("rejects a regular file replacement at a verified material citation path", async () => {
     const h = await harness(); h.connect();
     const material = path.join(
       home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
       "materials", "a".repeat(64), "lecture.pdf"
     );
-    h.service.materializeFile.mockResolvedValueOnce(material);
+    h.service.materializeCourseFile.mockResolvedValueOnce(material);
     await h.invoke("course:materialize", {
       ...reference,
-      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      moduleId: 10,
       filename: "lecture.pdf"
     });
     h.replaceMaterial("attacker replacement");
@@ -557,15 +567,15 @@ describe("main IPC trust and routing", () => {
       home, ".uit", "courses", "courses.uit.edu.vn-abc", "user-101", "course-1",
       "materials", "a".repeat(64), "lecture.pdf"
     );
-    h.service.materializeFile.mockResolvedValueOnce(material);
+    h.service.materializeCourseFile.mockResolvedValueOnce(material);
     await h.invoke("course:materialize", {
       ...reference,
-      fileUrl: `${CURRENT}/pluginfile.php/1/lecture.pdf`,
+      moduleId: 10,
       filename: "lecture.pdf"
     });
     h.service.verifyMaterializedFile.mockImplementationOnce(async () => {
-      h.replaceMaterial("raced replacement");
-      return { dev: 1, ino: 1, digest: crypto.createHash("sha256").update("verified material").digest("hex") };
+      h.replaceMaterial("raced replacement", 3, 3);
+      return { dev: 3, ino: 3, digest: crypto.createHash("sha256").update("raced replacement").digest("hex") };
     });
 
     await expect(h.invoke("shell:open", material)).rejects.toThrow("original verified");
@@ -579,7 +589,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     const resource = { kind: "assignment", id: 601, moduleId: 701, description: "FORGED RESOURCE" };
     const result = await h.start({ resources: [resource], context: "FORGED CONTEXT", cwd: "/outside", shortname: "FORGED NAME" });
     expect(h.service.resolveCourseResource).toHaveBeenCalledWith(1, resource, h.currentApi);
-    expect(h.service.courseWorkspace).toHaveBeenCalledWith(1, "CS01", CURRENT, 101);
+    expect(h.service.courseWorkspace).toHaveBeenCalledWith(1, "CS01", CURRENT, 101, h.currentApi);
     const [cwd, options] = h.codex.startThread.mock.calls[0] as unknown as [string, any];
     expect(cwd).toBe(workspace);
     expect(options).not.toHaveProperty("dynamicTools");
@@ -646,7 +656,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
         resource: { mock: h.service.resolveCourseResource, result: { kind: "assignment", id: 601, description: "Authoritative reference" } },
         workspace: { mock: h.service.courseWorkspace, result: { path: workspace } },
         startThread: { mock: h.codex.startThread, result: { thread: { id: threadId } } },
-        resumeThread: { mock: h.codex.resumeThread, result: undefined },
+        resumeThread: { mock: h.codex.resumeThread, result: { id: threadId, status: { type: "idle" } } },
         startTurn: { mock: h.codex.startTurn, result: { id: "pending-turn", status: "inProgress" } },
       };
       const operation = operations[stage as keyof typeof operations];
@@ -786,7 +796,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     await expect(h.invoke("agent:send", { ...followup, ...legacyReference })).rejects.toThrow("different course or account");
     h.codex.startTurn.mockResolvedValueOnce({ id: "followup-turn", status: "inProgress" });
     await h.invoke("agent:send", followup);
-    expect(h.codex.resumeThread).toHaveBeenCalledExactlyOnceWith(first.threadId);
+    expect(h.codex.resumeThread).toHaveBeenCalledExactlyOnceWith(first.threadId, { excludeTurns: true });
     expect(h.codex.startThread).toHaveBeenCalledTimes(2);
     h.codex.emit("notification", { method: "item/agentMessage/delta", params: { thread: { id: first.threadId }, delta: "followup" } });
     expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", expect.objectContaining({ params: expect.objectContaining({ taskId: "task-followup" }) }));
@@ -796,6 +806,44 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: "followup-turn" } } });
     await expect(h.invoke("agent:fork", { threadId: first.threadId })).resolves.toEqual({ id: "fork-1" });
     expect(h.bindings().get("fork-1")).toMatchObject({ ...reference, taskId: undefined, turnId: undefined, busy: false });
+  });
+
+  it("uses Codex thread/resume status to block active external threads and allow idle ones", async () => {
+    const h = await harness(); h.connect();
+    const first = await h.start();
+    h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: first.turnId } } });
+    const input = { ...reference, threadId: first.threadId, taskId: "external-lock", message: "Continue" };
+
+    h.codex.resumeThread.mockResolvedValueOnce({ id: first.threadId, status: { type: "active", activeFlags: [] } });
+    await expect(h.invoke("agent:send", input)).rejects.toThrow("locked by an external Codex session");
+    expect(h.codex.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.bindings().get(first.threadId)).toMatchObject({ busy: false, locked: true });
+
+    h.codex.resumeThread.mockResolvedValueOnce({ id: first.threadId, status: { type: "idle" } });
+    await expect(h.invoke("agent:send", { ...input, taskId: "idle-again" })).resolves.toMatchObject({ threadId: first.threadId });
+    expect(h.codex.resumeThread).toHaveBeenLastCalledWith(first.threadId, { excludeTurns: true });
+    expect(h.codex.startTurn).toHaveBeenCalledTimes(2);
+  });
+
+  it("tracks Codex thread status transitions and forwards them to the renderer", async () => {
+    const h = await harness(); h.connect();
+    const first = await h.start();
+    h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: first.turnId } } });
+    h.window.webContents.send.mockClear();
+
+    h.codex.emit("notification", { method: "thread/status/changed", params: { threadId: first.threadId, status: { type: "active", activeFlags: [] } } });
+    expect(h.bindings().get(first.threadId)).toMatchObject({ busy: false, locked: true });
+    expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", {
+      method: "thread/status/changed",
+      params: { threadId: first.threadId, status: { type: "active", activeFlags: [] }, taskId: "task-1" }
+    });
+
+    h.codex.emit("notification", { method: "thread/status/changed", params: { threadId: first.threadId, status: { type: "idle" } } });
+    expect(h.bindings().get(first.threadId)).toMatchObject({ busy: false, locked: false });
+    expect(h.window.webContents.send).toHaveBeenLastCalledWith("agent:event", {
+      method: "thread/status/changed",
+      params: { threadId: first.threadId, status: { type: "idle" }, taskId: "task-1" }
+    });
   });
 
   it("persists only account/course bindings atomically and restores idle threads for the same account", async () => {
@@ -812,7 +860,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
     await expect(restored.invoke("agent:send", input)).rejects.toThrow("Sign in");
     restored.connect();
     await restored.invoke("agent:send", input);
-    expect(restored.codex.resumeThread).toHaveBeenCalledWith(threadId);
+    expect(restored.codex.resumeThread).toHaveBeenCalledWith(threadId, { excludeTurns: true });
     expect(restored.codex.startThread).not.toHaveBeenCalled();
     expect(restored.bindings().get(threadId).taskId).toBe("restored-task");
   });
@@ -940,6 +988,7 @@ describe("main course-bound agent orchestration (no Codex process)", () => {
 
     const status = await h.invoke("thread:lock-status", { threadId: "thread-123" });
     expect(status).toEqual({ locked: false });
+    expect(h.codex.resumeThread).toHaveBeenCalledWith("thread-123", { excludeTurns: true });
   });
 
   it("handles thread:open-desktop and thread:read-rollout safely", async () => {

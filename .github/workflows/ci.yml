@@ -52,3 +52,49 @@ jobs:
 
       - name: Verify npm package
         run: npm run package:check
+
+  windows-electron:
+    name: Windows Electron
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Studio
+        run: npm run desktop:check
+
+      - name: Test native Electron smoke and stability
+        run: npx playwright test electron-smoke electron-stability --workers=1
+
+  macos-electron:
+    name: macOS Electron
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Studio
+        run: npm run desktop:check
+
+      - name: Test native Electron smoke and stability
+        run: npx playwright test electron-smoke electron-stability --workers=1

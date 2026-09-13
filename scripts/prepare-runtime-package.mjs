@@ -17,6 +17,7 @@ const sharedModules = [
   "config",
   "desktop-service",
   "mcp-server",
+  "mcp-entry",
   "moodle-session-client",
   "output",
   "types",

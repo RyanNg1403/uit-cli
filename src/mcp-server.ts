@@ -32,6 +32,15 @@ function packageVersion(): string {
   }
 }
 
+export type McpLaunch = { command: string; args: string[]; env?: Record<string, string> };
+
+export function resolveMcpLaunch(options: { nodePath?: string; cliPath?: string } = {}): McpLaunch {
+  return {
+    command: options.nodePath ?? process.execPath,
+    args: [options.cliPath ?? fileURLToPath(new URL("cli.js", import.meta.url)), "mcp"]
+  };
+}
+
 export function isInsideUitWorkspace(cwd: string = process.cwd()): boolean {
   const root = resolve(homedir(), ".uit", "courses");
   const current = resolve(cwd);
@@ -75,7 +84,7 @@ const uitToolServices: UitToolServices = {
   listCourseParticipants: (courseId, api) => desktopService.listCourseParticipants(courseId, api),
   getCourseGrades: (courseId, api, userId) => desktopService.getCourseGrades(courseId, api, userId),
   resolveCourseResource: (courseId, reference, api) => desktopService.resolveCourseResource(courseId, reference as unknown as desktopService.CourseResourceReference, api),
-  materializeFile: (courseId, fileUrl, filename, api, identity) => desktopService.materializeFile(courseId, fileUrl, filename, api, identity)
+  materializeCourseFile: (courseId, moduleId, filename, api, identity) => desktopService.materializeCourseFile(courseId, moduleId, filename, api, identity)
 };
 
 const executeUitTool = createUitToolExecutor(uitToolServices);
@@ -106,7 +115,7 @@ export function runMcpServer(): void {
   // A pipe-based smoke test and a real MCP host both signal shutdown by
   // closing stdin. Do not keep the closed input stream referenced after the
   // last response has flushed; active requests still keep their own handles.
-  rl.on("close", () => process.stdin.unref());
+  rl.on("close", () => process.stdin.unref?.());
 
   rl.on("line", async (line) => {
     const trimmed = line.trim();
@@ -201,46 +210,6 @@ export function runMcpServer(): void {
   });
 }
 
-export function ensureLocalBinWrapper(localBin: string = join(homedir(), ".local", "bin")): string {
-  // Never use the public `uit` name here: npm may already own it via a symlink.
-  const binPath = join(localBin, "uit-mcp");
-  const cliPath = fileURLToPath(new URL("cli.js", import.meta.url));
-  try {
-    if (!existsSync(localBin)) {
-      mkdirSync(localBin, { recursive: true });
-    }
-    const wrapper = `#!/usr/bin/env bash
-# Managed by uit-cli
-if ! command -v node >/dev/null 2>&1; then
-  for p in "$HOME/.nvm/versions/node"/*/bin /opt/homebrew/bin /usr/local/bin; do
-    if [ -x "$p/node" ]; then
-      export PATH="$p:$PATH"
-      break
-    fi
-  done
-fi
-exec node "${cliPath}" "$@"
-`;
-    if (existsSync(binPath)) {
-      const info = lstatSync(binPath);
-      if (info.isSymbolicLink() || !info.isFile() || !readFileSync(binPath, "utf8").startsWith("#!/usr/bin/env bash\n# Managed by uit-cli\n")) {
-        return "uit";
-      }
-      if (readFileSync(binPath, "utf8") === wrapper) return binPath;
-      const temporary = `${binPath}.part-${process.pid}`;
-      try {
-        writeFileSync(temporary, wrapper, { flag: "wx", mode: 0o755 });
-        renameSync(temporary, binPath);
-      } finally { rmSync(temporary, { force: true }); }
-    } else {
-      writeFileSync(binPath, wrapper, { flag: "wx", mode: 0o755 });
-    }
-    return binPath;
-  } catch {
-    return "uit";
-  }
-}
-
 const MCP_PARENT_KEY = String.raw`(?:mcp_servers|"mcp_servers"|'mcp_servers')`;
 
 function tomlArrayEnd(lines: string[], start: number, limit: number): number {
@@ -267,18 +236,27 @@ function tomlArrayEnd(lines: string[], start: number, limit: number): number {
   return start + 1;
 }
 
-export function upsertMcpConfig(existing: string, command: string, args: string[]): string {
+export function upsertMcpConfig(
+  existing: string,
+  command: string,
+  args: string[],
+  env?: Record<string, string>
+): string {
   const commandLine = `command = ${JSON.stringify(command)}`;
   const argsLine = `args = [${args.map((argument) => JSON.stringify(argument)).join(", ")}]`;
+  const envLine = env && Object.keys(env).length > 0
+    ? `env = { ${Object.entries(env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ")} }`
+    : undefined;
   const lines = existing.split("\n");
   const uitSection = new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]\s*(?:#.*)?$`);
   const commandKey = /^\s*(?:command|"command"|'command')\s*=/;
   const argsKey = /^\s*(?:args|"args"|'args')\s*=/;
+  const envKey = /^\s*(?:env|"env"|'env')\s*=/;
   const sectionStart = lines.findIndex((line) => uitSection.test(line));
 
   if (sectionStart === -1) {
     const separator = existing.length === 0 ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
-    return `${existing}${separator}[mcp_servers.uit]\n${commandLine}\n${argsLine}\n`;
+    return `${existing}${separator}[mcp_servers.uit]\n${commandLine}\n${argsLine}${envLine ? `\n${envLine}` : ""}\n`;
   }
 
   let sectionEnd = lines.length;
@@ -317,6 +295,29 @@ export function upsertMcpConfig(existing: string, command: string, args: string[
     lines.splice(argsIndex, tomlArrayEnd(lines, argsIndex, sectionEnd) - argsIndex, argsLine);
   }
 
+  sectionEnd = lines.length;
+  for (let index = sectionStart + 1; index < lines.length; index += 1) {
+    if (/^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(lines[index])) {
+      sectionEnd = index;
+      break;
+    }
+  }
+  const envIndex = lines.findIndex(
+    (line, index) => index > sectionStart && index < sectionEnd && envKey.test(line)
+  );
+  if (envLine) {
+    if (envIndex === -1) {
+      const currentArgsIndex = lines.findIndex(
+        (line, index) => index > sectionStart && index < sectionEnd && argsKey.test(line)
+      );
+      lines.splice(currentArgsIndex + 1, 0, envLine);
+    } else {
+      lines[envIndex] = envLine;
+    }
+  } else if (envIndex !== -1) {
+    lines.splice(envIndex, 1);
+  }
+
   return lines.join("\n");
 }
 
@@ -342,17 +343,24 @@ function codexConfigPath(): string {
   return join(codexHome ? resolve(codexHome) : join(homedir(), ".codex"), "config.toml");
 }
 
-export function installMcpServer(options: { command?: string; args?: string[] } = {}): void {
+function removeLegacyMcpWrapper(): void {
+  const wrapperPath = join(homedir(), ".local", "bin", "uit-mcp");
+  try {
+    const info = lstatSync(wrapperPath);
+    if (info.isSymbolicLink() || !info.isFile()) return;
+    if (!readFileSync(wrapperPath, "utf8").startsWith("#!/usr/bin/env bash\n# Managed by uit-cli\n")) return;
+    rmSync(wrapperPath);
+  } catch {
+    // A missing or inaccessible legacy wrapper should not block config setup.
+  }
+}
+
+export function installMcpServer(options: { command?: string; args?: string[]; env?: Record<string, string> } = {}): void {
   const configPath = codexConfigPath();
-  const standalonePath = process.env.UIT_CLI_EXECUTABLE;
-  const binPath = options.command
-    ? undefined
-    : standalonePath && existsSync(standalonePath)
-      ? standalonePath
-      : ensureLocalBinWrapper();
-  const command = options.command || (binPath && existsSync(binPath) ? binPath : "uit");
-  const args = options.args || ["mcp"];
-  const configured = (existing: string) => upsertMcpConfig(existing, command, args);
+  const launch = resolveMcpLaunch();
+  const command = options.command ?? launch.command;
+  const args = options.args ?? (options.command ? ["mcp"] : launch.args);
+  const configured = (existing: string) => upsertMcpConfig(existing, command, args, options.env);
 
   if (!existsSync(configPath)) {
     const codexDir = dirname(configPath);
@@ -360,6 +368,7 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
       mkdirSync(codexDir, { recursive: true });
     }
     writeFileAtomically(configPath, configured(""));
+    removeLegacyMcpWrapper();
     console.log(`Created ${configPath} and added [mcp_servers.uit]`);
     return;
   }
@@ -367,10 +376,12 @@ export function installMcpServer(options: { command?: string; args?: string[] } 
   const existing = readFileSync(configPath, "utf8");
   const updated = configured(existing);
   if (updated === existing) {
+    removeLegacyMcpWrapper();
     console.log(`uit MCP server is already configured in ${configPath}`);
     return;
   }
   writeFileAtomically(configPath, updated, statSync(configPath).mode & 0o777);
+  removeLegacyMcpWrapper();
   console.log(new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]`, "m").test(existing)
     ? `Updated uit MCP server path in ${configPath} to ${command}`
     : `Configured uit MCP server in ${configPath}`);

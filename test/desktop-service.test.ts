@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { execFile } from "node:child_process";
 import { defaultApiClient } from "../src/api.js";
 import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, login, lookupCourse, sessionStatus } from "../src/desktop-service.js";
 import type { ApiClient } from "../src/types.js";
 
-vi.mock("node:child_process", () => ({ execFile: vi.fn() }));
-beforeEach(() => { vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Unexpected network request"))); });
+const codexProbe = vi.hoisted(() => ({ connect: vi.fn(), readAccount: vi.fn(), disconnect: vi.fn() }));
+vi.mock("../src/codex-client.js", () => ({ CodexClient: vi.fn(function () { return codexProbe; }) }));
+beforeEach(() => {
+  codexProbe.connect.mockReset();
+  codexProbe.readAccount.mockReset();
+  codexProbe.disconnect.mockReset().mockResolvedValue(undefined);
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Unexpected network request")));
+});
 afterEach(() => { clearCourseCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("desktop service", () => {
@@ -13,16 +18,35 @@ describe("desktop service", () => {
     expect(sessionStatus()).toEqual(expect.objectContaining({ authenticated: expect.any(Boolean) }));
   });
 
-  it("detects Codex without requiring a local installation", async () => {
-    vi.mocked(execFile).mockImplementation((...args: any[]) => { args.at(-1)(null, { stdout: "codex-cli 1.0", stderr: "" }); return undefined as any; });
-    const status = await codexStatus();
-    expect(status.installed).toBe(true);
-    expect(status.version).toMatch(/codex/i);
+  it("reports a ready Codex App Server after an authenticated account probe", async () => {
+    codexProbe.connect.mockResolvedValue({});
+    codexProbe.readAccount.mockResolvedValue({ account: { type: "chatgpt" }, requiresOpenaiAuth: true });
+    await expect(codexStatus()).resolves.toEqual({ state: "ready", installed: true, message: "Codex App Server is ready" });
+    expect(codexProbe.connect).toHaveBeenCalledOnce();
+    expect(codexProbe.readAccount).toHaveBeenCalledOnce();
+    expect(codexProbe.disconnect).toHaveBeenCalledOnce();
   });
 
-  it("reports a missing Codex installation", async () => {
-    vi.mocked(execFile).mockImplementation((...args: any[]) => { args.at(-1)(new Error("ENOENT")); return undefined as any; });
-    await expect(codexStatus()).resolves.toMatchObject({ installed: false, message: expect.stringContaining("Install") });
+  it("distinguishes an unauthenticated Codex CLI", async () => {
+    codexProbe.connect.mockResolvedValue({});
+    codexProbe.readAccount.mockResolvedValue({ account: null, requiresOpenaiAuth: true });
+    await expect(codexStatus()).resolves.toEqual({
+      state: "unauthenticated",
+      installed: true,
+      message: "Codex CLI is installed but not authenticated. Run codex login to enable Agent mode."
+    });
+    expect(codexProbe.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("distinguishes a missing Codex CLI from an unavailable App Server", async () => {
+    const missing = Object.assign(new Error("spawn codex ENOENT"), { code: "ENOENT" });
+    codexProbe.connect.mockRejectedValueOnce(missing);
+    await expect(codexStatus()).resolves.toMatchObject({ state: "missing", installed: false });
+    expect(codexProbe.disconnect).toHaveBeenCalledOnce();
+
+    codexProbe.connect.mockRejectedValueOnce(new Error("Codex app-server failed to start"));
+    await expect(codexStatus()).resolves.toMatchObject({ state: "unavailable", installed: true });
+    expect(codexProbe.disconnect).toHaveBeenCalledTimes(2);
   });
 
   it("rejects password/token login for the current SSO-only site", async () => {

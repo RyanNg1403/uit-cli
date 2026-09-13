@@ -9,6 +9,8 @@ const streamUpdates = new Map();
 let messageNodes = new WeakMap();
 const timelineStates = new Map();
 let composerComposing = false;
+let codexAvailable = null;
+let codexRequirement = "Checking Codex App Server readiness...";
 const state = {
   sessions: [], courses: [], projects: [], threads: [], activeId: null, view: "courses",
   semester: null, archived: false, selectedCourse: null, listGeneration: 0,
@@ -515,7 +517,7 @@ function threadRow(thread) {
   const wrap = node("div", "thread thread-row");
   const more = button("...", "icon-button thread-menu-btn", async () => {
     let isLocked = Boolean(thread.locked);
-    if (thread.threadId && thread.locked === undefined) {
+    if (thread.threadId && thread.locked === undefined && codexAvailable === true) {
       try {
         const res = await window.uit?.agent?.lockStatus?.(thread.threadId);
         if (res && typeof res.locked === "boolean") {
@@ -1203,7 +1205,7 @@ async function downloadResource(course, resource, control) {
   const previous = control.textContent;
   control.textContent = "Saving...";
   try {
-    const path = await window.uit.courses.materialize({ ...courseRef(course), fileUrl: resource.fileUrl, filename: resource.filename || resource.name, shortname: course.shortname || course.fullname });
+    const path = await window.uit.courses.materialize({ ...courseRef(course), moduleId: resource.moduleId || resource.id, filename: resource.filename || resource.name });
     const message = `Saved to ${path}`;
     if (state.reader?.resource === resource) $("#reader-status").textContent = message;
     toast(message);
@@ -1465,7 +1467,7 @@ function closeThreadResumeMenu() {
   if (cliRow) cliRow.hidden = true;
   if (btn) btn.setAttribute("aria-expanded", "false");
 }
-async function checkThreadLock(thread = activeThread()) {
+function applyThreadLockDisplay(thread = activeThread()) {
   const badge = $("#thread-lock-badge");
   if (!badge) return;
   if (!thread?.threadId) {
@@ -1474,39 +1476,32 @@ async function checkThreadLock(thread = activeThread()) {
     $("#view-agent")?.classList.remove("thread-locked");
     return;
   }
+  const locked = Boolean(thread.locked) && codexAvailable === true;
+  badge.hidden = !locked;
+  $("#view-agent")?.classList.toggle("thread-locked", locked);
+  $("#agent-input").title = locked ? "Thread is locked in an external session (read-only)" : "";
+  $("#send-agent").title = locked ? "Thread is locked in an external session (read-only)" : "Send";
+  $("#attach-resource").title = locked ? "Thread is locked in an external session (read-only)" : "Attach course resource";
+  $("#agent-task-title").title = locked ? "Thread is locked in an external session (read-only)" : "";
+  updateThreadStatus();
+}
+
+async function checkThreadLock(thread = activeThread()) {
+  if (!thread?.threadId || codexAvailable !== true) {
+    if (thread) thread.locked = false;
+    applyThreadLockDisplay(thread);
+    return;
+  }
   const currentId = thread.id;
   try {
-    const { locked } = await window.uit.agent.lockStatus(thread.threadId);
+    const result = await window.uit.agent.lockStatus(thread.threadId);
     if (activeThread()?.id !== currentId) return;
-    badge.hidden = !locked;
-    thread.locked = locked;
-    if (locked) {
-      $("#view-agent")?.classList.add("thread-locked");
-      $("#agent-input").disabled = true;
-      $("#send-agent").disabled = true;
-      $("#attach-resource").disabled = true;
-      $("#agent-input").title = "Thread is locked in an external session (read-only)";
-      $("#send-agent").title = "Thread is locked in an external session (read-only)";
-      $("#attach-resource").title = "Thread is locked in an external session (read-only)";
-      $("#agent-task-title").title = "Thread is locked in an external session (read-only)";
-      $("#agent-status").textContent = "Thread is locked in external session (read-only)";
-    } else {
-      $("#view-agent")?.classList.remove("thread-locked");
-      $("#agent-input").title = "";
-      $("#send-agent").title = "Send";
-      $("#attach-resource").title = "Attach course resource";
-      $("#agent-task-title").title = "";
-      if (!thread.busy && !thread.archived) {
-        $("#agent-input").disabled = false;
-        $("#send-agent").disabled = false;
-        $("#attach-resource").disabled = false;
-        updateThreadStatus();
-      }
-    }
+    thread.locked = result && typeof result.locked === "boolean" ? result.locked : false;
+    applyThreadLockDisplay(thread);
   } catch {
-    badge.hidden = true;
+    if (activeThread()?.id !== currentId) return;
     thread.locked = false;
-    $("#view-agent")?.classList.remove("thread-locked");
+    applyThreadLockDisplay(thread);
   }
 }
 function rolloutMessageMatch(messages, rolloutMessage) {
@@ -2112,6 +2107,8 @@ function renderMessages(changes = null) {
       if (status) cached.item.dataset.status = status;
       if (isToolLike) {
         if (cached.summaryText) cached.summaryText.textContent = displayLabel;
+        if (cached.inputPre) cached.inputPre.textContent = message.command ? `$ ${unwrapShellCommand(message.command)}` : "";
+        if (cached.argumentsPre) cached.argumentsPre.textContent = message.input || "";
         if (cached.outputPre) {
           const defaultDetail = status === "working" ? "Running..." : "(No output)";
           cached.outputPre.textContent = message.output || (status === "working" ? defaultDetail : message.text || defaultDetail);
@@ -2177,6 +2174,7 @@ function renderMessages(changes = null) {
 
       const body = node("div", "tool-body");
       let inputPre = null;
+      let argumentsPre = null;
       let outputPre = null;
 
       if (kind === "file-change" && message.changes?.length) {
@@ -2205,12 +2203,20 @@ function renderMessages(changes = null) {
         }
         const hasCommandOrInput = Boolean(command || message.input);
         if (hasCommandOrInput) {
-          const displayCommand = command ? unwrapShellCommand(command) : "";
-          const inSection = node("div", "tool-section tool-input-section");
-          inSection.append(node("div", "tool-section-title", command ? "Command" : "Parameters"));
-          inputPre = node("div", "tool-code", command ? `$ ${displayCommand}` : message.input);
-          inSection.append(inputPre);
-          body.append(inSection);
+          if (command) {
+            const commandSection = node("div", "tool-section tool-input-section");
+            commandSection.append(node("div", "tool-section-title", message.input ? "Tool" : "Command"));
+            inputPre = node("div", "tool-code", `$ ${unwrapShellCommand(command)}`);
+            commandSection.append(inputPre);
+            body.append(commandSection);
+          }
+          if (message.input) {
+            const argumentsSection = node("div", "tool-section tool-arguments-section");
+            argumentsSection.append(node("div", "tool-section-title", "Arguments"));
+            argumentsPre = node("div", "tool-code tool-arguments", message.input);
+            argumentsSection.append(argumentsPre);
+            body.append(argumentsSection);
+          }
         }
 
         const defaultDetail = status === "working" ? "Running..." : "(No output)";
@@ -2224,7 +2230,7 @@ function renderMessages(changes = null) {
 
       details.append(summary, body);
       item.append(details);
-      messageNodes.set(message, { item, summaryText, inputPre, outputPre });
+      messageNodes.set(message, { item, summaryText, inputPre, argumentsPre, outputPre });
     } else if (kind === "turn-state") {
       const working = status === "working" && thread?.busy;
       const workingMascot = working ? mascotFrame("working-mascot", "Codex is working") : null;
@@ -2403,13 +2409,29 @@ function renderMarkdownBody(escaped, codeSpans) {
 function appendRichText(container, text) {
   // Codex file citations render as links that open the downloaded workspace file.
   const citations = [];
+  const citationToken = (path, name) => {
+    if (!path || !name) return "";
+    citations.push({ path, name });
+    return `\u0001${citations.length - 1}\u0001`;
+  };
+  const markdownFileCitation = (match, label, encodedPath) => {
+    let path;
+    try {
+      if (/^file:/i.test(encodedPath)) {
+        const url = new URL(encodedPath);
+        if (url.protocol !== "file:") return match;
+        path = decodeURIComponent(url.pathname);
+        if (/^\/[A-Za-z]:\//.test(path)) path = path.slice(1);
+      } else path = decodeURIComponent(encodedPath);
+    } catch { return match; }
+    return citationToken(path, label.trim()) || match;
+  };
   const source = String(text).replace(/(?:Nguồn:\s*)?:codex-file-citation\{([^}]*)\}/g, (match, attrs) => {
     const path = /path="((?:[^"\\]|\\.)*)"/.exec(attrs)?.[1]?.replace(/\\(.)/g, "$1") || "";
     const name = path.split("/").pop() || "";
-    if (!path || !name) return match;
-    citations.push({ path, name });
-    return `\u0001${citations.length - 1}\u0001`;
-  });
+    return citationToken(path, name) || match;
+  }).replace(/\[([^\]]+)\]\(<((?:\/|[A-Za-z]:[\\/]|file:\/\/)[^>\r\n]+)>\)/gi, markdownFileCitation)
+    .replace(/\[([^\]]+)\]\(((?:\/|[A-Za-z]:[\\/]|file:\/\/)[^)\s]+)\)/gi, markdownFileCitation);
   const codeSpans = [];
   const blocks = [];
   // Extract fences before escaping so code keeps its raw characters.
@@ -2465,18 +2487,23 @@ function flushStreamUpdates() {
 }
 function updateThreadStatus() {
   const thread = activeThread();
+  const unavailable = codexAvailable !== true;
+  const locked = Boolean(thread?.locked) && !unavailable;
   $("#view-agent").classList.toggle("agent-working", Boolean(thread?.busy || thread?.pending));
-  $("#send-agent").disabled = !thread || !thread.course || thread.busy || thread.pending || thread.branching || thread.archived || !thread.draft.trim();
+  $("#send-agent").disabled = unavailable || locked || !thread || !thread.course || thread.busy || thread.pending || thread.branching || thread.archived || !thread.draft.trim();
   $("#send-agent").hidden = Boolean(thread?.busy);
-  $("#model-picker").disabled = !thread;
+  $("#model-picker").disabled = unavailable || locked || !thread;
   renderYoloToggle(); renderFastToggle();
-  $("#attach-resource").disabled = !thread?.course;
+  $("#attach-resource").disabled = unavailable || locked || !thread?.course;
   $("#stop-agent").hidden = !thread?.busy;
   $("#stop-agent").disabled = !thread?.threadId || !thread?.turnId || thread.stopping;
   $("#stop-agent").setAttribute("aria-label", thread?.stopping ? "Stopping" : "Stop");
   $("#stop-agent").title = thread?.stopping ? "Stopping" : "Stop";
   $("#agent-messages").setAttribute("aria-busy", String(Boolean(thread?.busy || thread?.pending)));
-  $("#agent-status").textContent = thread?.archived ? "Archived / Restore to continue" : thread?.branching ? "Branching thread..." : thread?.busy ? thread.approvals.length ? "Waiting for approval" : "Codex is working..." : thread?.pending ? "Finishing request..." : thread?.interrupted ? "Connection interrupted. Review the last turn before sending again." : "Ready";
+  const input = $("#agent-input");
+  input.disabled = unavailable || locked || !thread || Boolean(thread?.archived);
+  input.placeholder = unavailable ? codexRequirement : "Do anything...";
+  $("#agent-status").textContent = unavailable ? codexRequirement : locked ? "Thread is locked in external session (read-only)" : thread?.archived ? "Archived / Restore to continue" : thread?.branching ? "Branching thread..." : thread?.busy ? thread.approvals.length ? "Waiting for approval" : "Codex is working..." : thread?.pending ? "Finishing request..." : thread?.interrupted ? "Connection interrupted. Review the last turn before sending again." : "Ready";
 }
 function resourcePayload(resources) {
   return resources.map(({ kind, id, moduleId, fileUrl }) => ({ kind, id, ...(moduleId ? { moduleId } : {}), ...(fileUrl ? { fileUrl } : {}) }));
@@ -2484,6 +2511,7 @@ function resourcePayload(resources) {
 async function sendMessage() {
   const thread = activeThread();
   if (composerComposing || !thread || thread.busy || thread.pending || thread.branching || !thread.draft.trim()) return;
+  if (codexAvailable !== true) { toast(codexRequirement); return; }
   if (!thread.course || !connected(thread.course)) { toast("Choose a connected course before sending."); return; }
   const text = thread.draft.trim();
   const resources = thread.resources.map(safeResource);
@@ -2605,6 +2633,14 @@ function handleAgentEvent(message) {
   const params = message.params || {};
   const threadId = params.threadId || params.thread?.id;
   const turnId = params.turnId || params.turn?.id;
+  if (message.method === "thread/status/changed" && threadId) {
+    const thread = state.threads.find((item) => item.threadId === threadId);
+    const status = params.status;
+    if (!thread || !status || typeof status !== "object" || Array.isArray(status) || typeof status.type !== "string") return;
+    thread.locked = status.type === "active" && !thread.busy;
+    if (thread.id === state.activeId && state.view === "agent") applyThreadLockDisplay(thread);
+    return;
+  }
   if (message.method === "thread/deleted" && threadId) {
     const removed = state.threads.filter((thread) => thread.threadId === threadId);
     if (!removed.length) return;
@@ -3280,10 +3316,15 @@ window.uit.agent.onEvent(handleAgentEvent);
   const dot = $("#codex-dot");
   try {
     const status = await window.uit.codex.status();
-    dot.classList.toggle("ready", Boolean(status.installed));
-    agentNav.title = status.installed ? `Codex ready (${status.version || "installed"})` : "Codex not found / Install and sign in to Codex CLI";
-    if (status.installed) ensureModels();
+    codexAvailable = status?.state === "ready";
+    codexRequirement = status?.message || "Codex App Server is not ready. Check the Codex CLI installation and sign-in.";
+    dot.classList.toggle("ready", codexAvailable);
+    agentNav.title = codexAvailable ? "Codex App Server ready" : codexRequirement;
+    if (codexAvailable) ensureModels();
   } catch {
-    agentNav.title = "Codex status unavailable / Check your CLI installation";
+    codexAvailable = false;
+    codexRequirement = "Could not check Codex App Server readiness. Check the Codex CLI installation and sign-in.";
+    agentNav.title = codexRequirement;
   }
+  if (state.view === "agent") renderConversation();
 })();
