@@ -8,6 +8,10 @@
   <strong>One workspace. Every course.</strong>
 </p>
 
+<p align="center">
+  <a href="https://ryanng1403.github.io/uit-cli/">Open the UIT Studio landing page ↗</a>
+</p>
+
 ---
 
 ## UIT Studio
