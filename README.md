@@ -8,60 +8,8 @@
   <strong>One workspace. Every course.</strong>
 </p>
 
----
-
-## UIT CLI
-
-Your Moodle, at terminal speed.
-
-<details>
-<summary>macOS</summary>
-
-```bash
-npm install -g uit-cli
-```
-
-Or install the signed-checksum standalone release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
-```
-</details>
-
-<details>
-<summary>Linux</summary>
-
-```bash
-npm install -g uit-cli
-```
-
-Or use the standalone release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
-```
-</details>
-
-<details>
-<summary>Windows</summary>
-
-Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
-
-```powershell
-npm install -g uit-cli
-```
-</details>
-
-Sign in with UIT SSO:
-
-```bash
-uit login
-```
-
-Use `uit login --legacy` for the legacy Moodle portal. An SSO session from UIT Studio is shared with the CLI.
-
 <p align="center">
-  <img src="assets/demo.gif" alt="UIT CLI Demo" width="860">
+  <a href="https://ryanng1403.github.io/uit-cli/">Open the UIT Studio landing page ↗</a>
 </p>
 
 ---
@@ -132,6 +80,62 @@ Chat with Codex using course context, then continue the same thread in Codex CLI
 
 <p align="center">
   <img src="docs/assets/studio-chat.png" alt="UIT Studio agent workspace" width="860" style="border-radius: 8px;">
+</p>
+
+---
+
+## UIT CLI
+
+Your Moodle, at terminal speed.
+
+<details>
+<summary>macOS</summary>
+
+```bash
+npm install -g uit-cli
+```
+
+Or install the signed-checksum standalone release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
+```
+</details>
+
+<details>
+<summary>Linux</summary>
+
+```bash
+npm install -g uit-cli
+```
+
+Or use the standalone release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh
+```
+</details>
+
+<details>
+<summary>Windows</summary>
+
+Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
+
+```powershell
+npm install -g uit-cli
+```
+</details>
+
+Sign in with UIT SSO:
+
+```bash
+uit login
+```
+
+Use `uit login --legacy` for the legacy Moodle portal. An SSO session from UIT Studio is shared with the CLI.
+
+<p align="center">
+  <img src="assets/demo.gif" alt="UIT CLI Demo" width="860">
 </p>
 
 ---
