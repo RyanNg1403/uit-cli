@@ -89,7 +89,19 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        shell: pwsh
+        run: |
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            npm ci
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($attempt -lt $maxAttempts) {
+              $delay = $attempt * 10
+              Write-Host "npm ci failed on attempt $attempt/$maxAttempts; retrying in ${delay}s."
+              Start-Sleep -Seconds $delay
+            }
+          }
+          exit 1
 
       - name: Install Playwright browser
         run: npx playwright install chromium
