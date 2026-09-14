@@ -1,0 +1,27 @@
+name: Clean up merged branches
+
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  contents: write
+
+jobs:
+  delete-branch:
+    if: >-
+      ${{
+        github.event.pull_request.merged == true &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.ref != 'main' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged non-release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: gh api --method DELETE "repos/${REPOSITORY}/git/refs/heads/${BRANCH}"
