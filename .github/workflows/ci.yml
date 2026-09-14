@@ -69,7 +69,9 @@ jobs:
         run: npm run desktop:check
 
       - name: Test desktop UI
-        run: npx playwright test desktop-ui pdf-preview sidebar
+        # Keep Chromium contexts serialized on Windows. The runner's socket
+        # table intermittently reports ERR_NO_BUFFER_SPACE with four workers.
+        run: npx playwright test desktop-ui pdf-preview sidebar --workers=1
 
       - name: Test native Electron smoke and stability
         run: xvfb-run --auto-servernum npx playwright test electron-smoke electron-stability --workers=1
@@ -98,7 +100,9 @@ jobs:
         run: npm run desktop:check
 
       - name: Test desktop UI
-        run: npx playwright test desktop-ui pdf-preview sidebar
+        # PDF.js and Chromium are resource-sensitive on hosted macOS runners;
+        # one worker keeps the lifecycle tests deterministic.
+        run: npx playwright test desktop-ui pdf-preview sidebar --workers=1
 
       - name: Test native Electron smoke and stability
         run: npx playwright test electron-smoke electron-stability --workers=1

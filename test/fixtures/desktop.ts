@@ -52,10 +52,15 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
   const held = new Set<string>();
   const pending: { method: string; input: any; resolve: (value: any) => void }[] = [];
   const failures = { ...seed.options.fail };
-  let connected = JSON.parse(sessionStorage.getItem("mock.sessions") || "null") || (seed.options.authenticated === false ? [] : seed.sessions);
-  if (seed.options.storage !== undefined && !sessionStorage.getItem("mock.seeded")) {
-    localStorage.setItem("uit-studio.threads.v1", seed.options.storage);
-    sessionStorage.setItem("mock.seeded", "true");
+  // Chromium can briefly expose a browser error document after a transient
+  // navigation failure. Storage access is forbidden on that origin, so keep
+  // the fixture boot script diagnostic-free until the page reaches localhost.
+  const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
+  const local = (() => { try { return window.localStorage; } catch { return null; } })();
+  let connected = JSON.parse(session?.getItem("mock.sessions") || "null") || (seed.options.authenticated === false ? [] : seed.sessions);
+  if (seed.options.storage !== undefined && !session?.getItem("mock.seeded")) {
+    local?.setItem("uit-studio.threads.v1", seed.options.storage);
+    session?.setItem("mock.seeded", "true");
   }
   const status = () => ({ authenticated: connected.length > 0, sessions: connected });
   const emit = (event: any) => listeners.forEach((listener) => listener(event));
@@ -63,7 +68,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     calls.push({ method, input: input === undefined ? null : structuredClone(input) });
     if (held.has(method)) await new Promise((resolve) => pending.push({ method, input, resolve }));
     if (failures[method]) { const message = failures[method]; delete failures[method]; throw new Error(message); }
-    const save = () => { sessionStorage.setItem("mock.sessions", JSON.stringify(connected)); return status(); };
+    const save = () => { session?.setItem("mock.sessions", JSON.stringify(connected)); return status(); };
     if (method === "session.status") return status();
     if (method === "session.logout") { connected = input?.baseUrl ? connected.filter((s: any) => s.baseUrl !== input.baseUrl) : []; return save(); }
     if (method === "session.ssoLogin" || method === "session.login") {
@@ -170,7 +175,23 @@ export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>
   boot: async ({ page, rendererURL }, use) => {
     await use(async (options = {}) => {
       await page.addInitScript(installBridge, { courses, files: fileTypes, sessions, options });
-      await page.goto(rendererURL);
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await page.goto(rendererURL);
+          lastError = undefined;
+          break;
+        } catch (error) {
+          lastError = error;
+          // Windows occasionally reports WSAENOBUFS as ERR_NO_BUFFER_SPACE
+          // while Chromium is recycling a short-lived localhost connection.
+          // Retry only this transient navigation error; real fixture failures
+          // still fail on the first attempt (or after the bounded retry).
+          if (!String(error).includes("ERR_NO_BUFFER_SPACE") || attempt === 2) throw error;
+          await page.waitForTimeout(100 * (attempt + 1));
+        }
+      }
+      if (lastError) throw lastError;
       await expect(page.locator("#account-label")).toHaveText(options.authenticated === false ? "Connect accounts" : "Course accounts (2)");
       if (options.authenticated !== false && !options.fail?.["courses.list"]) await expect(page.locator(".course-row")).toHaveCount(19);
     });

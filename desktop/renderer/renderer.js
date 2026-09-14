@@ -1225,6 +1225,20 @@ function releasePreview() {
   if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
   state.objectUrl = null;
 }
+function closeReader() {
+  const dialog = $("#resource-reader");
+  if (!dialog.open) {
+    if (state.reader || state.pdfPreview) releasePreview();
+    state.reader = null;
+    return;
+  }
+  // Invalidate an in-flight preview before close() queues the native dialog's
+  // asynchronous close event. This prevents a PDF import from creating a
+  // worker in the gap between the click and that event.
+  releasePreview();
+  state.reader = null;
+  dialog.close();
+}
 async function previewResource(course, resource) {
   if (!connected(course)) { toast("Reconnect this course's account before previewing."); return; }
   releasePreview();
@@ -2883,7 +2897,7 @@ function applySessions(result) {
   state.listGeneration++; state.detailGeneration++;
   state.courses = state.courses.filter(connected);
   if (!activeThread()) state.activeId = null;
-  if (state.reader && !connected(state.reader.course)) $("#resource-reader").close();
+  if (state.reader && !connected(state.reader.course)) closeReader();
   if (state.menuResource && !connected(state.menuResource.course)) { $("#resource-menu").close(); state.menuResource = null; }
   if ($("#rename-dialog").open && !state.threads.some((thread) => thread.id === $("#rename-dialog").dataset.taskId && visibleThread(thread))) $("#rename-dialog").close();
   if (state.selectedCourse && !connected(state.selectedCourse)) { state.selectedCourse = null; showView("courses"); }
@@ -3248,7 +3262,7 @@ $("#rename-form").addEventListener("submit", async (event) => {
 });
 $("#resource-new-thread").addEventListener("click", () => {
   const target = state.menuResource; $("#resource-menu").close();
-  if ($("#resource-reader").open) $("#resource-reader").close();
+  closeReader();
   if (target) newThread(target.course, target.resource);
 });
 $("#resource-menu-download").addEventListener("click", (event) => { const target = state.menuResource; if (target) downloadResource(target.course, target.resource, event.currentTarget); });
@@ -3260,11 +3274,18 @@ $("#resource-menu").addEventListener("keydown", (event) => {
     items[event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowUp" ? -1 : 1) + items.length) % items.length].focus();
   }
 });
-$("#close-reader").addEventListener("click", () => $("#resource-reader").close());
-$("#resource-reader").addEventListener("close", () => { if (!$("#resource-reader").open) { releasePreview(); state.reader = null; } });
+$("#close-reader").addEventListener("click", closeReader);
+$("#resource-reader").addEventListener("close", () => {
+  if (!$("#resource-reader").open) {
+    // Programmatic close() calls may bypass closeReader(); retain the same
+    // cancellation guarantee for those paths and for Escape/backdrop closes.
+    if (state.reader || state.pdfPreview) releasePreview();
+    state.reader = null;
+  }
+});
 $("#reader-download").addEventListener("click", (event) => { if (state.reader) downloadResource(state.reader.course, state.reader.resource, event.currentTarget); });
 $("#reader-moodle").addEventListener("click", () => { if (state.reader) openMoodle(state.reader.course, moodleUrl(state.reader.course, state.reader.resource)); });
-$("#reader-thread").addEventListener("click", () => { const target = state.reader; $("#resource-reader").close(); if (target) newThread(target.course, target.resource); });
+$("#reader-thread").addEventListener("click", () => { const target = state.reader; closeReader(); if (target) newThread(target.course, target.resource); });
 $("#account-button").addEventListener("click", openLogin);
 $("#refresh-discovery").addEventListener("click", async (event) => {
   const control = event.currentTarget; control.disabled = true;
