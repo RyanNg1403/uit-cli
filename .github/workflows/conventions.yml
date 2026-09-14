@@ -40,24 +40,10 @@ jobs:
       - name: Check commit message conventions
         if: github.event_name == 'pull_request'
         run: |
-          BRANCH="${{ github.head_ref }}"
-          case "$BRANCH" in
-            feat/*) EXPECTED="feat" ;;
-            fix/*) EXPECTED="fix" ;;
-            chore/*) EXPECTED="chore" ;;
-            proj/*) EXPECTED="proj" ;;
-            release/*) EXPECTED="release_branch" ;;
-            *) EXPECTED="any" ;;
-          esac
-
-          if [ "$EXPECTED" = "any" ]; then
-            exit 0
-          fi
-
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
-          echo "Checking commits between $BASE_SHA and $HEAD_SHA (branch rule: $EXPECTED)..."
+          echo "Checking commits between $BASE_SHA and $HEAD_SHA..."
           COMMITS=$(git log "$BASE_SHA..$HEAD_SHA" --format="%s")
 
           FAILED=0
@@ -68,33 +54,21 @@ jobs:
                 continue
                 ;;
               *)
-                if [ "$EXPECTED" = "release_branch" ]; then
-                  case "$MSG" in
-                    "feat:"*|"feat("*"):"*|"fix:"*|"fix("*"):"*|"chore:"*|"chore("*"):"*|"proj:"*|"proj("*"):"*)
-                      continue
-                      ;;
-                    *)
-                      echo "::error::Invalid commit message on release branch (must be feat:, fix:, chore:, or proj:): '$MSG'"
-                      FAILED=1
-                      ;;
-                  esac
-                else
-                  case "$MSG" in
-                    "$EXPECTED:"*|"$EXPECTED("*"):"*)
-                      continue
-                      ;;
-                    *)
-                      echo "::error::Commit message does not match branch prefix '$EXPECTED': '$MSG'"
-                      FAILED=1
-                      ;;
-                  esac
-                fi
+                case "$MSG" in
+                  "feat:"*|"feat("*"):"*|"fix:"*|"fix("*"):"*|"chore:"*|"chore("*"):"*|"proj:"*|"proj("*"):"*)
+                    continue
+                    ;;
+                  *)
+                    echo "::error::Invalid commit message prefix (must be feat:, fix:, chore:, or proj:): '$MSG'"
+                    FAILED=1
+                    ;;
+                esac
                 ;;
             esac
           done <<< "$COMMITS"
 
           if [ "$FAILED" -ne 0 ]; then
-            echo "::error::One or more commits violate the commit message convention for branch '$BRANCH'."
+            echo "::error::One or more commits violate the supported commit message convention."
             exit 1
           fi
           echo "All commit messages adhere to conventions."

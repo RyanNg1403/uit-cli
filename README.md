@@ -142,7 +142,7 @@ Contributions are welcome! Please check out our [Contributing Guidelines](.githu
 
 - **Git Workflow**: Always branch from the latest `main` and consolidate into `release/<version>` branches.
 - **Branch Naming**: Branches must use `feat/**`, `fix/**`, `chore/**`, `proj/**`, or `release/**`.
-- **Commit Conventions**: Commit messages must match their branch prefix (`<feat|proj|fix|chore>: ...`), enforced via local hooks and CI.
+- **Commit Conventions**: Commit messages must use a supported prefix (`feat:`, `fix:`, `chore:`, or `proj:`), enforced via local hooks and CI; the prefix does not need to match the branch name.
 - **Issue & PR Templates**: Please follow our [Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md) and [Issue Template](.github/ISSUE_TEMPLATE.md).
 
 ## License
