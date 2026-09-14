@@ -229,6 +229,33 @@ describe("main IPC trust and routing", () => {
     });
   });
 
+  it("refreshes the verified Studio MCP configuration before starting or resuming a thread", async () => {
+    const h = await harness([], { configEnabled: true }); h.connect();
+    h.mcp.installMcpServer.mockClear();
+
+    const first = await h.start();
+    expect(h.mcp.installMcpServer).toHaveBeenCalledExactlyOnceWith({
+      command: "/test/Electron",
+      args: [path.join(path.dirname(mainPath), "..", "dist", "mcp-entry.js")],
+      env: { ELECTRON_RUN_AS_NODE: "1" }
+    });
+    expect(h.mcp.installMcpServer.mock.invocationCallOrder[0]).toBeLessThan(h.codex.startThread.mock.invocationCallOrder[0]);
+
+    h.codex.emit("notification", { method: "turn/completed", params: { threadId: first.threadId, turn: { id: first.turnId } } });
+    await h.invoke("agent:send", { ...reference, threadId: first.threadId, taskId: "follow-up", message: "Continue" });
+    expect(h.mcp.installMcpServer).toHaveBeenCalledTimes(2);
+    expect(h.mcp.installMcpServer.mock.invocationCallOrder[1]).toBeLessThan(h.codex.resumeThread.mock.invocationCallOrder[0]);
+  });
+
+  it("does not start a thread when the required MCP preflight fails", async () => {
+    const h = await harness([], { configEnabled: true }); h.connect();
+    h.mcp.installMcpServer.mockClear();
+    h.mcp.installMcpServer.mockImplementationOnce(() => { throw new Error("config is read-only"); });
+
+    await expect(h.start()).rejects.toThrow("Could not configure UIT course tools for this thread: config is read-only");
+    expect(h.codex.startThread).not.toHaveBeenCalled();
+  });
+
   it.each(["darwin", "linux", "win32"] as const)("uses the mascot icon for shell-launched Studio on %s", async (platform) => {
     const h = await harness([], { platform });
     const icon = path.join(path.dirname(mainPath), "renderer", "assets", "uit-dau-dau-icon.png");

@@ -361,6 +361,12 @@ export function installMcpServer(options: { command?: string; args?: string[]; e
   const command = options.command ?? launch.command;
   const args = options.args ?? (options.command ? ["mcp"] : launch.args);
   const configured = (existing: string) => upsertMcpConfig(existing, command, args, options.env);
+  const verify = () => {
+    const persisted = readFileSync(configPath, "utf8");
+    if (configured(persisted) !== persisted) {
+      throw new Error(`UIT MCP configuration could not be verified in ${configPath}.`);
+    }
+  };
 
   if (!existsSync(configPath)) {
     const codexDir = dirname(configPath);
@@ -369,6 +375,7 @@ export function installMcpServer(options: { command?: string; args?: string[]; e
     }
     writeFileAtomically(configPath, configured(""));
     removeLegacyMcpWrapper();
+    verify();
     console.log(`Created ${configPath} and added [mcp_servers.uit]`);
     return;
   }
@@ -377,11 +384,13 @@ export function installMcpServer(options: { command?: string; args?: string[]; e
   const updated = configured(existing);
   if (updated === existing) {
     removeLegacyMcpWrapper();
+    verify();
     console.log(`uit MCP server is already configured in ${configPath}`);
     return;
   }
   writeFileAtomically(configPath, updated, statSync(configPath).mode & 0o777);
   removeLegacyMcpWrapper();
+  verify();
   console.log(new RegExp(String.raw`^\s*\[\s*${MCP_PARENT_KEY}\s*\.\s*(?:uit|"uit"|'uit')\s*\]`, "m").test(existing)
     ? `Updated uit MCP server path in ${configPath} to ${command}`
     : `Configured uit MCP server in ${configPath}`);

@@ -156,6 +156,22 @@ function restoreMainWindow(): void {
   }
 }
 
+async function ensureStudioMcpConfig(): Promise<void> {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+  const mcp = await import("../dist/mcp-server.js");
+  if (typeof mcp.installMcpServer !== "function") {
+    throw new Error("UIT MCP configuration is unavailable.");
+  }
+  mcp.installMcpServer({
+    command: process.execPath,
+    // Electron's Node mode runs this entrypoint without initializing an app,
+    // Dock icon, GPU process, or Studio profile. It is available on every
+    // platform supported by Electron, including packaged builds.
+    args: [join(__dirname, "..", "dist", "mcp-entry.js")],
+    env: { ELECTRON_RUN_AS_NODE: "1" }
+  });
+}
+
 async function loadService() {
   if (service) return;
   service = await import("../dist/desktop-service.js");
@@ -166,18 +182,11 @@ async function loadService() {
   const uitCoursesRoot = resolve(homedir(), ".uit", "courses");
   await mkdir(uitCoursesRoot, { recursive: true });
   codex = new client.CodexClient({ cwd: uitCoursesRoot });
-  if (process.env.UIT_DISABLE_CONFIG !== "1") {
-    try {
-      const mcp = await import("../dist/mcp-server.js");
-      mcp.installMcpServer?.({
-        command: process.execPath,
-        // Electron's Node mode runs this entrypoint without initializing an
-        // app, Dock icon, GPU process, or Studio profile. It is available on
-        // every platform supported by Electron, including packaged builds.
-        args: [join(__dirname, "..", "dist", "mcp-entry.js")],
-        env: { ELECTRON_RUN_AS_NODE: "1" }
-      });
-    } catch { /* MCP registration is best effort during startup. */ }
+  try {
+    await ensureStudioMcpConfig();
+  } catch {
+    // Startup should not make the Studio unavailable. Starting a thread does
+    // require this preflight and will surface an actionable error instead.
   }
   const configured = process.env.UIT_DISABLE_CONFIG === "1" ? undefined : service.configuredLegacySession?.();
   if (configured?.session?.baseUrl && typeof configured.session.userId === "number") {
@@ -1046,6 +1055,14 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
   const resources = await Promise.all((input.resources as CourseResourceReference[] || []).map((resource: CourseResourceReference) => service.resolveCourseResource(courseId, resource, account.api)));
   const workspace = await service.courseWorkspace(courseId, course.shortname, account.baseUrl, account.userId, account.api);
   checkAccount();
+  try {
+    // External config managers can replace a managed CODEX_HOME after Studio
+    // starts. Repair and verify the effective config immediately before Codex
+    // creates or resumes a thread so it builds the current tool catalogue.
+    await ensureStudioMcpConfig();
+  } catch (error) {
+    throw new Error(`Could not configure UIT course tools for this thread: ${errorMessage(error)}`, { cause: error });
+  }
   let threadId: string;
   let binding: ThreadBinding;
   let started: { thread: CodexThread; model?: string } | undefined;
