@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultApiClient } from "../src/api.js";
-import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, login, lookupCourse, sessionStatus } from "../src/desktop-service.js";
+import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, login, lookupCourse, readParticipantAvatar, sessionStatus } from "../src/desktop-service.js";
 import type { ApiClient } from "../src/types.js";
 
 const codexProbe = vi.hoisted(() => ({ connect: vi.fn(), readAccount: vi.fn(), disconnect: vi.fn() }));
@@ -14,6 +14,44 @@ beforeEach(() => {
 afterEach(() => { clearCourseCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("desktop service", () => {
+  it("reads member avatars through the authenticated client", async () => {
+    const avatar = "https://courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2?rev=1";
+    const api = {
+      call: vi.fn().mockResolvedValue([{ id: 7, fullname: "Student", profileimageurl: avatar }]),
+      readFile: vi.fn().mockResolvedValue({ mimeType: "image/png", data: Buffer.from("avatar") })
+    } as unknown as ApiClient;
+    await expect(readParticipantAvatar(1, 7, "https://courses.uit.edu.vn", api)).resolves.toEqual({ mimeType: "image/png", data: "YXZhdGFy" });
+    expect(api.readFile).toHaveBeenCalledWith(avatar);
+    await expect(readParticipantAvatar(1, 8, "https://courses.uit.edu.vn", api)).resolves.toBeNull();
+    expect(api.readFile).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "https://other.example/pluginfile.php/42/user/icon/boost/f2",
+    "http://courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2",
+    "https://name:secret@courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2",
+    "https://courses.uit.edu.vn/pluginfile.php/42/mod_resource/content/1/file.pdf"
+  ])("does not fetch an untrusted avatar URL: %s", async (avatar) => {
+    const api = {
+      call: vi.fn().mockResolvedValue([{ id: 7, fullname: "Student", profileimageurl: avatar }]),
+      readFile: vi.fn()
+    } as unknown as ApiClient;
+    await expect(readParticipantAvatar(1, 7, "https://courses.uit.edu.vn", api)).resolves.toBeNull();
+    expect(api.readFile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { mimeType: "text/html", data: Buffer.from("login page") },
+    { mimeType: "image/svg+xml", data: Buffer.from("<svg/>") },
+    { mimeType: "image/png", data: Buffer.alloc(2 * 1024 * 1024 + 1) }
+  ])("rejects non-raster or oversized avatar responses ($mimeType)", async (response) => {
+    const api = {
+      call: vi.fn().mockResolvedValue([{ id: 7, fullname: "Student", profileimageurl: "https://courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2" }]),
+      readFile: vi.fn().mockResolvedValue(response)
+    } as unknown as ApiClient;
+    await expect(readParticipantAvatar(1, 7, "https://courses.uit.edu.vn", api)).resolves.toBeNull();
+  });
+
   it("reports a structured local session status", () => {
     expect(sessionStatus()).toEqual(expect.objectContaining({ authenticated: expect.any(Boolean) }));
   });

@@ -801,6 +801,24 @@ function displayMembers(container, members, course) {
     return (a.fullname || "").localeCompare(b.fullname || "", "vi", { sensitivity: "base" });
   });
 
+  const avatars = new Map();
+  const loadAvatar = async (member, placeholder) => {
+    try {
+      if (!avatars.has(member.id)) avatars.set(member.id, window.uit.courses.avatar({ ...courseRef(course), memberId: member.id }));
+      const result = await avatars.get(member.id);
+      if (!result || !placeholder.isConnected) return;
+      const bytes = Uint8Array.from(atob(result.data), (char) => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
+      const image = new Image();
+      image.alt = "";
+      image.onload = () => { URL.revokeObjectURL(url); if (placeholder.isConnected) placeholder.replaceChildren(image); };
+      image.onerror = () => URL.revokeObjectURL(url);
+      image.src = url;
+    } catch {
+      // Keep the role icon when the avatar is unavailable or the session expires.
+    }
+  };
+
   const renderList = (filterText = "") => {
     listContainer.replaceChildren();
     const query = filterText.toLowerCase().trim();
@@ -821,7 +839,8 @@ function displayMembers(container, members, course) {
     for (const member of filtered) {
       const card = node("div", "member-card");
       const isTeacher = memberPriority(member) === 0;
-      card.append(defaultAvatar(isTeacher));
+      const avatar = defaultAvatar(isTeacher);
+      card.append(avatar);
 
       const info = node("div", "member-info");
       const nameRow = node("div", "member-name-row");
@@ -850,6 +869,7 @@ function displayMembers(container, members, course) {
 
       card.append(info);
       listContainer.append(card);
+      if (member.avatar && member.id > 0) void loadAvatar(member, avatar);
     }
   };
 

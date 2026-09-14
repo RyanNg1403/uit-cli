@@ -1766,6 +1766,27 @@ for (const width of [390, 320]) {
   });
 }
 
+test("member avatars load as blobs and fall back to role icons", async ({ page, boot }) => {
+  await boot();
+  await page.evaluate(() => {
+    window.uit.courses.participants = async () => [
+      { id: 1, fullname: "Alice", roles: ["student"], avatar: "https://courses.uit.edu.vn/avatar/1" },
+      { id: 2, fullname: "Bob", roles: ["student"], avatar: "https://courses.uit.edu.vn/avatar/2" }
+    ];
+    window.uit.courses.avatar = async ({ memberId }: { memberId: number }) => {
+      if (memberId === 2) throw new Error("Avatar unavailable");
+      return { mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" };
+    };
+  });
+  await openCourse(page);
+  await page.locator("#tab-members").click();
+  const alice = page.locator(".member-card").filter({ hasText: "Alice" });
+  await expect(alice.locator("img")).toHaveAttribute("src", /^blob:/);
+  await expect(page.locator(".member-card").filter({ hasText: "Bob" }).locator(".member-avatar svg")).toHaveCount(1);
+  await page.getByPlaceholder("Search members by name or role...").fill("Alice");
+  await expect(alice.locator("img")).toBeVisible();
+});
+
 test("course view displays Materials, Members, and Grades tabs with live data and search", async ({ page, boot }) => {
   await boot();
   await openCourse(page);

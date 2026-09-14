@@ -632,6 +632,18 @@ export async function listForumDiscussions(courseId: number, moduleId: number, a
   }
 }
 
+export async function readParticipantAvatar(courseId: number, memberId: number, baseUrl: string, api: ApiClient): Promise<{ mimeType: string; data: string } | null> {
+  const member = (await listCourseParticipants(courseId, api)).find((item) => item.id === memberId);
+  if (!member?.avatar || !api.readFile) return null;
+  const url = new URL(member.avatar, baseUrl);
+  if (url.protocol !== "https:" || url.origin !== new URL(baseUrl).origin || url.username || url.password ||
+      !/\/(?:webservice\/)?pluginfile\.php\/\d+\/user\/icon\//.test(url.pathname)) return null;
+  const result = await api.readFile(url.href);
+  const mimeType = result.mimeType.split(";")[0].trim().toLowerCase();
+  if (!/^image\/(?:png|jpeg|gif|webp)$/.test(mimeType) || result.data.byteLength > 2 * 1024 * 1024) return null;
+  return { mimeType, data: Buffer.from(result.data).toString("base64") };
+}
+
 export async function listCourseParticipants(courseId: number, api: ApiClient = defaultApiClient): Promise<CourseParticipant[]> {
   const users = await metadata<MoodleRecord[]>(api, "core_enrol_get_enrolled_users", { courseid: courseId });
   if (!Array.isArray(users)) return [];

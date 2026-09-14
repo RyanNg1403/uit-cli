@@ -16,6 +16,7 @@
       assignments: "course:assignments",
       announcements: "course:announcements",
       participants: "course:participants",
+      avatar: "course:avatar",
       grades: "course:grades",
       submission: "course:submission",
       forum: "course:forum",

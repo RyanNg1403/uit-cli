@@ -981,6 +981,11 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
     "course:assignments": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.listAssignments(courseId, session.api); },
     "course:announcements": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.listAnnouncements(courseId, session.api); },
     "course:participants": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.listCourseParticipants(courseId, session.api); },
+    "course:avatar": (rawInput) => {
+      const input = requireObject(rawInput, "Avatar input");
+      const { courseId, session } = courseSession(input);
+      return service.readParticipantAvatar(courseId, requirePositiveId(input.memberId, "Member ID"), session.baseUrl, session.api);
+    },
     "course:grades": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.getCourseGrades(courseId, session.api, session.userId); },
     "course:submission": (rawInput) => {
       const input = requireObject(rawInput, "Submission input");
