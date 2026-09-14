@@ -17,3 +17,4 @@ release-assets/
 packages/uit-runtime/dist/
 packages/uit-runtime/desktop/
 .opencode/
+AGENTS.md
