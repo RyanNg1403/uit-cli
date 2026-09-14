@@ -1429,7 +1429,7 @@ function renderProjectOptions() {
       }
       section = yearSections.get(year);
     }
-    section.append(node("h3", "", group.label));
+    if (!creating || group.label !== projectYear(group.courses[0])) section.append(node("h3", "", group.label));
     for (const course of group.courses) {
       const option = button("", "project-option", () => { $("#project-picker").close(); addProject(course); persist(); newThread(course); });
       option.append(node("strong", "", course.fullname), node("small", "", `${course.shortname} / ${siteLabel(course)} / Account ${course.userId}`));

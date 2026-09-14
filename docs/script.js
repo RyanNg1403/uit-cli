@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const themeToggle = document.getElementById("theme-toggle");
   const themeMeta = document.querySelector('meta[name="theme-color"]');
-  const themeColors = { dark: "#040c19", light: "#eaf6ff" };
+  const themeColors = { dark: "#030a15", light: "#eaf6ff" };
   const savedTheme = localStorage.getItem("uit-theme")
     || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
   const applyTheme = (theme) => {
@@ -32,9 +32,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const buttons = document.querySelectorAll(".preview-btn");
   const panels = document.querySelectorAll(".product-preview");
   const previewFrame = document.querySelector(".hero-screenshot-frame");
+  const previewSwitcher = document.querySelector(".preview-switcher");
   buttons.forEach((button) => {
     button.addEventListener("click", () => {
       const selectedPreview = button.getAttribute("data-preview");
+      previewSwitcher?.setAttribute("data-active-preview", selectedPreview);
       buttons.forEach((item) => {
         const selected = item === button;
         item.classList.toggle("active", selected);
