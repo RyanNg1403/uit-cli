@@ -24,6 +24,9 @@
   const maxWidth = () => Math.min(480, Math.max(200, window.innerWidth - 320));
   const clampWidth = (value) => Math.round(Math.min(maxWidth(), Math.max(200, value)));
   const hasDialog = () => !!document.querySelector("dialog[open], [aria-modal='true']:not([hidden])");
+  const focusableControls = () => [...sidebar.querySelectorAll("button, a[href], input, select, textarea, [tabindex]")]
+    .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") &&
+      element.getClientRects().length && getComputedStyle(element).visibility !== "hidden");
 
   function persist() {
     try { localStorage.setItem(storageKey, JSON.stringify({ width, collapsed })); }
@@ -126,16 +129,16 @@
     if (!mobile.matches || !mobileOpen) return;
     if (event.key === "Escape") { event.preventDefault(); setMobileOpen(false); }
     if (event.key === "Tab") {
-      const controls = [...sidebar.querySelectorAll("button, a[href], input, select, textarea, [tabindex]")]
-        .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") &&
-          !element.closest("[inert]") && element.getClientRects().length && getComputedStyle(element).visibility !== "hidden");
-      const first = controls[0];
-      const last = controls.at(-1);
-      if (!sidebar.contains(document.activeElement) ||
-        (event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first)?.focus();
-      }
+      const controls = focusableControls();
+      if (!controls.length) return;
+      const current = controls.indexOf(document.activeElement);
+      const step = event.shiftKey ? -1 : 1;
+      const next = current + step;
+      // Own every transition inside the mobile rail instead of relying on
+      // platform-native traversal, which can leave a select focused while the
+      // opening transform is still settling on macOS.
+      event.preventDefault();
+      controls[current < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (next + controls.length) % controls.length]?.focus();
     }
   });
 
