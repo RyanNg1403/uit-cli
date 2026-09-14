@@ -1461,7 +1461,11 @@ async function createWindowInternal(): Promise<BrowserWindow> {
   window.webContents.session.setPermissionCheckHandler(() => false);
   await window.loadFile(join(__dirname, "renderer", "index.html"));
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.webContents.on("will-navigate", (event, url) => {
+    // Reloading the current trusted document is valid (and required by the
+    // renderer's recovery flows); every other navigation remains blocked.
+    if (!url.startsWith(TRUSTED_RENDERER_PROTOCOL) || url !== window.webContents.getURL()) event.preventDefault();
+  });
   return window;
 }
 
