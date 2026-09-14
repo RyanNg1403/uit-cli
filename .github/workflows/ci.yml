@@ -25,7 +25,19 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 10))
+              echo "npm ci failed on attempt $attempt/3; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          exit 1
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
@@ -60,7 +72,19 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 10))
+              echo "npm ci failed on attempt $attempt/3; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          exit 1
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
@@ -89,7 +113,20 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            npm ci
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($attempt -lt $maxAttempts) {
+              $delay = $attempt * 10
+              Write-Host "npm ci failed on attempt $attempt/$maxAttempts; retrying in ${delay}s."
+              Start-Sleep -Seconds $delay
+            }
+          }
+          exit 1
 
       - name: Install Playwright browser
         run: npx playwright install chromium
@@ -98,7 +135,9 @@ jobs:
         run: npm run desktop:check
 
       - name: Test desktop UI
-        run: npx playwright test desktop-ui pdf-preview sidebar
+        # Keep Chromium contexts serialized on Windows. The runner's socket
+        # table intermittently reports ERR_NO_BUFFER_SPACE with four workers.
+        run: npx playwright test desktop-ui pdf-preview sidebar --workers=1
 
       - name: Test native Electron smoke and stability
         run: npx playwright test electron-smoke electron-stability --workers=1
@@ -118,7 +157,19 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 10))
+              echo "npm ci failed on attempt $attempt/3; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          exit 1
 
       - name: Install Playwright browser
         run: npx playwright install chromium
@@ -127,7 +178,9 @@ jobs:
         run: npm run desktop:check
 
       - name: Test desktop UI
-        run: npx playwright test desktop-ui pdf-preview sidebar
+        # PDF.js and Chromium are resource-sensitive on hosted macOS runners;
+        # one worker keeps the lifecycle tests deterministic.
+        run: npx playwright test desktop-ui pdf-preview sidebar --workers=1
 
       - name: Test native Electron smoke and stability
         run: npx playwright test electron-smoke electron-stability --workers=1

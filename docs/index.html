@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UIT STUDIO</title>
   <meta name="description" content="Fast, keyboard-driven Moodle client and AI desktop workspace for students at the University of Information Technology (VNU-HCM).">
-  <meta name="theme-color" content="#040c19">
+  <meta name="theme-color" content="#030a15">
 
   <!-- Open Graph -->
   <meta property="og:type" content="website">
@@ -29,10 +29,10 @@
   <!-- Navigation -->
   <nav class="nav" id="main-nav">
     <div class="nav-inner">
-      <a href="#" class="nav-brand" aria-label="UIT STUDIO Home">
+      <a href="index.html" class="nav-brand" aria-label="UIT STUDIO Home">
         <img src="assets/icon.svg" alt="UIT Đậu Đậu" class="nav-brand-img">
         <span class="nav-brand-name">UIT STUDIO</span>
-        <span class="nav-brand-tag">VNU-HCM</span>
+        <img src="assets/vnu-hcm-logo.svg" alt="Vietnam National University, Ho Chi Minh City" class="nav-affiliation-logo">
       </a>
 
       <div class="nav-right">
@@ -130,7 +130,8 @@
 
       <!-- Real Studio captures stay fully visible; the CLI is illustrated. -->
       <div class="hero-preview">
-        <div class="preview-switcher" role="tablist" aria-label="Product previews">
+        <div class="preview-switcher" data-active-preview="workspace" role="tablist" aria-label="Product previews">
+          <span class="preview-slider" aria-hidden="true"></span>
           <button class="preview-btn active" type="button" role="tab" aria-selected="true" aria-controls="preview-workspace" data-preview="workspace">Workspace</button>
           <button class="preview-btn" type="button" role="tab" aria-selected="false" aria-controls="preview-agent" data-preview="agent">Agent</button>
         </div>
@@ -395,7 +396,7 @@
                 <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy Windows Studio npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
               </div>
             </div>
-            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer">
+            <a href="https://github.com/RyanNg1403/uit-cli/releases" class="btn btn-ghost btn-sm setup-download-btn" target="_blank" rel="noopener noreferrer">
               <span>Download Setup (.exe)</span>
             </a>
           </div>

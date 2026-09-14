@@ -40,6 +40,7 @@
   --radius-lg: 14px;
   --radius-xl: 18px;
   --transition-fast: 0.14s ease;
+  --sidebar-transition: 0.36s cubic-bezier(0.16, 1, 0.3, 1);
   font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
   background: var(--background);
@@ -197,6 +198,16 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   background: var(--rail);
   border-right: 1px solid var(--line);
   padding: 16px 10px 10px;
+  transition:
+    width var(--sidebar-transition),
+    flex-basis var(--sidebar-transition),
+    padding-inline var(--sidebar-transition),
+    transform var(--sidebar-transition),
+    border-color var(--transition-fast),
+    visibility 0s linear 0s;
+}
+.sidebar > * {
+  transition: opacity var(--transition-fast), transform var(--sidebar-transition);
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 4px 10px 22px; }
 .brand-logo { height: 38px; width: auto; max-width: 100%; min-width: 0; flex: 1 1 auto; object-fit: contain; object-position: left center; }
@@ -1595,16 +1606,43 @@ dialog::backdrop { background: var(--backdrop); }
 /* ═══════════════════════════════════════════════════
    SIDEBAR RESIZE
    ═══════════════════════════════════════════════════ */
-.sidebar-resize { position: fixed; top: 0; bottom: 0; left: max(0px, calc(var(--sidebar-width, 248px) - 4px)); width: 8px; z-index: 30; cursor: col-resize; touch-action: none; }
+.sidebar-resize {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: max(0px, calc(var(--sidebar-width, 248px) - 4px));
+  width: 8px;
+  z-index: 30;
+  cursor: col-resize;
+  touch-action: none;
+  transition: left var(--sidebar-transition), background var(--transition-fast);
+}
 .sidebar-resize:hover, .sidebar-resize:focus-visible, .sidebar-dragging .sidebar-resize { background: var(--focus); }
 .sidebar-resize:focus-visible { outline-offset: -2px; }
+.sidebar-dragging .sidebar { transition: none; }
+.sidebar-dragging .sidebar-resize { transition: none; }
 .sidebar-dragging, .sidebar-dragging * { cursor: col-resize !important; user-select: none !important; }
 .sidebar .course-nav { overflow-x: hidden; }
 .sidebar .project-name, .sidebar .thread-link > span:first-child { min-width: 0; }
 .sidebar .account-button { overflow-wrap: anywhere; }
 
 @media (min-width: 651px) {
-  .sidebar-collapsed .sidebar { width: 0; flex-basis: 0; padding-inline: 0; border: 0; visibility: hidden; overflow: hidden; }
+  .sidebar-collapsed .sidebar-resize { transition: none; }
+  .sidebar-collapsed .sidebar {
+    width: 0;
+    flex-basis: 0;
+    padding-inline: 0;
+    border: 0;
+    visibility: visible;
+    overflow: hidden;
+    transition:
+      width var(--sidebar-transition),
+      flex-basis var(--sidebar-transition),
+      padding-inline var(--sidebar-transition),
+      transform var(--sidebar-transition),
+      border-color var(--transition-fast);
+  }
+  .sidebar-collapsed .sidebar > * { opacity: 0; transform: translateX(-12px); }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1618,8 +1656,25 @@ dialog::backdrop { background: var(--backdrop); }
 }
 @media (max-width: 650px) {
   .mobile-only { display: inline-block; }
-  .sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: 280px; flex-basis: 280px; z-index: 50; visibility: hidden; transform: translateX(-100%); }
-  .app.nav-open .sidebar { visibility: visible; transform: none; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 280px;
+    flex-basis: 280px;
+    z-index: 50;
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition:
+      transform var(--sidebar-transition),
+      visibility 0s linear var(--sidebar-transition);
+  }
+  .app.nav-open .sidebar {
+    visibility: visible;
+    transform: none;
+    transition-delay: 0s;
+  }
   .brand .icon-button { margin-left: auto; }
   .sidebar-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 40; background: var(--backdrop); border: 0; border-radius: 0; }
   .topbar { padding: 9px 16px; min-height: 54px; }
@@ -1660,4 +1715,7 @@ dialog::backdrop { background: var(--backdrop); }
   .error-banner { padding: 10px 20px; }
   .sidebar-resize { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; }
+  .sidebar, .sidebar-collapsed .sidebar, .sidebar > *, .sidebar-resize { transition: none !important; }
+}

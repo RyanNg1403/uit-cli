@@ -78,9 +78,9 @@
     drag = null;
     if (cancelled) { width = previous.width; collapsed = previous.collapsed; }
     else if (collapsed) width = previous.width;
+    render();
     app.classList.remove("sidebar-dragging");
     if (handle.hasPointerCapture(previous.id)) handle.releasePointerCapture(previous.id);
-    render();
     if (!cancelled) persist();
   }
 

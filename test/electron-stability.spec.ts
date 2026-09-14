@@ -320,6 +320,10 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
       await expect(window.getByRole("button", { name: "Close navigation", exact: true })).toBeVisible();
       if (log.cycles === 0) {
         const separator = window.getByRole("separator", { name: "Navigation width" });
+        // Opening the desktop rail is animated. Wait for the resize handle to
+        // finish following it before starting a pointer drag; otherwise the
+        // handle can move away from the initial mouse target on slower hosts.
+        await expect(window.locator("#sidebar")).toHaveCSS("width", "248px");
         const width = Number(await separator.getAttribute("aria-valuenow"));
         const box = (await separator.boundingBox())!;
         await window.mouse.move(box.x + box.width / 2, 100);

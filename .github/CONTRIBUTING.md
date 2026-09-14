@@ -51,12 +51,12 @@ main ─────────────────────────
    - `main`: Production-stable default branch.
 
 3. **Commit Message Format**:
-   Commit messages must match their branch prefix:
+   Commit messages must begin with one of the supported prefixes, regardless of the branch name:
    ```text
    <feat|proj|fix|chore>: <description>
    ```
-   *(e.g., branch `feat/sso-browser` requires commits like `feat: add edge fallback for sso`).*
-   Violations are rejected by the repository's `commit-msg` hook. Note that there is no `release:` commit prefix; release preparation commits use `chore:` (e.g. `chore: prepare v1.3.2`), and merging a release branch into `main` produces a standard merge commit.
+   *(e.g., a `chore/docs-cleanup` branch may contain `fix: correct an installation example` when the change fixes a documentation issue).*
+   Unsupported prefixes are rejected by the repository's `commit-msg` hook. Note that there is no `release:` commit prefix; release preparation commits use `chore:` (e.g. `chore: prepare v1.3.2`), and merging a release branch into `main` produces a standard merge commit.
 
 4. **Targeting a Release**:
    - For regular fixes and features, open a PR targeting `main` (or the active `release/<version>` branch if coordinating an imminent release).
@@ -104,5 +104,5 @@ npm run test:desktop
 ## 4. Submitting a Pull Request
 
 1. Ensure all verification checks pass locally (`npm test && npm run lint && npm run typecheck`).
-2. Keep commits atomic with descriptive commit messages following our conventions (`feat: ...`, `fix: ...`, `chore: ...`, `proj: ...`, `release: ...`).
+2. Keep commits atomic with descriptive commit messages using a supported prefix (`feat: ...`, `fix: ...`, `chore: ...`, or `proj: ...`).
 3. Open a PR using our Pull Request template, providing context on what was changed and how it was verified.
