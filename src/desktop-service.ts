@@ -9,6 +9,7 @@ import { activateSession as selectActiveSession, get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
 import { CodexClient } from "./codex-client.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
+export { calendarMonth, listCalendarEvents, addAssignmentIntervals, calendarReminders } from "./calendar.js";
 
 export interface DesktopLoginInput {
   username: string;

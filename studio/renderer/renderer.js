@@ -254,7 +254,7 @@ function showView(view) {
   if (view !== "agent") discardUnsent();
   if (view !== "course") state.detailGeneration++;
   state.view = view;
-  for (const name of ["courses", "course", "agent"]) $("#view-" + name).hidden = name !== view;
+  for (const name of ["courses", "course", "agent", "calendar"]) $("#view-" + name).hidden = name !== view;
   const pageTitle = $("#page-title");
   if (view === "agent") {
     pageTitle.replaceChildren(codexLogo());
@@ -264,7 +264,7 @@ function showView(view) {
     pageTitle.setAttribute("title", "Codex home");
     pageTitle.classList.add("page-title-action");
   } else {
-    pageTitle.textContent = "Courses";
+    pageTitle.textContent = view === "calendar" ? "Calendar" : "Courses";
     pageTitle.removeAttribute("role");
     pageTitle.removeAttribute("tabindex");
     pageTitle.removeAttribute("aria-label");
@@ -276,6 +276,7 @@ function showView(view) {
     else item.removeAttribute("aria-current");
   });
   if (view === "agent") renderConversation();
+  if (view === "calendar") calendar.show();
   renderRail();
   window.uitSidebar.closeMobile();
 }
@@ -2901,6 +2902,7 @@ function handleAgentEvent(message) {
 }
 
 function applySessions(result) {
+  calendar.reset();
   state.sessions = Array.isArray(result.sessions) ? result.sessions.map(({ baseUrl, userId, authMode, label }) => ({ baseUrl, userId, authMode, label })) : [];
   state.loginFormOpen = false;
   state.listGeneration++; state.detailGeneration++;
@@ -3338,6 +3340,7 @@ $("#agent-messages").addEventListener("click", (event) => {
 window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist(); releasePreview(); });
 
 restore();
+const calendar = new window.UitCalendar({ notify: toast, navigate: () => showView("calendar") });
 showView("courses");
 window.uit.agent.onEvent(handleAgentEvent);
 (async function boot() {

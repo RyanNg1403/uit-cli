@@ -22,6 +22,10 @@ Both installation methods launch the same local web Studio with `uit-studio`.
 The npm installation requires [Node.js 24.0+](https://nodejs.org/); native
 release packages include Node.js and the SSO Chromium runtime.
 
+Open **Calendar** in Studio to browse Moodle events and assignment deadlines by month. Filter by account, course, or deadlines; select a day or expand an event to see its details and open it in Moodle. Calendar combines connected SSO and legacy accounts. Assignments with an explicit opening date and deadline appear as submission windows, continuing across weeks and months with a marked deadline. Crowded days show **+N more**. Select a bar for its dates and details. Missing opening dates remain single deadline markers; Studio does not infer dates or edit course events.
+
+Use **Refresh calendar** after a teacher changes a deadline. The visible calendar refreshes automatically every five minutes. Under **Deadline reminders**, enable reminders within 24 hours and 1 hour of deadlines Moodle marks as needing action. Studio must remain running; reminders appear in the app and, when supported and allowed by the OS, as desktop notifications. Reminder preferences and delivery history are saved locally, and changed deadlines are scheduled again. Times are displayed in your computer's time zone.
+
 <details>
 <summary>macOS</summary>
 

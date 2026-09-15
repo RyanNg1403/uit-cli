@@ -2,6 +2,7 @@
   if (window.uit) return;
 
   const methods = {
+    calendar: { list: "calendar:list", settings: "calendar:settings", open: "calendar:open" },
     session: {
       status: "session:status",
       login: "session:login",
@@ -137,6 +138,26 @@
     eventListeners.add(listener);
     connectEvents();
     return () => eventListeners.delete(listener);
+  };
+  const calendarNavigation = new Set();
+  bridge.calendar.onNavigate = (listener) => { calendarNavigation.add(listener); return () => calendarNavigation.delete(listener); };
+  bridge.calendar.onReminder = (callback) => {
+    const listener = (message) => {
+      if (message.method !== "calendar/reminder") return;
+      callback(message.params);
+      if ("Notification" in window && Notification.permission === "granted") {
+        const notification = new Notification("Assignment deadline", { body: message.params.body });
+        notification.onclick = () => { window.focus(); calendarNavigation.forEach((navigate) => navigate()); };
+      }
+    };
+    eventListeners.add(listener);
+    connectEvents();
+    return () => eventListeners.delete(listener);
+  };
+  bridge.calendar.settings = async (input) => {
+    if (input?.enabled && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+    const result = await rpc("calendar:settings", input);
+    return { ...result, supported: "Notification" in window && Notification.permission === "granted" };
   };
   window.uit = bridge;
 })();

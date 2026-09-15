@@ -1,6 +1,86 @@
 import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, STORE, key, calls, control, emit, openCourse } from "./fixtures/studio";
 import type { Page } from "playwright/test";
 
+test("Calendar shows deadlines, filters accounts, navigates months and opens safe event references", async ({ page, boot }, info) => {
+  await boot();
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await expect(page.locator("#page-title")).toHaveText("Calendar");
+  await page.locator("#calendar-agenda summary").first().click();
+  await expect(page.locator(".calendar-description").first()).toHaveText("Submit the report.");
+  await page.getByRole("button", { name: "Open in Moodle", exact: true }).first().click();
+  expect((await calls(page, "calendar.open"))[0].input).toEqual({ key: JSON.stringify([CURRENT, 101, 900]) });
+  expect(await page.evaluate(() => window.previewExecuted)).toBeUndefined();
+  await page.locator("#calendar-account").selectOption(JSON.stringify([LEGACY, 202]));
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(1);
+  await expect(page.locator("#calendar-agenda")).toContainText("Legacy quiz closes");
+  await page.locator("#calendar-account").selectOption("");
+  await page.locator("#calendar-jump").fill("2027-01");
+  await expect.poll(async () => (await calls(page, "calendar.list")).at(-1)?.input).toMatchObject({ year: 2027, month: 1 });
+  await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "calendar.list")).at(-1)?.input).toMatchObject({ year: 2026, month: 12 });
+  await page.locator(".calendar-day").filter({ has: page.locator(".calendar-day-number", { hasText: /^20$/ }) }).click();
+  await expect(page.locator("#calendar-all-days")).toBeVisible();
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await page.locator(".calendar-reminder-settings summary").click();
+  await page.locator("#calendar-reminders").check();
+  await expect.poll(async () => (await calls(page, "calendar.settings")).some((call) => call.input?.enabled === true)).toBe(true);
+  await page.locator("#view-calendar").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: info.outputPath("calendar.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Calendar submission windows continue across weeks, reveal details and handle crowded days", async ({ page, boot }, info) => {
+  await boot();
+  await page.evaluate(() => {
+    const list = window.uit.calendar.list;
+    window.uit.calendar.list = async (input: any) => {
+      const result = await list(input);
+      const event = result.events[0];
+      event.opensAt = new Date(input.year, input.month - 2, 28, 8).getTime() / 1000;
+      event.start = event.end = new Date(input.year, input.month, 3, 23, 59).getTime() / 1000;
+      result.events.push(...Array.from({ length: 4 }, (_, index) => ({ ...event, key: `extra-${index}`, name: `Project ${index + 1}`, opensAt: new Date(input.year, input.month - 1, 10, 8).getTime() / 1000, start: new Date(input.year, input.month - 1, 22, 23, 59).getTime() / 1000 })));
+      return result;
+    };
+  });
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator(".calendar-window.continues-before").first()).toBeVisible();
+  await expect(page.locator(".calendar-window.continues-after").first()).toBeVisible();
+  await expect(page.locator(".calendar-more").first()).toBeVisible();
+  await page.locator(".calendar-window").first().click();
+  await expect(page.locator("details.calendar-event[open] .calendar-window-detail")).toContainText("Submissions open");
+  await expect(page.locator("details.calendar-event[open] .calendar-window-detail")).toContainText("Deadline");
+  await page.locator("#view-calendar").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: info.outputPath("calendar-intervals-light.png") });
+  await page.locator("#appearance").selectOption("dark");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: info.outputPath("calendar-intervals-dark.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: info.outputPath("calendar-intervals-mobile.png") });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const widths = await page.locator(".calendar-segment").evaluateAll((bars) => bars.map((bar) => bar.getBoundingClientRect().width));
+  expect(widths.every((width) => width > 0 && width < 390)).toBe(true);
+});
+
+test("Calendar recovers from errors and ignores stale month responses", async ({ page, boot }) => {
+  await boot({ fail: { "calendar.list": "Calendar unavailable" } });
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator("#calendar-error")).toHaveText("Calendar unavailable");
+  await page.locator("#calendar-refresh").click();
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await control(page, "hold", "calendar.list");
+  await page.getByRole("button", { name: "Next month", exact: true }).click();
+  await page.getByRole("button", { name: "Next month", exact: true }).click();
+  await control(page, "unhold", "calendar.list");
+  await control(page, "release", "calendar.list", 1);
+  await expect(page.locator("#calendar-refresh")).toBeEnabled();
+  const month = await page.locator("#calendar-month").textContent();
+  await control(page, "release", "calendar.list");
+  await expect(page.locator("#calendar-month")).toHaveText(month!);
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+});
+
 async function sendAndStop(page: Page, message: string) {
   await page.getByLabel("Message Codex").fill(message);
   await page.locator("#send-agent").click();

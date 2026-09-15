@@ -20,3 +20,5 @@ packages/uit-runtime/studio-build/
 packages/uit-runtime/browsers/
 .opencode/
 AGENTS.md
+docs/MICROSOFT_MOODLE_AUTH.md
+image-*.png
