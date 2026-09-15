@@ -167,12 +167,12 @@ test("New project groups years clearly and filters the requested year", async ({
   await boot();
   await page.locator('[data-view="agent"]').click();
   await page.locator("#new-project").click();
-  await expect(page.locator(".project-year-heading h2")).toHaveText(["2026", "2025", "Unknown year"]);
+  await expect(page.locator(".project-year-heading h2")).toHaveText(["2026", "2025", "Other courses"]);
   await expect(page.locator(".project-year-heading span")).toHaveText(["17 courses", "1 course", "1 course"]);
   await page.getByLabel("Academic year", { exact: true }).selectOption("2025");
   await expect(page.locator(".project-option")).toHaveCount(1);
   await expect(page.locator(".project-option")).toContainText(courses[17].fullname);
-  await page.getByLabel("Academic year", { exact: true }).selectOption("Unknown year");
+  await page.getByLabel("Academic year", { exact: true }).selectOption("Other courses");
   await expect(page.locator(".project-option")).toContainText(courses[18].fullname);
   await page.getByLabel("Academic year", { exact: true }).selectOption("all");
   await page.screenshot({ path: info.outputPath("project-years.png") });
@@ -188,18 +188,48 @@ test("academic-year ranges match each year offered by the project filter", async
   }, "2026"))).toBe(true);
 });
 
+test("Agent sidebar keeps semesters separate within the same year", async ({ page, boot }) => {
+  await boot({ storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[0], courses[15], courses[18]], threads: [] }) });
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#course-nav .semester-nav h3")).toHaveText([semesters[0].label, semesters[1].label]);
+  await expect(page.locator("#course-nav .project")).toHaveCount(3);
+});
+
+test("uncertain dates are omitted while explicit academic years remain visible", async ({ page, boot }) => {
+  await boot();
+  const labels = await page.evaluate(() => {
+    const semesterOf = (window as any).semesterOf;
+    const yearOnly = { semester: { id: "2025-2026", label: "2025-2026", source: "category" } };
+    return [
+      semesterOf(yearOnly).label,
+      semesterOf({ semester: semesterOf(yearOnly) }).label,
+      semesterOf({ semester: { id: "2026", label: "2026", source: "current" } }).label,
+      semesterOf({ semester: { id: "2021", label: "2021", source: "startdate" } }).label,
+      semesterOf({ semester: { id: "unknown", label: "Unknown semester", source: "unknown" } }).label
+    ];
+  });
+  expect(labels).toEqual(["2025-2026", "2025-2026", "", "", ""]);
+});
+
+test("a single undated project stays visible without a semester heading", async ({ page, boot }) => {
+  await boot({ storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[18]], threads: [] }) });
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#course-nav .project")).toHaveCount(1);
+  await expect(page.locator("#course-nav .semester-nav h3")).toHaveCount(0);
+});
+
 test("all semesters default, complete grouped rail, semester filter and search", async ({ page, boot }, info) => {
   await boot();
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue("all");
-  await expect(page.locator("#semester-select option")).toHaveText(["All semesters", ...semesters.map((s) => s.label), "Unknown semester"]);
-  await expect(page.locator("#course-nav .semester-nav h3")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#semester-select option")).toHaveText(["All semesters", ...semesters.map((s) => s.label), "Other courses"]);
+  await expect(page.locator("#course-nav .semester-nav h3")).toHaveText([...semesters.map((s) => s.label)]);
   await expect(page.locator("#course-nav .project")).toHaveCount(19);
   await expect(page.locator(".course-row")).toHaveCount(19);
   await expect(page.locator(".course-row").last()).toContainText("Computer science 19");
   await page.screenshot({ path: info.outputPath("studio-courses.png"), fullPage: true });
   await page.getByRole("searchbox").fill("  Legacy Moodle ");
   await expect(page.locator(".course-row")).toHaveCount(5);
-  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label)]);
   await page.getByRole("searchbox").fill("cs13");
   await expect(page.locator(".course-row")).toHaveCount(1);
   await expect(page.locator(".course-row")).toContainText("Computer science 13");
@@ -211,7 +241,7 @@ test("all semesters default, complete grouped rail, semester filter and search",
   await expect(page.locator(".course-row")).toHaveCount(2);
   await page.getByLabel("Semester", { exact: true }).selectOption("all");
   await expect(page.locator(".course-row")).toHaveCount(19);
-  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label)]);
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.locator(".course-row")).toHaveCount(19);
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue("all");
@@ -254,7 +284,7 @@ test("Codex projects are explicitly selected, persist empty and new threads choo
   await expect(page.getByRole("dialog", { name: "New project", exact: true })).toBeVisible();
   await expect(page.locator("#project-picker")).toHaveAttribute("data-mode", "project");
   await expect(page.locator("#picker-new-project")).toHaveCount(0);
-  await expect(page.locator("#project-options h3")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#project-options h3")).toHaveText([...semesters.map((s) => s.label)]);
   await expect(page.locator(".project-option")).toHaveCount(19);
   await page.locator(".project-option").filter({ hasText: "Legacy algorithms" }).click();
   await expect(page.locator("#project-picker")).toBeHidden();
@@ -343,7 +373,7 @@ test("global search finds an unknown-semester thesis without changing the semest
   await page.getByRole("searchbox", { name: "Search courses", exact: true }).fill("  THESIS  ");
   await expect(page.locator(".course-row")).toHaveCount(1);
   await expect(page.locator(".course-row")).toContainText("Graduation thesis");
-  await expect(page.locator("#course-grid .section-label")).toHaveText(["Unknown semester"]);
+  await expect(page.locator("#course-grid .section-label")).toHaveCount(0);
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue(semesters[0].id);
   await page.getByRole("searchbox", { name: "Search courses", exact: true }).fill("missing-thesis-xyz");
   await expect(page.locator(".course-row")).toHaveCount(0);

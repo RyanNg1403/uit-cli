@@ -236,10 +236,10 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
   }
   const category = parse(categoryText, "category", academicYear);
   if (category) return category;
+  const name = parse(`${course.fullname || ""} ${course.shortname || ""}`, "name", academicYear || categoryText);
+  if (name) return name;
   const categoryYear = yearGroup(categoryText, "category");
   if (categoryYear) return categoryYear;
-  const name = parse(`${course.fullname || ""} ${course.shortname || ""}`, "name");
-  if (name) return name;
   const startdate = Number(course.startdate);
   if (startdate > 0 && Number.isFinite(startdate)) {
     const date = new Date(startdate * 1000);
@@ -250,36 +250,7 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
       return { id: `${year}`, label: `${year}`, sortOrder: year * 10 + 9, source: "startdate" };
     }
   }
-  // A yearless term or conflicting term/year hints stay unknown; a complete
-  // absence of time hints files under the current year. Real evidence always
-  // wins when present, so the default self-corrects on refresh.
-  const seen = new Set<string>();
-  let conflict = false;
-  let hasTerm = false;
-  const scan = (value: unknown): void => {
-    if (conflict) return;
-    const raw = typeof value === "object" && value !== null ? (value as MoodleRecord).label ?? (value as MoodleRecord).name ?? (value as MoodleRecord).id : value;
-    if (raw === undefined || raw === null || String(raw).trim() === "") return;
-    const clean = cleanHtml(raw);
-    const text = /^0?[1-4]$/.test(clean) ? `HK${clean}` : normalize(raw);
-    if (seen.has(text)) return;
-    seen.add(text);
-    const foundTerms = new Set([...text.matchAll(termPattern)].map((term) => terms[term[1].toLowerCase()] || Number(term[1])));
-    const foundYears = new Set(academicYears(text).map(toYear));
-    if (foundTerms.size > 1 || foundYears.size > 1) conflict = true;
-    else if (foundTerms.size > 0) hasTerm = true;
-  };
-  scan(explicit);
-  scan(course.semestername);
-  scan(course.term);
-  for (const field of fields) scan(field.value);
-  scan(categoryText);
-  scan(course.fullname);
-  scan(course.shortname);
-  scan(course.summary);
-  if (conflict || hasTerm) return { id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" };
-  const now = new Date().getUTCFullYear();
-  return { id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" };
+  return { id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" };
 }
 
 function cleanHtml(value: unknown): string {
@@ -377,6 +348,34 @@ function mapCourse(course: MoodleRecord): CourseSummary {
     } : undefined,
     semester: normalizeSemester(course)
   };
+}
+
+/** Resolve UIT year letters from dated courses, including courses on the legacy portal. */
+export function resolveClassCodeSemesters<T extends CourseSummary>(courses: T[]): T[] {
+  const classCode = (course: CourseSummary) => /^\s*[A-Z]{2,4}\d{2,3}\.([A-Z])([12])\d{1,2}(?:\.[A-Z0-9]+)*\s*$/.exec(course.shortname);
+  const offsets = new Map<number, Set<string>>();
+  for (const course of courses) {
+    const code = classCode(course);
+    if (!code) continue;
+    const explicit = /^(\d{4})-\d{4}-hk([12])$/.exec(course.semester.id);
+    const startYear = course.startdate ? new Date(course.startdate * 1000).getUTCFullYear() : NaN;
+    const year = explicit && explicit[2] === code[2] ? Number(explicit[1]) : startYear - (code[2] === "2" ? 1 : 0);
+    if (!Number.isFinite(year)) continue;
+    const offset = year - code[1].charCodeAt(0);
+    if (!offsets.has(offset)) offsets.set(offset, new Set());
+    offsets.get(offset)!.add(code[1]);
+  }
+  const ranked = [...offsets].sort((a, b) => b[1].size - a[1].size);
+  // Require agreement across multiple year letters; ties are not enough evidence.
+  if (!ranked.length || ranked[0][1].size < 2 || ranked[0][1].size === ranked[1]?.[1].size) return courses;
+  const offset = ranked[0][0];
+  return courses.map((course) => {
+    const code = classCode(course);
+    if (!code || !["unknown", "startdate", "current"].includes(course.semester.source)) return course;
+    const year = offset + code[1].charCodeAt(0);
+    const term = Number(code[2]);
+    return { ...course, semester: { id: `${year}-${year + 1}-hk${term}`, label: `HK${term} ${year}-${year + 1}`, sortOrder: year * 10 + term, source: "name" } };
+  });
 }
 
 export async function listCourses(api: ApiClient = defaultApiClient, userId = Number(get("userId") || 0)): Promise<CourseSummary[]> {

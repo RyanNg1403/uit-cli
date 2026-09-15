@@ -109,8 +109,7 @@ describe("desktop service", () => {
       uploadFile: vi.fn(),
       downloadFile: vi.fn()
     } as unknown as ApiClient;
-    const now = new Date().getUTCFullYear();
-    await expect(listCourses(api, 77)).resolves.toMatchObject([{ id: 42, shortname: "CS101", fullname: "Programming", semester: { id: `${now}`, source: "current" } }]);
+    await expect(listCourses(api, 77)).resolves.toMatchObject([{ id: 42, shortname: "CS101", fullname: "Programming", semester: { id: "unknown", source: "unknown" } }]);
     expect(api.call).toHaveBeenCalledWith("core_enrol_get_users_courses", { userid: 77 });
   });
 
@@ -171,14 +170,13 @@ describe("desktop service", () => {
     expect(api.call).toHaveBeenCalledTimes(3);
   });
 
-  it("files a looked-up course without time evidence under the current year", async () => {
-    const now = new Date().getUTCFullYear();
+  it("keeps a looked-up course without time evidence in Unknown semester", async () => {
     const api = { call: vi.fn(async (name: string) => {
       if (name === "core_course_get_courses_by_field") return { courses: [{ id: 807, fullname: "Khoá luận tốt nghiệp - AI505.R11", shortname: "AI505.R11", categoryid: 7, categoryname: "Khoa học Máy tính" }] };
       return [];
     }) } as unknown as ApiClient;
     const course = await lookupCourse(807, api, 77);
-    expect(course.semester).toEqual({ id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" });
+    expect(course.semester).toEqual({ id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" });
     expect(course.category).toMatchObject({ id: 7 });
   });
 

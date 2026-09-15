@@ -878,7 +878,7 @@ async function listConnectedCourses(): Promise<ConnectedCourse[]> {
   }));
   portalErrors = [...groups.flatMap((entry, index) => entry.status === "rejected" ? [{ baseUrl: sessions[index].baseUrl, message: errorMessage(entry.reason) }] : []), ...linkErrors];
   if (groups.every((entry) => entry.status === "rejected")) throw new Error(portalErrors.map((entry) => entry.message).join("\n"));
-  return groups.flatMap((entry) => entry.status === "fulfilled" ? entry.value : []);
+  return service.resolveClassCodeSemesters(groups.flatMap((entry) => entry.status === "fulfilled" ? entry.value : []));
 }
 
 async function linkCourse(rawInput: unknown): Promise<ConnectedCourse> {
