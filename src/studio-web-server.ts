@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
+import open from "open";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
@@ -332,9 +333,8 @@ function detachedSpawn(command: string, args: string[]): Promise<void> {
   });
 }
 
-export async function openSystemTarget(target: string, platform: NodeJS.Platform = process.platform): Promise<void> {
-  const command = platform === "darwin" ? "open" : platform === "win32" ? "explorer.exe" : "xdg-open";
-  await detachedSpawn(command, [target]);
+export async function openSystemTarget(target: string): Promise<void> {
+  await open(target);
 }
 
 function clipboardWrite(text: string, platform: NodeJS.Platform): void {
@@ -377,17 +377,17 @@ export function createStudioWebHost(options: {
     sendAgentEvent: () => undefined,
     openPath: async (path: string) => {
       try {
-        await openSystemTarget(path, platform);
+        await openSystemTarget(path);
         return "";
       } catch (error) {
         return errorMessage(error);
       }
     },
-    openExternal: (url: string) => openSystemTarget(url, platform),
+    openExternal: (url: string) => openSystemTarget(url),
     writeClipboard: (text: string) => clipboardWrite(text, platform),
     openCodexDesktop: async (cwd: string, threadId: string) => {
       await detachedSpawn("codex", ["app", cwd]).catch(() => undefined);
-      const openThread = () => { openSystemTarget(`codex://threads/${threadId}`, platform).catch(() => undefined); };
+      const openThread = () => { openSystemTarget(`codex://threads/${threadId}`).catch(() => undefined); };
       setTimeout(openThread, 350);
       setTimeout(openThread, 1_000);
     }

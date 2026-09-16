@@ -20,6 +20,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",
+    "web": "npm run studio:web:build && node scripts/start-studio.mjs",
     "studio:web:build": "npm run build && node scripts/build-studio.mjs",
     "studio:web:check": "npm run studio:web:build && node --check dist/studio-web-server.js && node --check dist/studio-web-launcher.js && node --check studio-build/renderer/web-bridge.js",
     "studio:package": "npm run studio:web:build && npm run runtime:prepare && node scripts/package-studio-standalone.mjs",
@@ -44,6 +45,7 @@
   "dependencies": {
     "commander": "^14.0.2",
     "mammoth": "^1.12.2",
+    "open": "^11.0.4",
     "pdfjs-dist": "4.10.38",
     "playwright": "1.63.0"
   },
