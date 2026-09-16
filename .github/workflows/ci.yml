@@ -60,6 +60,9 @@ jobs:
       - name: Verify npm package
         run: npm run package:check
 
+      - name: Verify Studio package
+        run: npm run studio:check
+
   linux-studio:
     name: Linux Studio
     runs-on: ubuntu-latest

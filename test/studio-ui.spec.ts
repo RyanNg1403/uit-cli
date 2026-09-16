@@ -1911,6 +1911,9 @@ for (const width of [390, 320]) {
     await boot();
     await page.getByRole("button", { name: "Open navigation" }).click();
     await expect(page.locator("#close-sidebar")).toBeFocused();
+    // Focus is set as the drawer opens. Wait for its transform to finish before
+    // exercising native select traversal, which races that animation on macOS.
+    await expect(page.locator("#sidebar")).toHaveCSS("transform", "none");
     expect(await page.locator("#main").evaluate((element: HTMLElement) => element.inert)).toBe(true);
     await page.keyboard.press("Shift+Tab");
     await expect(page.locator("#account-button")).toBeFocused();

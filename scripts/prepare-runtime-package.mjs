@@ -12,6 +12,7 @@ const targetStudio = join(packageRoot, "studio-build");
 const sharedModules = [
   "ajax-helpers",
   "api",
+  "calendar",
   "codex-client",
   "commands",
   "config",

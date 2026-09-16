@@ -53,6 +53,7 @@ if (runtimeUnexpected.length > 0) {
   throw new Error(`uit-runtime package contains unexpected files: ${runtimeUnexpected.join(", ")}`);
 }
 for (const required of [
+  "dist/calendar.js",
   "dist/desktop-service.js",
   "dist/mcp-server.js",
   "dist/mcp-entry.js",
@@ -63,6 +64,7 @@ for (const required of [
   "dist/uit-tools.js",
   "studio-build/renderer/index.html",
   "studio-build/renderer/renderer.js",
+  "studio-build/renderer/calendar.js",
   "studio-build/renderer/assets/uit-dau-dau-icon.png"
 ]) {
   if (!runtimeFiles.includes(required)) throw new Error(`uit-runtime package is missing ${required}`);
@@ -70,6 +72,10 @@ for (const required of [
 for (const forbidden of ["dist/cli.js", "dist/sso-login.js"]) {
   if (runtimeFiles.includes(forbidden)) throw new Error(`uit-runtime package must not contain ${forbidden}`);
 }
+
+// Resolve transitive service imports from the prepared runtime, where a
+// missing module can otherwise go unnoticed until native server startup.
+await import("../packages/uit-runtime/dist/desktop-service.js");
 
 console.log(`Verified uit-studio npm package (${studio.size} bytes).`);
 console.log(`Verified bundled-Chromium uit-runtime package (${runtime.size} bytes).`);
