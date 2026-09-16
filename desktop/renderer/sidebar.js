@@ -140,7 +140,7 @@
       event.preventDefault();
       controls[current < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (next + controls.length) % controls.length]?.focus();
     }
-  });
+  }, true);
 
   mobile.addEventListener("change", () => {
     const wasOpen = mobileOpen;
