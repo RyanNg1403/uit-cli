@@ -84,6 +84,21 @@ describe("mcp-server workspace gating and tools", () => {
     await expect(execute("uit_read_resource", { courseId: 42, kind: "file", id: 10, fileUrl: "https://courses.uit.edu.vn/file.pdf" }, { api, baseUrl: "https://courses.uit.edu.vn", userId: 7 })).rejects.toThrow("File URL is not accepted");
   });
 
+  it.each(["uit_list_course_contents", "uit_download_resource", "uit_list_participants", "uit_get_grades"])("rejects removed tool alias %s", async (name) => {
+    const execute = createUitToolExecutor({
+      listCourses: vi.fn(),
+      getCourseContents: vi.fn(),
+      listAssignments: vi.fn(),
+      listAnnouncements: vi.fn(),
+      listCourseParticipants: vi.fn(),
+      getCourseGrades: vi.fn(),
+      resolveCourseResource: vi.fn(),
+      materializeCourseFile: vi.fn()
+    } as unknown as UitToolServices);
+
+    await expect(execute(name, {}, { api: {} as ApiClient, baseUrl: "https://courses.uit.edu.vn", userId: 7 })).rejects.toThrow(`Unknown UIT tool: ${name}`);
+  });
+
   it("rejects direct tool calls outside a UIT workspace", async () => {
     await expect(executeMcpTool("uit_courses", {}, resolve(homedir(), "Desktop"))).rejects.toThrow(
       "only available inside a UIT course workspace"

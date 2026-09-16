@@ -188,6 +188,19 @@ describe("SSO CLI workflow and session resolution", () => {
     expect(() => getActiveConfig({ fresh: true })).toThrow("No active UIT session found");
   });
 
+  it.each([
+    ["sessions.json", [{ baseUrl: "https://coursesold.uit.edu.vn", userId: 42, token: "old-token" }]],
+    ["sso-session.json", { baseUrl: "https://courses.uit.edu.vn", userId: 42, sesskey: "old-sesskey", cookies: [] }],
+    [".sso-session.json", { baseUrl: "https://courses.uit.edu.vn", userId: 42, sesskey: "old-sesskey", cookies: [] }],
+    ["legacy-sessions.json", [{ baseUrl: "https://coursesold.uit.edu.vn", userId: 42, token: "old-token" }]]
+  ])("uses only the canonical sessions file and ignores legacy file %s", (filename, contents) => {
+    const configDir = join(tempDir, ".uit");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, filename), JSON.stringify(contents), "utf8");
+
+    expect(() => getActiveConfig({ fresh: true })).toThrow("No active UIT session found");
+  });
+
   it("handles uit login --sso with mock launcher", async () => {
     const mockLauncher = vi.fn(async (baseUrl: string) => ({
       baseUrl,
@@ -283,26 +296,6 @@ describe("SSO CLI workflow and session resolution", () => {
       "Choose one login method: --sso or --legacy."
     );
     expect(launcher).not.toHaveBeenCalled();
-  });
-
-  it("triggers SSO login when running uit init --sso", async () => {
-    const mockLauncher = vi.fn(async (baseUrl: string) => ({
-      baseUrl,
-      userId: 5555,
-      sesskey: "init-sess-key",
-      cookies: [{ name: "MoodleSession", value: "cookie-5555" }]
-    }));
-
-    const program = createProgram(mockApi({}), { ssoLauncher: mockLauncher });
-    await program.parseAsync(["node", "uit", "--json", "init", "--sso"]);
-
-    expect(mockLauncher).toHaveBeenCalled();
-    expect(JSON.parse(stdout)).toEqual({
-      status: "ok",
-      auth: "sso",
-      user_id: 5555,
-      site: "https://courses.uit.edu.vn"
-    });
   });
 
   it("falls back to SSO session when .env is absent and executes courses", async () => {

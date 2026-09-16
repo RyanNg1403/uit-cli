@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
@@ -650,6 +651,31 @@ describe("deterministic materialization", () => {
       courses: [{ baseUrl: site, moodleUserId: 7, courseId: 42, studentId: "23521146", studentName: "NguyenThuanPhat", courseCode: "SE362.Q21", path: "current/23521146-NguyenThuanPhat/SE362.Q21" }]
     });
     expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q22"));
+  });
+
+  it("does not import workspaces from the removed legacy storage layout", async () => {
+    await home();
+    const siteKey = `${new URL(site).hostname}-${createHash("sha256").update(site).digest("hex").slice(0, 16)}`;
+    const oldRoot = join(state.home, ".uit", "courses", siteKey, "user-7", "course-42");
+    await mkdir(join(oldRoot, "materials"), { recursive: true });
+    await writeFile(join(oldRoot, "materials", "old.txt"), "preserve old layout");
+
+    const workspace = await courseWorkspace(42, "CS101", site, 7, client());
+
+    expect(workspace.path).not.toBe(oldRoot);
+    expect(await readFile(join(oldRoot, "materials", "old.txt"), "utf8")).toBe("preserve old layout");
+  });
+
+  it("does not import hashed material directories into the current workspace", async () => {
+    await home();
+    const workspace = await courseWorkspace(42, "CS101", site, 7, client());
+    const oldMaterials = join(workspace.path, "materials", "a".repeat(64));
+    await mkdir(oldMaterials, { recursive: true });
+    await writeFile(join(oldMaterials, "old.txt"), "preserve old materials");
+
+    await courseWorkspace(42, "CS101", site, 7, client());
+
+    expect(await readFile(join(oldMaterials, "old.txt"), "utf8")).toBe("preserve old materials");
   });
 
   it("upgrades a fallback student directory when Moodle site info becomes available", async () => {
