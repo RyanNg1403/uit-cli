@@ -51,6 +51,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test Studio web transport
+        run: npm run test:studio:web
+
       - name: Check installer
         run: npm run installer:check
 

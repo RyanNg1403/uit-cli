@@ -12,9 +12,24 @@ if (typeof version !== "string" || version.length === 0) {
 }
 
 const launcherArgs = process.argv.slice(2);
-if (launcherArgs.length === 1 && (launcherArgs[0] === "--version" || launcherArgs[0] === "-v")) {
+if (launcherArgs.includes("--version") || launcherArgs.includes("-v")) {
   console.log(version);
   process.exit(0);
+}
+
+const webMode = launcherArgs.includes("--web") || process.env.UIT_STUDIO_WEB === "1";
+const require = createRequire(import.meta.url);
+const packageRoot = dirname(require.resolve("uit-runtime/package.json"));
+
+if (webMode) {
+  try {
+    const { runStudioWebLauncher } = await import(join(packageRoot, "dist", "studio-web-launcher.js"));
+    await runStudioWebLauncher(launcherArgs.filter((argument) => argument !== "--web"), { runtimeRoot: packageRoot });
+  } catch (error) {
+    console.error(`Could not start UIT Studio in web mode: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
+  process.exit();
 }
 
 if (launcherArgs.length === 1 && (launcherArgs[0] === "--help" || launcherArgs[0] === "-h")) {
@@ -22,12 +37,14 @@ if (launcherArgs.length === 1 && (launcherArgs[0] === "--help" || launcherArgs[0
   console.log();
   console.log("Options:");
   console.log("  -v, --version  output the version number");
+  console.log("  --web          launch the Studio in the system browser (experimental)");
+  console.log("  --no-open      print the web launch URL instead of opening it");
+  console.log("  --foreground   keep the web server attached to this terminal");
+  console.log("  --stop         stop the running web server");
   console.log("  -h, --help     display help for command");
   process.exit(0);
 }
 
-const require = createRequire(import.meta.url);
-const packageRoot = dirname(require.resolve("uit-runtime/package.json"));
 const electron = require("electron");
 const main = join(packageRoot, "desktop-build", "main.js");
 const child = spawn(electron, [main, ...process.argv.slice(2)], { stdio: "inherit" });

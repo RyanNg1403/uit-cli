@@ -72,6 +72,14 @@ codex --login
 
 The ChatGPT desktop app alone is not sufficient. Sign in to UIT Studio with UIT SSO or a legacy Moodle account.
 
+The browser-based Studio launcher is available as an experimental preview. UIT
+SSO login remains on the native path until the bundled SSO browser adapter is
+added:
+
+```bash
+uit-studio --web
+```
+
 <p align="center">
   <img src="docs/assets/studio-courses.png" alt="UIT Studio courses workspace" width="860">
 </p>
