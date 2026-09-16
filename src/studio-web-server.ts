@@ -16,6 +16,8 @@ import {
 import { existsSync } from "node:fs";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createSessionApiClient } from "./api.js";
+import type { SsoSessionData } from "./config.js";
 import {
   createStudioCore,
   type StudioBrowserSession,
@@ -26,6 +28,7 @@ import {
   type StudioView,
   type StudioWindow
 } from "./studio-core.js";
+import { StudioSsoService } from "./studio-sso.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -301,9 +304,10 @@ function validHost(request: IncomingMessage, expectedHost: string): boolean {
   return header(request, "host") === expectedHost;
 }
 
-function validBrowserRequest(request: IncomingMessage, origin: string, expectedHost: string): boolean {
+function validBrowserRequest(request: IncomingMessage, origin: string, expectedHost: string, allowMissingOrigin = false): boolean {
   if (!validHost(request, expectedHost)) return false;
-  if (header(request, "origin") !== origin) return false;
+  const requestOrigin = header(request, "origin");
+  if (requestOrigin === undefined ? !allowMissingOrigin : requestOrigin !== origin) return false;
   const fetchSite = header(request, "sec-fetch-site");
   return fetchSite === undefined || fetchSite === "same-origin";
 }
@@ -373,20 +377,28 @@ export function createStudioWebHost(options: {
 }): StudioHost {
   const platform = options.platform || process.platform;
   const emptySession = createEmptyBrowserSession();
+  const ssoService = new StudioSsoService();
+  const sessionResult = (session: SsoSessionData) => ({
+    session,
+    api: createSessionApiClient(session.baseUrl, session.sesskey, session.cookies)
+  });
   const sso: StudioSsoHost = {
     createSessionView: (_baseUrl: string): StudioView => {
-      throw new Error("UIT SSO login is not available in the browser launch yet. Use the Electron launch while web SSO support is being added.");
+      throw new Error("The web Studio does not use Electron SSO session views.");
     },
     closeSessionView: (_view: StudioView | undefined) => undefined,
     getPartition: (_name: string) => emptySession,
     createLoginWindow: (_options: Record<string, unknown>): StudioWindow => {
-      throw new Error("UIT SSO login is not available in the browser launch yet. Use the Electron launch while web SSO support is being added.");
+      throw new Error("The web Studio does not use Electron SSO login windows.");
     }
   };
 
   return {
     userDataPath: options.userDataPath,
     sso,
+    ssoLogin: async (baseUrl) => sessionResult(await ssoService.login(baseUrl)),
+    restoreSsoSession: async (session) => session.cookies.length > 0 ? sessionResult(session) : null,
+    clearSsoBrowserData: async (_options) => ssoService.cancel(),
     ensureMcpConfig: async () => {
       if (process.env.UIT_DISABLE_CONFIG === "1") return;
       const mcp = await import("./mcp-server.js");
@@ -642,7 +654,7 @@ export async function startStudioWebServer(options: StudioWebServerOptions = {})
         methodNotAllowed(response, ["GET"]);
         return;
       }
-      if (!validBrowserRequest(request, origin, expectedHost)) {
+      if (!validBrowserRequest(request, origin, expectedHost, true)) {
         sendError(response, 403, "The browser request origin is not trusted.");
         return;
       }
@@ -662,7 +674,7 @@ export async function startStudioWebServer(options: StudioWebServerOptions = {})
         methodNotAllowed(response, ["GET"]);
         return;
       }
-      if (!validBrowserRequest(request, origin, expectedHost)) {
+      if (!validBrowserRequest(request, origin, expectedHost, true)) {
         sendError(response, 403, "The browser request origin is not trusted.");
         return;
       }

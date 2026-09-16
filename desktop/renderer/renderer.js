@@ -1957,7 +1957,7 @@ function renderAgentTurnStatus(thread) {
   const status = node("div", "message-turn-state is-working");
   const copy = node("div", "turn-state-copy");
   copy.append(node("strong", "turn-state-label", "Codex is working"));
-  status.append(mascotFrame("working-mascot", "Codex is working"), copy);
+  status.append(mascotFrame("working-mascot", "Codex is working"), mascotFrame("agent-working-spinner"), copy);
   target.append(status);
   target.hidden = false;
   target.setAttribute("aria-hidden", "false");

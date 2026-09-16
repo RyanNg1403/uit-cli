@@ -19,6 +19,7 @@ import { createProgram, main } from "../src/cli.js";
 import { get, getActiveConfig, resetConfigCache, save, saveSsoSession, type SsoSessionData } from "../src/config.js";
 import { NodeSessionApiClient, createSessionApiClient } from "../src/api.js";
 import { defaultSsoLauncher } from "../src/sso-login.js";
+import { StudioSsoService } from "../src/studio-sso.js";
 import { workspacePath } from "../src/desktop-service.js";
 import { executeMcpTool, resolveAvailableSession } from "../src/mcp-server.js";
 import type { ApiClient } from "../src/types.js";
@@ -354,7 +355,7 @@ describe("SSO CLI workflow and session resolution", () => {
     }
   });
 
-  it("falls back to edge or chromium when chrome is missing in defaultSsoLauncher", async () => {
+  it("uses only the pinned bundled Chromium for defaultSsoLauncher", async () => {
     const launchCalls: any[] = [];
     const mockPage = {
       goto: vi.fn().mockResolvedValue(undefined),
@@ -363,6 +364,7 @@ describe("SSO CLI workflow and session resolution", () => {
       isClosed: vi.fn().mockReturnValue(false)
     };
     const mockContext = {
+      route: vi.fn().mockResolvedValue(undefined),
       newPage: vi.fn().mockResolvedValue(mockPage),
       cookies: vi.fn().mockResolvedValue([{ name: "MoodleSession", value: "val", domain: "courses.uit.edu.vn", path: "/" }])
     };
@@ -375,7 +377,6 @@ describe("SSO CLI workflow and session resolution", () => {
     const chromiumMock = await import("playwright").then((m) => m.chromium);
     const launchSpy = vi.spyOn(chromiumMock, "launch").mockImplementation(async (opts: any) => {
       launchCalls.push(opts);
-      if (opts?.channel === "chrome") throw new Error("Chrome not found");
       return mockBrowser as any;
     });
 
@@ -383,10 +384,30 @@ describe("SSO CLI workflow and session resolution", () => {
       const session = await defaultSsoLauncher("https://courses.uit.edu.vn");
       expect(session.userId).toBe(99);
       expect(session.sesskey).toBe("sso-key");
-      expect(launchCalls[0]).toMatchObject({ channel: "chrome" });
-      expect(launchCalls[1]).toMatchObject({ channel: "msedge" });
+      expect(launchCalls).toHaveLength(1);
+      expect(launchCalls[0]).toMatchObject({
+        headless: false,
+        args: ["--window-size=980,760"]
+      });
+      expect(launchCalls[0].executablePath).toContain("chromium-1243");
+      expect(launchCalls[0]).not.toHaveProperty("channel");
+      expect(mockContext.route).toHaveBeenCalledOnce();
     } finally {
       launchSpy.mockRestore();
     }
+  });
+
+  it("reports a missing bundled browser instead of trying a system browser", async () => {
+    const launch = vi.fn();
+    const service = new StudioSsoService({
+      executablePath: join(tempDir, "missing-chromium"),
+      runtime: {
+        executablePath: () => join(tempDir, "unused-chromium"),
+        launch
+      }
+    });
+
+    await expect(service.login("https://courses.uit.edu.vn")).rejects.toThrow("bundled Playwright Chromium is missing");
+    expect(launch).not.toHaveBeenCalled();
   });
 });

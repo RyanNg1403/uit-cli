@@ -128,6 +128,8 @@ test("mascot sprites animate efficiently for onboarding and active agent work", 
   await expect(workingStatus).toContainText("Codex is working");
   const workingMascot = workingStatus.locator(".message-turn-state.is-working .working-mascot");
   await expect(workingMascot).toBeVisible();
+  const workingSpinner = workingStatus.locator(".agent-working-spinner");
+  await expect(workingSpinner).toBeVisible();
   const agentStyle = await workingMascot.evaluate((element) => {
     const style = getComputedStyle(element);
     return { backgroundImage: style.backgroundImage, animationName: style.animationName, animationDuration: style.animationDuration };
@@ -135,6 +137,16 @@ test("mascot sprites animate efficiently for onboarding and active agent work", 
   expect(agentStyle.backgroundImage).toContain("dau-dau-agent.png");
   expect(agentStyle.animationName).toBe("dau-dau-agent-frames");
   expect(agentStyle.animationDuration).toBe("1.6s");
+  const spinnerStyle = await workingSpinner.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { width: style.width, height: style.height, animationName: style.animationName, animationDuration: style.animationDuration };
+  });
+  expect(spinnerStyle).toEqual({ width: "14px", height: "14px", animationName: "working-spin", animationDuration: "0.8s" });
+  const spinnerBox = await workingSpinner.boundingBox();
+  const copyBox = await workingStatus.locator(".turn-state-copy").boundingBox();
+  expect(spinnerBox).not.toBeNull();
+  expect(copyBox).not.toBeNull();
+  expect(spinnerBox!.x + spinnerBox!.width).toBeLessThanOrEqual(copyBox!.x);
 
   const input = (await calls(page, "agent.start"))[0].input;
   const activeParams = { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}` };

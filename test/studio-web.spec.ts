@@ -85,7 +85,10 @@ async function startFixtureServer(): Promise<{ server: StudioWebServer; director
 test("opens the current Studio renderer through the authenticated web bridge", async ({ page }) => {
   const { server, directory } = await startFixtureServer();
   try {
+    const eventStream = page.waitForResponse((response) => response.url().endsWith("/api/events") && response.request().method() === "GET");
     await page.goto(server.launchUrl());
+    expect((await eventStream).status()).toBe(200);
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "assets/uit-dau-dau-icon.png");
     await expect(page.locator("#account-label")).toHaveText("Course accounts (2)");
     await expect(page.locator(".course-row")).toHaveCount(19);
 
