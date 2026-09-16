@@ -3,6 +3,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -164,7 +165,8 @@ async function main() {
     assert(manifest.playwrightVersion === "1.63.0", "Native Studio contains the wrong Playwright Chromium revision.");
     assert(existsSync(executablePath), `Native Studio Chromium executable is missing: ${executablePath}`);
     process.env.PLAYWRIGHT_BROWSERS_PATH = browserRoot;
-    const { chromium } = await import(pathToFileURL(join(root, "app", "node_modules", "playwright", "index.js")).href);
+    const require = createRequire(pathToFileURL(join(root, "app", "package.json")));
+    const { chromium } = require("playwright");
     const browser = await chromium.launch({
       executablePath,
       headless: true,
