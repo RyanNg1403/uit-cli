@@ -772,6 +772,10 @@ export async function startStudioWebServer(options: StudioWebServerOptions = {})
         // an otherwise-open event stream to finish naturally.
         client.destroy();
       }
+      // Fetch keep-alive sockets are not represented by the SSE response set.
+      // Close those too so the server shutdown promise cannot remain pending
+      // after the browser has gone away.
+      httpServer?.closeAllConnections();
       await core?.shutdown().catch(() => undefined);
       await new Promise<void>((resolveClose) => {
         if (!httpServer) {
