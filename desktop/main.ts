@@ -190,11 +190,16 @@ async function createWindowInternal(): Promise<BrowserWindow> {
   }
   await window.loadFile(join(__dirname, "renderer", "index.html"));
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event, url) => {
+  const rejectUntrustedNavigation = (event: { preventDefault(): void }, url: string): void => {
     // Reloading the current trusted document is valid (and required by the
     // renderer's recovery flows); every other navigation remains blocked.
     if (!url.startsWith(TRUSTED_RENDERER_PROTOCOL) || url !== window.webContents.getURL()) event.preventDefault();
-  });
+  };
+  window.webContents.on("will-navigate", rejectUntrustedNavigation);
+  // Electron emits will-frame-navigate for renderer-initiated main-frame
+  // navigations on some platforms where will-navigate is not delivered for
+  // data: and file: targets. Apply the same exact-document allowlist there.
+  window.webContents.on("will-frame-navigate", (details) => rejectUntrustedNavigation(details, details.url));
   return window;
 }
 

@@ -10,6 +10,7 @@ npm install -g uit-studio
 uit-studio
 uit-studio --version
 ```
+
 </details>
 
 <details>

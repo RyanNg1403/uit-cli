@@ -130,6 +130,10 @@ type PendingSsoLogin = {
 };
 type CachedModels = { expires: number; models: CodexModelOption[] };
 export type StudioHandler = (input?: unknown) => unknown;
+export interface StudioCore {
+  handlers(): Record<string, StudioHandler>;
+  shutdown(): Promise<void>;
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -1400,7 +1404,7 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
   return handlers;
 }
 
-export async function createStudioCore(newHost: StudioHost): Promise<{ handlers(): Record<string, StudioHandler>; shutdown(): Promise<void> }> {
+export async function createStudioCore(newHost: StudioHost): Promise<StudioCore> {
   host = newHost;
   await loadService();
   return {
