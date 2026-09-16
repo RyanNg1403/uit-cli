@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, createReadStream, existsSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageMetadata = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
@@ -200,7 +200,8 @@ async function main() {
     const browserRoot = join(runtimeRoot, "browsers");
     const browserEnvironment = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browserRoot, UIT_STUDIO_CHROMIUM_DIR: browserRoot };
     delete browserEnvironment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD;
-    run(nodePath, [join(runtimeRoot, "dist", "studio-sso.js"), "--install-browser"], { cwd: appRoot, env: browserEnvironment });
+    const installScript = `import { installBundledChromium } from ${JSON.stringify(pathToFileURL(join(runtimeRoot, "dist", "studio-sso.js")).href)}; installBundledChromium();`;
+    run(nodePath, ["--input-type=module", "-e", installScript], { cwd: appRoot, env: browserEnvironment });
     const executablePath = chromiumManifest(runtimeRoot, platform, architecture);
     console.log(`Bundled Chromium: ${executablePath}`);
 
