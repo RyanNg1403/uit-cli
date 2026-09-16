@@ -1140,6 +1140,16 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 .message-turn-state .state-marker { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
 .message-turn-state.is-working .state-marker { width: 12px; height: 12px; background: transparent; border: 2px solid rgba(47, 109, 246, 0.35); }
 .message-turn-state.is-stopped .state-marker { background: var(--warning); }
+.agent-working-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: working-spin .8s linear infinite;
+}
 @keyframes dau-dau-agent-frames {
   0% { background-position: 0 0; }
   25% { background-position: 33.333333% 0; }
@@ -1179,9 +1189,11 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   background: transparent;
   box-shadow: none;
 }
+.agent-turn-status .turn-state-copy { min-width: 0; }
 #view-agent.agent-working #agent-status { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .message-tool.is-working .tool-call > summary .tool-status-dot,
+  .agent-working-spinner,
   .working-mascot,
   .course-onboarding-mascot { animation: none; }
 }

@@ -128,6 +128,12 @@ describe("Studio web server", () => {
     const csrf = await request(server, "/api/session/csrf", { headers: { Cookie: session.cookie } });
     expect(csrf.status).toBe(200);
     expect((await csrf.json()).csrfToken).toBe(session.csrfToken);
+
+    const reloadCsrf = await fetch(`${server.origin}/api/session/csrf`, {
+      headers: { Host: `127.0.0.1:${server.port}`, Cookie: session.cookie }
+    });
+    expect(reloadCsrf.status).toBe(200);
+    expect((await reloadCsrf.json()).csrfToken).toBe(session.csrfToken);
   });
 
   it("protects RPC with the session, exact origin, and CSRF token", async () => {
@@ -197,6 +203,32 @@ describe("Studio web server", () => {
     }
     expect(replayFrame).toContain('"sequence":2');
     await replayReader.cancel();
+  });
+
+  it("accepts same-origin EventSource requests without an Origin header", async () => {
+    const { server } = await createServer();
+    const session = await authenticate(server);
+    const stream = await fetch(`${server.origin}/api/events`, {
+      headers: { Host: `127.0.0.1:${server.port}`, Cookie: session.cookie }
+    });
+    expect(stream.status).toBe(200);
+    await stream.body?.cancel();
+  });
+
+  it("keeps mutating requests strict-origin even when read-only browser requests omit Origin", async () => {
+    const { server } = await createServer();
+    const session = await authenticate(server);
+    const response = await fetch(`${server.origin}/api/rpc`, {
+      method: "POST",
+      headers: {
+        Host: `127.0.0.1:${server.port}`,
+        Cookie: session.cookie,
+        "Content-Type": "application/json",
+        "X-CSRF-Token": session.csrfToken
+      },
+      body: JSON.stringify({ method: "test:echo", input: "no-origin" })
+    });
+    expect(response.status).toBe(403);
   });
 
   it("closes an open SSE stream without waiting for the browser", async () => {

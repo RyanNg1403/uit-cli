@@ -19,6 +19,7 @@ const sharedModules = [
   "mcp-server",
   "mcp-entry",
   "studio-core",
+  "studio-sso",
   "studio-web-server",
   "studio-web-launcher",
   "moodle-session-client",

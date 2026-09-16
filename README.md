@@ -18,6 +18,9 @@
 
 Your course space. Built to focus.
 
+The npm installation requires [Node.js 24.0+](https://nodejs.org/). Native
+release packages include their own runtime.
+
 <details>
 <summary>macOS</summary>
 
@@ -51,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/ins
 <details>
 <summary>Windows</summary>
 
-Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
+Install [Node.js 24.0+](https://nodejs.org/), then run in PowerShell:
 
 ```powershell
 npm install -g uit-studio
@@ -88,6 +91,9 @@ Chat with Codex using course context, then continue the same thread in Codex CLI
 
 Your Moodle, at terminal speed.
 
+The npm installation requires [Node.js 24.0+](https://nodejs.org/). Native
+release packages include their own runtime.
+
 <details>
 <summary>macOS</summary>
 
@@ -121,7 +127,7 @@ curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/ins
 <details>
 <summary>Windows</summary>
 
-Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
+Install [Node.js 24.0+](https://nodejs.org/), then run in PowerShell:
 
 ```powershell
 npm install -g uit-cli

@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } fr
 import { homedir } from "node:os";
 import { extname, join, relative, resolve, sep } from "node:path";
 import type { ApiClient } from "./types.js";
+import type { SsoSessionData } from "./config.js";
 import type {
   CodexClient,
   CodexMessage,
@@ -76,9 +77,20 @@ export interface StudioSsoHost {
   createLoginWindow(options: Record<string, unknown>): StudioWindow;
 }
 
+export interface StudioSsoResult {
+  session: SsoSessionData;
+  api: ApiClient;
+}
+
 export interface StudioHost {
   readonly userDataPath: string;
   readonly sso: StudioSsoHost;
+  /** Web hosts authenticate in an external Playwright Chromium context. */
+  ssoLogin?: (baseUrl: string) => Promise<StudioSsoResult>;
+  /** Restore the shared session store without opening an authentication browser. */
+  restoreSsoSession?: (session: SsoSessionData) => Promise<StudioSsoResult | null>;
+  /** Cancel an active authentication browser and optionally clear its storage. */
+  clearSsoBrowserData?: (options: { clearStorage: boolean }) => Promise<void>;
   ensureMcpConfig(): Promise<void>;
   sendAgentEvent(message: JsonRecord): void;
   restoreMainWindow(): void;
@@ -149,6 +161,8 @@ let ssoWindow: StudioWindow | undefined;
 let ssoSessionView: StudioView | undefined;
 let ssoSession: SsoSession | undefined;
 let pendingSsoLogin: PendingSsoLogin | undefined;
+let webSsoLoginPromise: Promise<DesktopSession> | undefined;
+let webSsoLoginId: symbol | undefined;
 const legacySessions = new Map<string, AuthenticatedCourseSession>();
 const threadBindings = new Map<string, ThreadBinding>();
 const approvals = new Map<CodexRequestId, AgentRequest>();
@@ -537,6 +551,55 @@ async function persistSsoSession(sessionData: JsonRecord): Promise<void> {
   }
 }
 
+function normalizeSsoSessionData(value: unknown, expectedBaseUrl?: string): SsoSessionData {
+  if (!isRecord(value)) throw new Error("The SSO provider returned an invalid session.");
+  const baseUrl = normalizeSiteUrl(value.baseUrl);
+  if (expectedBaseUrl && baseUrl !== expectedBaseUrl) throw new Error("The SSO provider returned a different course site.");
+  const userId = Number(value.userId);
+  const sesskey = typeof value.sesskey === "string" ? value.sesskey : "";
+  const cookies = Array.isArray(value.cookies)
+    ? value.cookies.filter(isRecord).map((cookie) => ({
+      name: typeof cookie.name === "string" ? cookie.name : "",
+      value: typeof cookie.value === "string" ? cookie.value : "",
+      ...(typeof cookie.domain === "string" ? { domain: cookie.domain } : {}),
+      ...(typeof cookie.path === "string" ? { path: cookie.path } : {}),
+      ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
+      ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {})
+    })).filter((cookie) => cookie.name.length > 0 && cookie.value.length > 0)
+    : [];
+  if (!Number.isSafeInteger(userId) || userId <= 0 || !sesskey || cookies.length === 0) {
+    throw new Error("The SSO provider returned an incomplete session.");
+  }
+  return { baseUrl, userId, sesskey, cookies, savedAt: Date.now() };
+}
+
+function normalizeSsoResult(value: unknown, expectedBaseUrl?: string): StudioSsoResult {
+  if (!isRecord(value) || !isRecord(value.api) || typeof value.api.call !== "function") {
+    throw new Error("The SSO provider did not return a usable course API.");
+  }
+  return {
+    session: normalizeSsoSessionData(value.session, expectedBaseUrl),
+    api: value.api as ApiClient
+  };
+}
+
+async function installSsoResult(result: StudioSsoResult, expectedBaseUrl: string): Promise<DesktopSession> {
+  const normalized = normalizeSsoResult(result, expectedBaseUrl);
+  ssoSession = {
+    baseUrl: normalized.session.baseUrl,
+    userId: normalized.session.userId,
+    sesskey: normalized.session.sesskey,
+    api: normalized.api
+  };
+  await persistSsoSession(normalized.session);
+  return {
+    authenticated: true,
+    authMode: "sso",
+    baseUrl: normalized.session.baseUrl,
+    userId: normalized.session.userId
+  };
+}
+
 async function deletePersistedSsoSession() {
   if (process.env.UIT_DISABLE_CONFIG === "1") return;
   try {
@@ -598,12 +661,21 @@ async function restorePersistedSsoSession() {
     const saved = data?.sso;
     if (!saved || !saved.baseUrl || !saved.userId || !saved.sesskey) return;
 
+    const savedSession = normalizeSsoSessionData(saved);
+    if (host.restoreSsoSession) {
+      const restored = await host.restoreSsoSession(savedSession);
+      if (!restored) return;
+      if (restored.session.userId !== savedSession.userId) throw new Error("The restored SSO account did not match the saved account.");
+      await installSsoResult(restored, savedSession.baseUrl);
+      return;
+    }
+
     const authSession = host.sso.getPartition(SSO_PARTITION);
-    if (Array.isArray(saved.cookies) && saved.cookies.length > 0) {
-      for (const cookie of saved.cookies) {
-        await authSession.cookies.remove(saved.baseUrl, cookie.name).catch(() => undefined);
+    if (savedSession.cookies.length > 0) {
+      for (const cookie of savedSession.cookies) {
+        await authSession.cookies.remove(savedSession.baseUrl, cookie.name).catch(() => undefined);
         await authSession.cookies.set({
-          url: saved.baseUrl,
+          url: savedSession.baseUrl,
           name: cookie.name,
           value: cookie.value,
           domain: cookie.domain,
@@ -614,12 +686,12 @@ async function restorePersistedSsoSession() {
       }
     }
 
-    const probeView = createSsoSessionView(saved.baseUrl);
+    const probeView = createSsoSessionView(savedSession.baseUrl);
     let accepted = false;
 
     const probeResult = await Promise.race([
       (async () => {
-        await probeView.webContents.loadURL(`${saved.baseUrl}/my/`);
+        await probeView.webContents.loadURL(`${savedSession.baseUrl}/my/`);
         const currentUrl = probeView.webContents.getURL();
         if (currentUrl.includes("/login")) throw new Error("Session expired");
         const identity = await probeView.webContents.executeJavaScript(`(()=>{
@@ -643,14 +715,14 @@ async function restorePersistedSsoSession() {
         }
       };
       ssoSession = {
-        baseUrl: saved.baseUrl,
+        baseUrl: savedSession.baseUrl,
         userId: probeResult.userId,
         sesskey: probeResult.sesskey,
-        api: new MoodleSessionApi(saved.baseUrl, probeResult.sesskey, transport)
+        api: new MoodleSessionApi(savedSession.baseUrl, probeResult.sesskey, transport)
       };
-      const cookies = await sessionView.webContents.session.cookies.get({ url: saved.baseUrl });
+      const cookies = await sessionView.webContents.session.cookies.get({ url: savedSession.baseUrl });
       await persistSsoSession({
-        baseUrl: saved.baseUrl,
+        baseUrl: savedSession.baseUrl,
         userId: probeResult.userId,
         sesskey: probeResult.sesskey,
         cookies: cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly })),
@@ -760,22 +832,29 @@ async function readThreadRollout(threadId: string, afterMtime = 0): Promise<Json
 async function clearSsoSession({ clearStorage = false }: { clearStorage?: boolean } = {}): Promise<void> {
   const window = ssoWindow;
   const view = ssoSessionView;
-  const authSession = window && !window.isDestroyed()
-    ? window.webContents.session
-    : view?.webContents?.session || host.sso.getPartition(SSO_PARTITION);
+  const authSession = host.clearSsoBrowserData
+    ? undefined
+    : window && !window.isDestroyed()
+      ? window.webContents.session
+      : view?.webContents?.session || host.sso.getPartition(SSO_PARTITION);
   const pending = pendingSsoLogin;
   pendingSsoLogin = undefined;
+  webSsoLoginId = undefined;
+  webSsoLoginPromise = undefined;
   ssoSession = undefined;
   ssoWindow = undefined;
   ssoSessionView = undefined;
   if (pending) pending.reject(new Error("UIT SSO was cancelled."));
   if (window && !window.isDestroyed()) window.close();
   closeSsoSessionView(view);
+  if (host.clearSsoBrowserData) await host.clearSsoBrowserData({ clearStorage });
   if (clearStorage) {
     await deletePersistedSsoSession();
-    await authSession.clearStorageData({
-      storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"]
-    });
+    if (authSession) {
+      await authSession.clearStorageData({
+        storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"]
+      });
+    }
   }
 }
 
@@ -871,13 +950,33 @@ async function tryCompleteSso(): Promise<void> {
   await transferSsoSession(login, expectedUserId);
 }
 
-async function startSsoLogin(rawBaseUrl: unknown): Promise<DesktopSession> {
+async function startSsoLogin(rawBaseUrl: unknown, forceReauthentication = false): Promise<DesktopSession> {
   const baseUrl = normalizeSiteUrl(rawBaseUrl);
-  if (ssoSession) return Promise.resolve({ authenticated: true, authMode: "sso", baseUrl: ssoSession.baseUrl, userId: ssoSession.userId });
+  if (ssoSession && !forceReauthentication) return Promise.resolve({ authenticated: true, authMode: "sso", baseUrl: ssoSession.baseUrl, userId: ssoSession.userId });
+  if (forceReauthentication && ssoSession) await clearSsoSession({ clearStorage: true });
   if (pendingSsoLogin) {
     ssoWindow?.show();
     ssoWindow?.focus();
     return pendingSsoLogin.promise ?? Promise.reject(new Error("UIT SSO login is already starting."));
+  }
+  const webLogin = host.ssoLogin;
+  if (webLogin) {
+    if (webSsoLoginPromise) return webSsoLoginPromise;
+    const loginId = Symbol("web-sso-login");
+    const promise = (async () => {
+      const result = await webLogin(baseUrl);
+      if (webSsoLoginId !== loginId) throw new Error("UIT SSO login was cancelled.");
+      await disconnectAccount(baseUrl);
+      return installSsoResult(result, baseUrl);
+    })().finally(() => {
+      if (webSsoLoginId === loginId) {
+        webSsoLoginId = undefined;
+        webSsoLoginPromise = undefined;
+      }
+    });
+    webSsoLoginId = loginId;
+    webSsoLoginPromise = promise;
+    return promise;
   }
   closeSsoSessionView(ssoSessionView);
   ssoSessionView = undefined;
@@ -1226,7 +1325,7 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const input = requireObject(rawInput, "SSO input");
       const baseUrl = normalizeSiteUrl(requireString(input.baseUrl, "Course site"));
       if (!isCurrentSite(baseUrl)) throw new Error("UIT SSO is available for the current course site only.");
-      await startSsoLogin(baseUrl);
+      await startSsoLogin(baseUrl, true);
       return sessionStatusPayload();
     },
     "session:logout": async (rawInput) => {

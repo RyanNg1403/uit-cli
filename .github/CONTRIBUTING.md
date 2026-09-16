@@ -6,7 +6,7 @@ Thanks for contributing to `uit-cli`! This guide explains our Git workflow, deve
 
 ## 1. Development Prerequisites
 
-- **Node.js**: `>= 20.19.0`
+- **Node.js**: `>= 24.0.0`
 - **npm**: `>= 10.0.0`
 - **Supported Platforms**: macOS, Linux, Windows
 

@@ -36,8 +36,8 @@ if (studioPackage.dependencies?.playwright || studioPackage.devDependencies?.pla
 }
 
 const runtimePackage = JSON.parse(readFileSync("packages/uit-runtime/package.json", "utf8"));
-if (runtimePackage.dependencies?.playwright || runtimePackage.optionalDependencies?.playwright) {
-  throw new Error("uit-runtime must not install Playwright");
+if (runtimePackage.dependencies?.playwright !== "1.63.0") {
+  throw new Error("uit-runtime must install the pinned Playwright 1.63.0 dependency");
 }
 
 const runtime = pack("packages/uit-runtime");
@@ -57,6 +57,7 @@ for (const required of [
   "dist/mcp-server.js",
   "dist/mcp-entry.js",
   "dist/studio-core.js",
+  "dist/studio-sso.js",
   "dist/studio-web-server.js",
   "dist/studio-web-launcher.js",
   "dist/uit-tools.js",
@@ -71,4 +72,4 @@ for (const forbidden of ["dist/cli.js", "dist/sso-login.js"]) {
 }
 
 console.log(`Verified uit-studio npm package (${studio.size} bytes).`);
-console.log(`Verified Playwright-free uit-runtime package (${runtime.size} bytes).`);
+console.log(`Verified bundled-Chromium uit-runtime package (${runtime.size} bytes).`);

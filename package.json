@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    "scripts/provision-studio-chromium.mjs",
     "README.md",
     "LICENSE"
   ],
@@ -35,19 +36,20 @@
     "test:electron": "npm run desktop:build && playwright test electron-stability --workers=1",
     "lint": "eslint .",
     "package:check": "npm run build && node scripts/check-package.mjs",
+    "postinstall": "node scripts/provision-studio-chromium.mjs",
     "typecheck": "npm run build && tsc --noEmit && tsc -p tsconfig.desktop-main.json --noEmit && tsc -p tsconfig.desktop-preload.json --noEmit",
     "prepack": "npm run build",
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "studio:check": "npm run desktop:build && npm run runtime:prepare && node scripts/check-studio-package.mjs"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.0.0"
   },
   "dependencies": {
     "commander": "^14.0.2",
     "mammoth": "^1.12.2",
     "pdfjs-dist": "4.10.38",
-    "playwright": "^1.63.0"
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
