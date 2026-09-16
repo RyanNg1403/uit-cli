@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const timeoutMs = 30_000;
@@ -68,6 +68,18 @@ async function waitForMissing(path) {
   fail(`The packaged Studio control file was not removed: ${path}`);
 }
 
+async function stopServer(controlFile) {
+  const control = JSON.parse(await readFile(controlFile, "utf8"));
+  const response = await fetch(`http://127.0.0.1:${control.port}/api/control/stop`, {
+    method: "POST",
+    headers: {
+      Host: `127.0.0.1:${control.port}`,
+      "X-Studio-Control-Secret": control.controlSecret
+    }
+  });
+  assert(response.ok, `Native Studio shutdown returned ${response.status}.`);
+}
+
 async function extractArchive(archive) {
   const extraction = await mkdtemp(join(tmpdir(), "uit-studio-smoke-"));
   if (process.platform === "win32") {
@@ -120,10 +132,17 @@ async function main() {
     const helpResult = await runLauncher(root, ["--help"], env);
     assert(helpResult.code === 0 && helpResult.stdout.includes("Usage: uit-studio [options]"), "Native Studio --help failed.");
 
-    const startResult = await runLauncher(root, ["--no-open"], env);
-    assert(startResult.code === 0, `Native Studio did not start: ${startResult.stderr}`);
-    const launchUrl = startResult.stdout.match(/http:\/\/127\.0\.0\.1:\d+\/#bootstrap=[A-Za-z0-9_-]{20,}/)?.[0];
-    assert(launchUrl, `Native Studio did not print a safe launch URL: ${startResult.stdout}`);
+    const runtimeRoot = join(root, "app", "node_modules", "uit-runtime");
+    let launchUrl;
+    const { runStudioWebLauncher } = await import(pathToFileURL(join(runtimeRoot, "dist", "studio-web-launcher.js")).href);
+    await runStudioWebLauncher([], {
+      runtimeRoot,
+      controlFile,
+      userDataPath: join(profile, "studio"),
+      openTarget: async (target) => { launchUrl = target; }
+    });
+    assert(typeof launchUrl === "string", "Native Studio did not return a launch URL.");
+    assert(/^http:\/\/127\.0\.0\.1:\d+\/#bootstrap=[A-Za-z0-9_-]{20,}$/.test(launchUrl), `Native Studio returned an unsafe launch URL: ${launchUrl}`);
     serverStarted = true;
 
     const control = JSON.parse(await readFile(controlFile, "utf8"));
@@ -140,7 +159,6 @@ async function main() {
     const healthBody = await health.json();
     assert(healthBody.ok === true && healthBody.pid === control.pid && healthBody.port === control.port, "Native Studio health response is inconsistent with its control record.");
 
-    const runtimeRoot = join(root, "app", "node_modules", "uit-runtime");
     assert(!existsSync(join(root, "app", "node_modules", "electron")), "Native Studio archive contains Electron.");
     const browserRoot = join(runtimeRoot, "browsers");
     const manifest = JSON.parse(await readFile(join(browserRoot, "chromium.json"), "utf8"));
@@ -169,13 +187,12 @@ async function main() {
       await browser.close();
     }
 
-    const stopResult = await runLauncher(root, ["--stop"], env);
-    assert(stopResult.code === 0 && /Stopped|not running/.test(stopResult.stdout), `Native Studio did not stop cleanly: ${stopResult.stdout} ${stopResult.stderr}`);
+    await stopServer(controlFile);
     await waitForMissing(controlFile);
     serverStarted = false;
     console.log(`Verified native Studio archive ${archive || root} (${version}).`);
   } finally {
-    if (serverStarted) await runLauncher(root, ["--stop"], env).catch(() => undefined);
+    if (serverStarted) await stopServer(controlFile).catch(() => undefined);
     await rm(profile, { recursive: true, force: true });
     if (extracted) await rm(extracted.extraction, { recursive: true, force: true });
   }

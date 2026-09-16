@@ -50,20 +50,14 @@ function sleep(milliseconds: number): Promise<void> {
 
 function parseFlags(args: string[]): {
   help: boolean;
-  noOpen: boolean;
-  foreground: boolean;
-  stop: boolean;
   controlFile?: string;
   staticRoot?: string;
   userDataPath?: string;
 } {
-  const result = { help: false, noOpen: false, foreground: false, stop: false, controlFile: undefined as string | undefined, staticRoot: undefined as string | undefined, userDataPath: undefined as string | undefined };
+  const result = { help: false, controlFile: undefined as string | undefined, staticRoot: undefined as string | undefined, userDataPath: undefined as string | undefined };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--help" || argument === "-h") result.help = true;
-    else if (argument === "--no-open") result.noOpen = true;
-    else if (argument === "--foreground") result.foreground = true;
-    else if (argument === "--stop") result.stop = true;
     else if (["--control-file", "--static-root", "--user-data"].includes(argument)) {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${argument} requires a value.`);
@@ -125,11 +119,6 @@ async function launchUrl(record: StudioWebControlRecord): Promise<string> {
   return parsed.href;
 }
 
-async function stopServer(record: StudioWebControlRecord): Promise<boolean> {
-  const response = await controlRequest(record, "/api/control/stop", "POST");
-  return Boolean(response?.ok);
-}
-
 async function removeStaleControlFile(path: string): Promise<void> {
   await unlink(path).catch(() => undefined);
 }
@@ -138,19 +127,18 @@ function spawnWebServer(
   options: StudioWebLauncherOptions,
   runtimeRoot: string,
   controlFile: string,
-  userDataPath: string,
-  foreground: boolean
+  userDataPath: string
 ): ChildProcess {
   const serverModule = join(runtimeRoot, "dist", "studio-web-server.js");
   const args = [serverModule, "--serve", "--control-file", controlFile, "--user-data", userDataPath];
   if (options.staticRoot) args.push("--static-root", resolve(options.staticRoot));
   const spawnOptions: SpawnOptions = {
-    detached: !foreground,
-    stdio: foreground ? "inherit" : "ignore"
+    detached: true,
+    stdio: "ignore"
   } satisfies SpawnOptions;
   const child = (options.spawnProcess || spawn)(process.execPath, args, spawnOptions);
   child.once("error", () => undefined);
-  if (!foreground) child.unref();
+  child.unref();
   return child;
 }
 
@@ -174,9 +162,6 @@ export function printStudioWebHelp(): void {
   console.log("Usage: uit-studio [options]");
   console.log();
   console.log("Options:");
-  console.log("  --no-open     print the temporary launch URL instead of opening it");
-  console.log("  --foreground  keep the server attached to this terminal");
-  console.log("  --stop        stop the running web server");
   console.log("  -h, --help    display help for command");
 }
 
@@ -196,37 +181,17 @@ export async function runStudioWebLauncher(argv: string[] = process.argv.slice(2
     record = undefined;
   }
 
-  if (flags.stop) {
-    if (!record) {
-      console.log("UIT Studio web server is not running.");
-      return;
-    }
-    if (await stopServer(record)) console.log("Stopped UIT Studio web server.");
-    else await removeStaleControlFile(controlFile);
-    return;
-  }
-
   let child: ChildProcess | undefined;
   if (!record) {
-    child = spawnWebServer(options, runtimeRoot, controlFile, userDataPath, flags.foreground);
+    child = spawnWebServer(options, runtimeRoot, controlFile, userDataPath);
     record = await waitForServer(controlFile, child, options.startupTimeoutMs || 10_000, options.pollIntervalMs || 100);
   }
   const url = await launchUrl(record);
-  if (flags.noOpen) {
-    console.log(url);
-  } else {
-    try {
-      await openTarget(url);
-    } catch (error) {
-      console.error(`Could not open the UIT Studio browser: ${errorMessage(error)}`);
-      console.error(`Open this temporary URL manually: ${url}`);
-      process.exitCode = 1;
-    }
-  }
-
-  if (flags.foreground && child) {
-    await new Promise<void>((resolveChild) => {
-      child?.once("exit", () => resolveChild());
-    });
+  try {
+    await openTarget(url);
+  } catch (error) {
+    console.error(`Could not open the UIT Studio browser: ${errorMessage(error)}`);
+    console.error(`Open this temporary URL manually: ${url}`);
+    process.exitCode = 1;
   }
 }

@@ -32,22 +32,12 @@ session is captured.
 |---|---|
 | `-v, --version` | Print the installed Studio package version and exit without starting anything. |
 | `-h, --help` | Show Studio command help and exit. |
-| `--no-open` | Start or reuse the backend and print the temporary URL without opening a browser. |
-| `--foreground` | Keep a newly started backend attached to the terminal. Useful for diagnostics. |
-| `--stop` | Stop the current user's running Studio backend. |
 
 Examples:
 
 ```bash
 uit-studio --version
-uit-studio --no-open
-uit-studio --foreground
-uit-studio --stop
 ```
-
-`--no-open`, `--foreground`, and `--stop` are lifecycle and diagnostic
-options. They do not select a separate web mode; normal `uit-studio` launch
-already uses the web app.
 
 ### Studio authentication and shared state
 
@@ -460,39 +450,3 @@ uit --json announcements 19438 --full
 Errors exit with code 1. The `hint` field is included when the CLI can suggest a fix.
 
 ---
-
-### Configuration
-
-| Variable | Description |
-|---|---|
-| `UIT_TOKEN` | Optional token override for scripts and CI |
-| `UIT_BASE_URL` | Site used with `UIT_TOKEN` (default: `https://courses.uit.edu.vn`) |
-| `UIT_USER_ID` | User ID used with `UIT_TOKEN`; normal login discovers this automatically |
-
-Session and credentials are read with the following precedence:
-1. `UIT_TOKEN` and its optional companion variables from the process environment
-2. `~/.uit/sessions.json` (created by `uit login`, `uit login --legacy`, or UIT Studio)
-
----
-
-## Project structure
-
-```
-uit-cli/
-  src/
-    cli.ts        # command-line parser and 'uit' entry point
-    commands.ts   # command implementations and output behavior
-    api.ts        # Moodle REST client (call, upload, download)
-    config.ts     # shared session configuration
-    output.ts     # output formatting and ID/URL helpers
-    studio-core.ts          # transport-neutral Studio service
-    studio-web-server.ts    # loopback web transport and lifecycle control
-    studio-web-launcher.ts  # 'uit-studio' backend launcher
-    studio-sso.ts           # package-owned Chromium SSO service
-  packages/
-    uit-studio/             # published 'uit-studio' launcher package
-    uit-runtime/            # shared compiled Studio runtime package
-  test/           # regression tests with mocked Moodle responses
-  package.json    # root package definition and 'uit' binary
-  tsconfig.json   # TypeScript compiler configuration
-```

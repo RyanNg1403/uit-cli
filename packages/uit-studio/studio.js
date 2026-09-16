@@ -23,9 +23,6 @@ if (launcherArgs.length === 1 && (launcherArgs[0] === "--help" || launcherArgs[0
   console.log("Options:");
   console.log("  -v, --version  output the version number");
   console.log("  -h, --help     display help for command");
-  console.log("  --no-open      start/reuse Studio without opening the browser");
-  console.log("  --foreground   keep the Studio backend attached to this terminal");
-  console.log("  --stop         stop the current user's Studio backend");
   process.exit(0);
 }
 

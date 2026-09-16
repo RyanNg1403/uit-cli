@@ -21,7 +21,7 @@ describe("Studio launcher", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("prints help without starting Electron", () => {
+  it("prints help without starting a backend", () => {
     const result = spawnSync(process.execPath, [studioLauncher, "--help"], {
       cwd: studioDirectory,
       encoding: "utf8",
