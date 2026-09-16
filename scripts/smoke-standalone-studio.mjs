@@ -121,6 +121,8 @@ async function main() {
   assert(/^\d+\.\d+\.\d+$/.test(version), "Native Studio VERSION is missing or invalid.");
   const profile = await mkdtemp(join(tmpdir(), "uit-studio-smoke-profile-"));
   const env = smokeEnvironment(profile);
+  const originalEnvironment = { ...process.env };
+  Object.assign(process.env, env);
   const controlFile = env.UIT_STUDIO_CONTROL_FILE;
   let serverStarted = false;
   try {
@@ -181,7 +183,8 @@ async function main() {
     try {
       await page.goto(launchUrl, { waitUntil: "domcontentloaded", timeout: timeoutMs });
       await page.waitForSelector("#account-label", { state: "visible", timeout: timeoutMs });
-      assert((await page.locator("#account-label").textContent()) === "Connect accounts", "Native Studio did not render the packaged web UI in a clean profile.");
+      const accountLabel = await page.locator("#account-label").textContent();
+      assert(accountLabel === "Connect accounts", `Native Studio did not render the packaged web UI in a clean profile (account label: ${JSON.stringify(accountLabel)}).`);
       assert(errors.length === 0, `Native Studio renderer errors: ${errors.join(" | ")}`);
     } finally {
       await browser.close();
@@ -195,6 +198,8 @@ async function main() {
     if (serverStarted) await stopServer(controlFile).catch(() => undefined);
     await rm(profile, { recursive: true, force: true });
     if (extracted) await rm(extracted.extraction, { recursive: true, force: true });
+    for (const key of Object.keys(process.env)) if (!(key in originalEnvironment)) delete process.env[key];
+    Object.assign(process.env, originalEnvironment);
   }
 }
 

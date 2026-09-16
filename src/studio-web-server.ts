@@ -13,7 +13,7 @@ import {
   unlink,
   writeFile
 } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSessionApiClient } from "./api.js";
@@ -847,7 +847,15 @@ export async function runStudioWebServer(argv = process.argv.slice(2)): Promise<
   process.once("SIGHUP", stop);
 }
 
-const isDirectInvocation = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+function samePath(left: string, right: string): boolean {
+  try {
+    return realpathSync(left) === realpathSync(right);
+  } catch {
+    return resolve(left) === resolve(right);
+  }
+}
+
+const isDirectInvocation = process.argv[1] && samePath(process.argv[1], fileURLToPath(import.meta.url));
 if (isDirectInvocation) {
   runStudioWebServer().catch((error: unknown) => {
     console.error(`Could not start UIT Studio web server: ${errorMessage(error)}`);
