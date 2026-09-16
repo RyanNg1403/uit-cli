@@ -162,6 +162,7 @@ export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>
     const root = new URL("../../studio/renderer/", import.meta.url);
     const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/web-bridge.js": "web-bridge.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png", "/assets/uit-dau-dau.svg": "assets/uit-dau-dau.svg", "/assets/dau-dau-agent.png": "assets/dau-dau-agent.png", "/assets/dau-dau-onboarding.png": "assets/dau-dau-onboarding.png" };
     assets["/calendar.js"] = "calendar.js";
+    assets["/assets/uit-dau-dau-icon.png"] = "assets/uit-dau-dau-icon.png";
     const server = createServer(async (request, response) => {
       const pathname = new URL(request.url!, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204).end(); return; }
