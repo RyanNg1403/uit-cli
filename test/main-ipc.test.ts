@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const mainPath = fileURLToPath(new URL("../desktop/main.ts", import.meta.url));
+const corePath = fileURLToPath(new URL("../src/studio-core.ts", import.meta.url));
 const CURRENT = "https://courses.uit.edu.vn";
 const LEGACY = "https://coursesold.uit.edu.vn";
 const reference = { courseId: 1, baseUrl: CURRENT, userId: 101 };
@@ -166,6 +167,9 @@ async function harness(saved: unknown[] = [], options: {
     "../dist/moodle-session-client.js": { MoodleSessionApi: class {} },
     "../dist/codex-client.js": { CodexClient: class { constructor() { return codex; } } },
     "../dist/mcp-server.js": mcp,
+    "./desktop-service.js": service,
+    "./moodle-session-client.js": { MoodleSessionApi: class {} },
+    "./codex-client.js": { CodexClient: class { constructor() { return codex; } } },
   };
   const clipboard = { writeText: vi.fn(), readText: vi.fn() };
   const existsSync = vi.fn().mockReturnValue(false);
@@ -181,14 +185,26 @@ async function harness(saved: unknown[] = [], options: {
     if (value && typeof value === "object") Object.defineProperty(value, "__esModule", { value: true });
   }
   Object.assign(modules, imports);
-  const context = createContext({
+  const vmGlobals = {
     exports: {}, module: { exports: {} },
     URL, console, setTimeout, clearTimeout, __dirname: path.dirname(mainPath),
     process: { env: { UIT_DISABLE_CONFIG: options.configEnabled ? "0" : "1", UIT_TEST_PROFILE: profile }, platform: options.platform || process.platform, execPath: "/test/Electron" },
     require: (name: string) => { if (!(name in modules)) throw new Error(`Unexpected require: ${name}`); return modules[name]; },
     importService: async (name: string) => { if (!(name in imports)) throw new Error(`Unexpected import: ${name}`); return imports[name]; },
     injected: { service, codex },
-  });
+  };
+  const context = createContext({ ...vmGlobals });
+  const coreContext = createContext({ ...vmGlobals });
+  const coreSource = readFileSync(corePath, "utf8");
+  const coreModule = { exports: {} };
+  Object.assign(coreContext, { exports: coreModule.exports, module: coreModule });
+  const compiledCore = ts.transpileModule(coreSource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true }
+  }).outputText;
+  runInContext(compiledCore, coreContext, { filename: corePath });
+  modules["../dist/studio-core.js"] = coreModule.exports;
+  const mainModule = { exports: {} };
+  Object.assign(context, { exports: mainModule.exports, module: mainModule });
   // Redirect only dynamic imports; execute the actual main functions without Electron or disk/network access.
   const sourceMain = readFileSync(mainPath, "utf8").replaceAll("import.meta.url", JSON.stringify(pathToFileURL(mainPath).href));
   const compiledMain = ts.transpileModule(sourceMain, {
@@ -206,15 +222,15 @@ async function harness(saved: unknown[] = [], options: {
   const currentApi = { portal: "current" };
   const legacyApi = { portal: "legacy" };
   const connect = () => {
-    Object.assign(context, { currentApi, legacyApi });
+    Object.assign(coreContext, { currentApi, legacyApi });
     runInContext(`ssoSession = { baseUrl: ${JSON.stringify(CURRENT)}, userId: 101, api: currentApi };
-      legacySessions.set(${JSON.stringify(LEGACY)}, { baseUrl: ${JSON.stringify(LEGACY)}, userId: 202, authMode: "token", api: legacyApi });`, context);
+      legacySessions.set(${JSON.stringify(LEGACY)}, { baseUrl: ${JSON.stringify(LEGACY)}, userId: 202, authMode: "token", api: legacyApi });`, coreContext);
   };
   const start = (input = {}) => invoke("agent:start", { ...reference, taskId: "task-1", message: "Explain @Assignment", ...input });
-  const request = (input: any) => { context.request = input; return runInContext("handleAgentRequest(request)", context); };
-  const bindings = () => runInContext("threadBindings", context) as Map<string, any>;
+  const request = (input: any) => { coreContext.request = input; return runInContext("handleAgentRequest(request)", coreContext); };
+  const bindings = () => runInContext("threadBindings", coreContext) as Map<string, any>;
   return {
-    context, app, window, windows, views, handlers, event, invoke, service, codex, mcp, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
+    context: coreContext, app, window, windows, views, handlers, event, invoke, service, codex, mcp, fs, existsSync, connect, currentApi, legacyApi, start, request, bindings, shell, partitions, partitionCookies,
     replaceMaterial: (content: string, device = 2, inode = 2) => { materialContent = Buffer.from(content); materialDevice = device; materialInode = inode; }
   };
 }
