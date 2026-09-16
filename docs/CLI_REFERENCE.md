@@ -78,7 +78,7 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ---
 
-### `uit login` (or `uit init`)
+### `uit login`
 
 Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` restores the v1.0/v1.1 Student ID/password flow for the old Moodle portal.
 
@@ -99,8 +99,6 @@ uit login --legacy --username YOUR_STUDENT_ID --password YOUR_PASSWORD
 Prefer the interactive browser login (`uit login`) or `uit login --legacy` for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
 
 SSO and token sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix) and shared with UIT Studio. The user ID is discovered during login and stored with the session. Re-run `uit login` at any time to refresh or rotate it.
-
-> **Note:** `uit init` is fully preserved as a backwards-compatible alias for `uit login`.
 
 ---
 

@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
@@ -1115,13 +1115,6 @@ export function workspacePath(courseId: number, baseUrl: string, userId: number,
   return resolve(coursesDirectory(), portalFolder(baseUrl), `user-${userId}`, safePathSegment(shortname, `course-${courseId}`));
 }
 
-function legacyWorkspacePath(courseId: number, baseUrl: string, userId: number): string {
-  const canonical = canonicalBaseUrl(baseUrl);
-  const site = new URL(canonical);
-  const siteKey = `${site.hostname.replace(/[^a-zA-Z0-9.-]/g, "_")}-${createHash("sha256").update(canonical).digest("hex").slice(0, 16)}`;
-  return resolve(coursesDirectory(), siteKey, `user-${userId}`, `course-${courseId}`);
-}
-
 async function ensureWorkspaceDirectories(root: string, children: string[]): Promise<void> {
   const coursesRoot = resolve(homedir(), ".uit", "courses");
   const relativeRoot = relative(coursesRoot, root);
@@ -1252,62 +1245,6 @@ async function moveWorkspace(from: string, to: string): Promise<void> {
   await rename(from, to);
 }
 
-function numberedMaterialPath(directory: string, filename: string, number: number): string {
-  const extension = extname(filename);
-  const stem = extension ? filename.slice(0, -extension.length) : filename;
-  return join(directory, number === 1 ? filename : `${stem} (${number})${extension}`);
-}
-
-async function migrateLegacyMaterialDirectories(root: string, courseId: number, api: ApiClient): Promise<void> {
-  const materials = join(root, "materials");
-  let entries: Array<{ name: string; isDirectory(): boolean }>;
-  try { entries = await readdir(materials, { withFileTypes: true }); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  const legacyDirectories = entries.filter((entry) => entry.isDirectory() && /^[a-f0-9]{64}$/.test(entry.name));
-  if (!legacyDirectories.length) return;
-
-  const modulesByFilename = new Map<string, number[]>();
-  try {
-    for (const module of await getCourseContents(courseId, api)) {
-      for (const file of module.files) {
-        const key = file.filename.normalize("NFC");
-        modulesByFilename.set(key, [...new Set([...(modulesByFilename.get(key) || []), module.id])]);
-      }
-    }
-  } catch {
-    // Preserve any source that the current portal can no longer describe.
-  }
-
-  for (const legacy of legacyDirectories) {
-    const legacyPath = join(materials, legacy.name);
-    const files = await readdir(legacyPath, { withFileTypes: true });
-    for (const item of files) {
-      if (!item.isFile()) continue;
-      const source = join(legacyPath, item.name);
-      const sourceInfo = await lstat(source);
-      if (sourceInfo.isSymbolicLink() || !sourceInfo.isFile()) continue;
-      const moduleIds = modulesByFilename.get(item.name.normalize("NFC")) || [];
-      const destinationDirectory = join(materials, moduleIds.length === 1 ? `module-${moduleIds[0]}` : "imported");
-      await ensureWorkspaceDirectories(root, [relative(root, destinationDirectory)]);
-      let destination = numberedMaterialPath(destinationDirectory, item.name, 1);
-      for (let number = 2; ; number += 1) {
-        try {
-          await lstat(destination);
-          destination = numberedMaterialPath(destinationDirectory, item.name, number);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          break;
-        }
-      }
-      await rename(source, destination);
-    }
-    if (!(await readdir(legacyPath)).length) await rm(legacyPath, { recursive: false, force: true });
-  }
-}
-
 async function resolveWorkspace(courseId: number, shortname: string, baseUrl: string, userId: number, api: ApiClient): Promise<{ path: string; created: boolean }> {
   if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error("A valid course and account identity is required for the workspace.");
   const canonical = canonicalBaseUrl(baseUrl);
@@ -1333,15 +1270,9 @@ async function resolveWorkspace(courseId: number, shortname: string, baseUrl: st
     try { await stat(root); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const legacyRoot = legacyWorkspacePath(courseId, canonical, userId);
-      await moveWorkspace(legacyRoot, root);
-      try { await stat(root); } catch (missing) {
-        if ((missing as NodeJS.ErrnoException).code !== "ENOENT") throw missing;
-        created = true;
-      }
+      created = true;
     }
     await ensureWorkspaceDirectories(root, [".uit", join(".uit", "context"), "materials", "artifacts"]);
-    await migrateLegacyMaterialDirectories(root, courseId, api);
 
     const entry: CourseManifestEntry = {
       baseUrl: canonical,

@@ -116,13 +116,6 @@ export const UIT_TOOLS: UitToolSpec[] = [
   }
 ];
 
-const TOOL_ALIASES: Record<string, string> = {
-  uit_list_course_contents: "uit_course_contents",
-  uit_download_resource: "uit_download_material",
-  uit_list_participants: "uit_course_members",
-  uit_get_grades: "uit_course_grades"
-};
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -169,10 +162,9 @@ export function createUitToolExecutor(services: UitToolServices) {
     rawArgs: Record<string, unknown>,
     context: UitToolContext
   ): Promise<unknown> {
-    const name = TOOL_ALIASES[requestedName] || requestedName;
     const args = rawArgs || {};
 
-    switch (name) {
+    switch (requestedName) {
       case "uit_courses":
         return await services.listCourses(context.api, context.userId);
       case "uit_course_contents": {

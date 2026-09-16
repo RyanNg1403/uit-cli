@@ -159,28 +159,6 @@ export function createProgram(
     });
 
   program
-    .command("init")
-    .description("Set up legacy credentials (~/.uit/sessions.json); use --sso for UIT SSO")
-    .option("--sso", "Sign in via UIT SSO (opens browser window)")
-    .option("-u, --username <username>", "Student ID for legacy token setup")
-    .option("-p, --password <password>", "Password for non-interactive legacy token setup")
-    .action(async (opts) => {
-      const hasLegacyCredentials = Boolean(opts.username || opts.password);
-      if (opts.sso && hasLegacyCredentials) {
-        throw new CliError("--sso cannot be combined with --username or --password.");
-      }
-      if (opts.sso) {
-        await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
-        return;
-      }
-      await cmdInit({
-        url: LEGACY_SITE_BASE_URL,
-        username: opts.username,
-        password: opts.password
-      });
-    });
-
-  program
     .command("courses")
     .description("List enrolled courses (outputs course IDs)")
     .option("--current", "Current semester only")
