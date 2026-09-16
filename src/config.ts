@@ -175,7 +175,7 @@ function load(): Config {
   throw new CliError("No active UIT session found. Run: uit login (SSO) or uit login --legacy");
 }
 
-/** Resolve the same active session configuration for CLI, MCP, and desktop callers. */
+/** Resolve the same active session configuration for CLI, MCP, and Studio callers. */
 export function getActiveConfig(options: { fresh?: boolean } = {}): Readonly<Config> {
   if (options.fresh) resetConfigCache();
   return load();

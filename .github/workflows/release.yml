@@ -34,36 +34,10 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
-      - name: Build unsigned macOS distributables
-        run: npm run desktop:package -- --arm64
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
-      - name: Smoke-test packaged Studio
-        run: node scripts/smoke-packaged-studio.mjs
-        env:
-          UIT_PACKAGED_EXECUTABLE: release/mac-arm64/UIT Studio.app/Contents/MacOS/UIT Studio
-
-      - name: Verify packaged MCP on native architecture
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ELECTRON_RUN_AS_NODE=1 "release/mac-arm64/UIT Studio.app/Contents/MacOS/UIT Studio" "release/mac-arm64/UIT Studio.app/Contents/Resources/app.asar/dist/mcp-entry.js")"
-          printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
-          printf '%s\n' "$response" | grep -F "\"version\":\"${RELEASE_TAG#v}\""
-
-      - name: Stage release assets and checksums
-        run: |
-          mkdir -p release-assets
-          for extension in zip dmg; do
-            asset="UIT-Studio-macos-arm64.${extension}"
-            test -f "release/${asset}"
-            cp "release/${asset}" "release-assets/${asset}"
-            (cd release-assets && shasum -a 256 "${asset}" > "${asset}.sha256")
-          done
-
       - name: Build standalone CLI
-        run: scripts/package-standalone.sh macos arm64 release-assets
+        run: |
+          npm run build
+          scripts/package-standalone.sh macos arm64 release-assets
 
       - name: Smoke-test standalone CLI installer
         run: |
@@ -167,25 +141,6 @@ jobs:
             scripts/install.sh --studio
           "$install_home/.local/bin/uit-studio" --version
 
-      - name: Build Linux Studio distributables
-        if: matrix.arch == 'x64'
-        run: |
-          npm run desktop:build
-          npx electron-builder --linux AppImage tar.gz --x64 --publish never
-          for asset in release/UIT-Studio-linux-x64.*; do
-            if [ -f "$asset" ]; then
-              cp "$asset" release-assets/
-              name="$(basename "$asset")"
-              (cd release-assets && sha256sum "$name" > "${name}.sha256")
-            fi
-          done
-
-      - name: Smoke-test packaged Studio
-        if: matrix.arch == 'x64'
-        run: xvfb-run --auto-servernum node scripts/smoke-packaged-studio.mjs
-        env:
-          UIT_PACKAGED_EXECUTABLE: release/linux-unpacked/uit-cli
-
       - name: Upload release assets
         uses: actions/upload-artifact@v6
         with:
@@ -212,17 +167,6 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
-      - name: Build Windows Studio distributables
-        run: |
-          npm run desktop:build
-          npx electron-builder --win zip nsis --x64 --publish never
-          New-Item -ItemType Directory -Force -Path release-assets
-          Copy-Item release/UIT-Studio-windows-x64.* release-assets/
-          Get-ChildItem -Path release-assets -File | ForEach-Object {
-            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower()
-            Set-Content -Path "$($_.FullName).sha256" -Value "$hash  $($_.Name)"
-          }
-
       - name: Build native web Studio
         run: npm run studio:package -- windows x64 release-assets
 
@@ -239,11 +183,6 @@ jobs:
           $env:UIT_INSTALL_STUDIO_DIR = $installRoot
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/install.ps1 -Studio
           & (Join-Path $installRoot "bin\uit-studio.cmd") --version
-
-      - name: Smoke-test packaged Studio
-        run: node scripts/smoke-packaged-studio.mjs
-        env:
-          UIT_PACKAGED_EXECUTABLE: release/win-unpacked/UIT Studio.exe
 
       - name: Upload release assets
         uses: actions/upload-artifact@v6
@@ -295,8 +234,8 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Check desktop build
-        run: npm run desktop:check
+      - name: Check Studio web build
+        run: npm run studio:web:check
 
       - name: Check installer
         run: npm run installer:check
@@ -361,6 +300,5 @@ jobs:
             gh release upload "$RELEASE_TAG" release-assets/* --clobber;
           else
             gh release create "$RELEASE_TAG" release-assets/* \
-              --generate-notes --verify-tag \
-              --notes "UIT Studio for macOS is distributed unsigned. macOS may require users to approve its first launch with Open Anyway in System Settings > Privacy & Security."
+              --generate-notes --verify-tag;
           fi

@@ -9,10 +9,10 @@
     "url": "git+https://github.com/RyanNg1403/uit-cli.git",
     "directory": "packages/uit-runtime"
   },
-  "main": "desktop-build/main.js",
+  "main": "dist/studio-web-launcher.js",
   "files": [
     "dist",
-    "desktop-build",
+    "studio-build",
     "README.md",
     "LICENSE"
   ],
@@ -24,9 +24,6 @@
     "mammoth": "^1.12.2",
     "pdfjs-dist": "4.10.38",
     "playwright": "1.63.0"
-  },
-  "peerDependencies": {
-    "electron": "41.10.3"
   },
   "engines": {
     "node": ">=24.0.0"

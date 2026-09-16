@@ -47,7 +47,7 @@ const runtimeUnexpected = runtimeFiles.filter((path) => (
   path !== "README.md" &&
   path !== "package.json" &&
   !path.startsWith("dist/") &&
-  !path.startsWith("desktop-build/")
+  !path.startsWith("studio-build/")
 ));
 if (runtimeUnexpected.length > 0) {
   throw new Error(`uit-runtime package contains unexpected files: ${runtimeUnexpected.join(", ")}`);
@@ -61,9 +61,9 @@ for (const required of [
   "dist/studio-web-server.js",
   "dist/studio-web-launcher.js",
   "dist/uit-tools.js",
-  "desktop-build/main.js",
-  "desktop-build/preload.cjs",
-  "desktop-build/renderer/assets/uit-dau-dau-icon.png"
+  "studio-build/renderer/index.html",
+  "studio-build/renderer/renderer.js",
+  "studio-build/renderer/assets/uit-dau-dau-icon.png"
 ]) {
   if (!runtimeFiles.includes(required)) throw new Error(`uit-runtime package is missing ${required}`);
 }

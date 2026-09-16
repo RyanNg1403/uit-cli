@@ -94,14 +94,14 @@ describe("mcp-server workspace gating and tools", () => {
     const existing = `[mcp_servers.uit]\ncommand = "uit"\nargs = ["mcp"]\nenabled = true\n\n[mcp_servers.other]\ncommand = "other"\n`;
     const updated = upsertMcpConfig(
       existing,
-      "/Users/Student/Applications/UIT Studio.app/Contents/MacOS/UIT Studio",
-      ["mcp-entry.js"],
-      { ELECTRON_RUN_AS_NODE: "1" }
+      "/Users/Student/.local/bin/uit-studio",
+      ["mcp"],
+      { UIT_TEST_MODE: "1" }
     );
 
-    expect(updated).toContain('command = "/Users/Student/Applications/UIT Studio.app/Contents/MacOS/UIT Studio"');
-    expect(updated).toContain('args = ["mcp-entry.js"]');
-    expect(updated).toContain('env = { ELECTRON_RUN_AS_NODE = "1" }');
+    expect(updated).toContain('command = "/Users/Student/.local/bin/uit-studio"');
+    expect(updated).toContain('args = ["mcp"]');
+    expect(updated).toContain('env = { UIT_TEST_MODE = "1" }');
     expect(updated).toContain("enabled = true");
     expect(updated).toContain('[mcp_servers.other]\ncommand = "other"');
   });
@@ -110,15 +110,6 @@ describe("mcp-server workspace gating and tools", () => {
     expect(upsertMcpConfig("", "uit", ["mcp"])).toBe(
       '[mcp_servers.uit]\ncommand = "uit"\nargs = ["mcp"]\n'
     );
-  });
-
-  it("removes a managed Electron Node-mode environment when the CLI owns the launch", () => {
-    const updated = upsertMcpConfig(
-      '[mcp_servers.uit]\ncommand = "Electron"\nargs = ["mcp-entry.js"]\nenv = { ELECTRON_RUN_AS_NODE = "1" }\n',
-      "node",
-      ["cli.js", "mcp"]
-    );
-    expect(updated).toBe('[mcp_servers.uit]\ncommand = "node"\nargs = ["cli.js", "mcp"]\n');
   });
 
   it("registers the real Node executable and CLI entrypoint directly", () => {
@@ -179,11 +170,11 @@ describe("mcp-server workspace gating and tools", () => {
   it("updates a commented MCP section header without creating a duplicate table", () => {
     const updated = upsertMcpConfig(
       '[mcp_servers.uit] # configured manually\ncommand = "old"\nargs = ["mcp"]\n\n[mcp_servers.other] # keep\ncommand = "other"\n',
-      "/Applications/UIT Studio.app/Contents/MacOS/UIT Studio",
-      ["--uit-mcp"]
+      "/Users/Student/.local/bin/uit-studio",
+      ["mcp"]
     );
     expect(updated.match(/\[mcp_servers\.uit\]/g)).toHaveLength(1);
-    expect(updated).toContain('command = "/Applications/UIT Studio.app/Contents/MacOS/UIT Studio"');
+    expect(updated).toContain('command = "/Users/Student/.local/bin/uit-studio"');
     expect(updated).toContain('[mcp_servers.other] # keep\ncommand = "other"');
   });
 

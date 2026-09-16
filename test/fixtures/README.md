@@ -1,12 +1,12 @@
-# Desktop Browser Suite
+# Studio Browser Suite
 
 Run `npx --no-install playwright test`. The suite uses the installed
 `playwright/test`, Chromium, and a worker-scoped HTTP server that serves the
-current `desktop/renderer` files without rewriting them. No build is required.
+current `studio/renderer` files without rewriting them. No build is required.
 
-`desktop.ts` installs a fake `window.uit` before renderer startup. It records
+`studio.ts` installs a fake `window.uit` before renderer startup. It records
 bridge calls, supports deterministic held responses and failures, and emits
-agent notifications without invoking Electron, Moodle, Codex, or a model.
+agent notifications without invoking Moodle, Codex, or a model.
 Browser requests outside the fixture server fail the test.
 
 The seed contains 19 courses, three known semesters plus an unknown semester,
@@ -24,13 +24,11 @@ Suggested package scripts (not installed by this change):
 
 ```json
 {
-  "test:desktop": "playwright test",
-  "test:desktop:repeat": "playwright test --repeat-each=2",
-  "test:desktop:report": "playwright show-report test-results/report"
+  "test:studio": "playwright test",
+  "test:studio:repeat": "playwright test --repeat-each=2",
+  "test:studio:report": "playwright show-report test-results/report"
 }
 ```
 
-Browser coverage does not validate the real preload or IPC implementation.
-Real Electron smoke must first have isolated `UIT_TEST_PROFILE` and
-`UIT_DISABLE_CONFIG=1` support and compiled `dist` services. Never launch that
-smoke against the developer's regular Electron profile or saved credentials.
+Browser coverage runs the actual Studio renderer against the web transport
+and does not use saved credentials or upstream course data.

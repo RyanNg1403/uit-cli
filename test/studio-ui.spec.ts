@@ -1,4 +1,4 @@
-import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, STORE, key, calls, control, emit, openCourse } from "./fixtures/desktop";
+import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, STORE, key, calls, control, emit, openCourse } from "./fixtures/studio";
 import type { Page } from "playwright/test";
 
 async function sendAndStop(page: Page, message: string) {
@@ -196,7 +196,7 @@ test("all semesters default, complete grouped rail, semester filter and search",
   await expect(page.locator("#course-nav .project")).toHaveCount(19);
   await expect(page.locator(".course-row")).toHaveCount(19);
   await expect(page.locator(".course-row").last()).toContainText("Computer science 19");
-  await page.screenshot({ path: info.outputPath("desktop-courses.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("studio-courses.png"), fullPage: true });
   await page.getByRole("searchbox").fill("  Legacy Moodle ");
   await expect(page.locator(".course-row")).toHaveCount(5);
   await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
@@ -892,7 +892,7 @@ test("sent project threads persist follow-up drafts, rename, delete and switch i
   await page.getByLabel("Message Codex").fill("Independent second draft");
   await page.locator(".thread-link").filter({ hasText: "Exam preparation" }).click();
   await expect(page.getByLabel("Message Codex")).toHaveValue("Draft one\nwith a second line");
-  await page.screenshot({ path: info.outputPath("desktop-agent.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("studio-agent.png"), fullPage: true });
   await page.reload();
   await page.locator('.nav-item[data-view="agent"]').click();
   await expect(page.locator("#agent-task-title")).toHaveText("Exam preparation");

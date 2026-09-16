@@ -150,8 +150,7 @@ async function main() {
     mkdirSync(binRoot, { recursive: true });
 
     // Use the repository lockfile to install only the root production graph in
-    // the temporary application. Electron is a dev dependency and is therefore
-    // absent from the native archive.
+    // the temporary application.
     copyFileSync(join(repositoryRoot, "package.json"), join(appRoot, "package.json"));
     copyFileSync(join(repositoryRoot, "package-lock.json"), join(appRoot, "package-lock.json"));
     const installEnvironment = { ...process.env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" };
@@ -160,16 +159,12 @@ async function main() {
       env: installEnvironment,
       shell: process.platform === "win32"
     });
-    if (existsSync(join(appRoot, "node_modules", "electron"))) {
-      fail("The native Studio archive unexpectedly contains Electron.");
-    }
-
     copyFileSync(join(repositoryRoot, "packages", "uit-studio", "studio.js"), join(appRoot, "studio.js"));
     const runtimeRoot = join(appRoot, "node_modules", "uit-runtime");
     mkdirSync(runtimeRoot, { recursive: true });
     copyFileSync(join(repositoryRoot, "packages", "uit-runtime", "package.json"), join(runtimeRoot, "package.json"));
-    for (const directory of ["dist", "desktop-build"]) {
-      const source = join(repositoryRoot, directory === "dist" ? "packages/uit-runtime/dist" : "packages/uit-runtime/desktop-build");
+    for (const directory of ["dist", "studio-build"]) {
+      const source = join(repositoryRoot, directory === "dist" ? "packages/uit-runtime/dist" : "packages/uit-runtime/studio-build");
       const target = join(runtimeRoot, directory);
       const requiredPath = directory === "dist" ? join(source, "studio-web-launcher.js") : join(source, "renderer", "index.html");
       requireFile(requiredPath, `Prepared UIT runtime ${directory}`);

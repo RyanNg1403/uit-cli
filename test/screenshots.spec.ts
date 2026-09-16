@@ -7,7 +7,7 @@
  * Run with:
  *   npx playwright test screenshots --config=playwright.config.ts
  */
-import { test, expect, openCourse } from "./fixtures/desktop";
+import { test, expect, openCourse } from "./fixtures/studio";
 
 const SCREENSHOT_DIR = "test-results/screenshots";
 

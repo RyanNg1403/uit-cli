@@ -2,7 +2,7 @@
 
 <!-- Which component does this relate to? -->
 - [ ] CLI (`uit`)
-- [ ] Desktop App (`UIT Studio`)
+- [ ] Studio web app (`UIT Studio`)
 - [ ] MCP Server (`uit mcp`)
 - [ ] Installation / Packaging / CI
 

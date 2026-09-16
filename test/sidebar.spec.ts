@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/desktop";
+import { test, expect } from "./fixtures/studio";
 import type { Page } from "playwright/test";
 
 const STORE = "uit-studio.sidebar.v1";
@@ -122,7 +122,7 @@ for (const modifier of ["Meta", "Control"]) {
   });
 }
 
-test("desktop navigation does not collapse and long course names stay within the rail", async ({ page, boot }) => {
+test("Studio navigation does not collapse and long course names stay within the rail", async ({ page, boot }) => {
   await boot();
   await separator(page).focus();
   for (let i = 0; i < 6; i++) await page.keyboard.press("ArrowLeft");
@@ -165,7 +165,7 @@ for (const width of [375, 650]) {
   });
 }
 
-test("breakpoints preserve desktop state and clear mobile focus/inert", async ({ page, boot }) => {
+test("breakpoints preserve Studio state and clear mobile focus/inert", async ({ page, boot }) => {
   await boot();
   await dragTo(page, 420);
   await page.mouse.up();

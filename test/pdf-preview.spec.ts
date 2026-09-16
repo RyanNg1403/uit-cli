@@ -1,4 +1,4 @@
-import { test, expect, calls, openCourse, control } from "./fixtures/desktop";
+import { test, expect, calls, openCourse, control } from "./fixtures/studio";
 import { pdfFixture } from "./fixtures/pdf";
 
 test.beforeEach(async ({ page }) => {

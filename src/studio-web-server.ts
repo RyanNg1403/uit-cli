@@ -13,20 +13,16 @@ import {
   unlink,
   writeFile
 } from "node:fs/promises";
-import { existsSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSessionApiClient } from "./api.js";
 import type { SsoSessionData } from "./config.js";
 import {
   createStudioCore,
-  type StudioBrowserSession,
   type StudioCore,
   type StudioHandler,
-  type StudioHost,
-  type StudioSsoHost,
-  type StudioView,
-  type StudioWindow
+  type StudioHost
 } from "./studio-core.js";
 import { StudioSsoService } from "./studio-sso.js";
 
@@ -127,9 +123,7 @@ function defaultRuntimeRoot(): string {
 }
 
 function defaultStaticRoot(runtimeRoot: string): string {
-  const candidates = [join(runtimeRoot, "desktop-build", "renderer"), join(runtimeRoot, "desktop", "renderer")];
-  const found = candidates.find((candidate) => existsSync(join(candidate, "index.html")));
-  return found || candidates[0];
+  return join(runtimeRoot, "studio-build", "renderer");
 }
 
 function defaultPdfRoot(): string | undefined {
@@ -359,43 +353,19 @@ function clipboardWrite(text: string, platform: NodeJS.Platform): void {
   throw new Error(`Could not write to the system clipboard. ${lastError}`);
 }
 
-function createEmptyBrowserSession(): StudioBrowserSession {
-  return {
-    cookies: {
-      get: async () => [],
-      remove: async () => undefined,
-      set: async () => undefined
-    },
-    clearStorageData: async () => undefined
-  };
-}
-
 export function createStudioWebHost(options: {
   userDataPath: string;
   runtimeRoot: string;
   platform?: NodeJS.Platform;
 }): StudioHost {
   const platform = options.platform || process.platform;
-  const emptySession = createEmptyBrowserSession();
   const ssoService = new StudioSsoService();
   const sessionResult = (session: SsoSessionData) => ({
     session,
     api: createSessionApiClient(session.baseUrl, session.sesskey, session.cookies)
   });
-  const sso: StudioSsoHost = {
-    createSessionView: (_baseUrl: string): StudioView => {
-      throw new Error("The web Studio does not use Electron SSO session views.");
-    },
-    closeSessionView: (_view: StudioView | undefined) => undefined,
-    getPartition: (_name: string) => emptySession,
-    createLoginWindow: (_options: Record<string, unknown>): StudioWindow => {
-      throw new Error("The web Studio does not use Electron SSO login windows.");
-    }
-  };
-
   return {
     userDataPath: options.userDataPath,
-    sso,
     ssoLogin: async (baseUrl) => sessionResult(await ssoService.login(baseUrl)),
     restoreSsoSession: async (session) => session.cookies.length > 0 ? sessionResult(session) : null,
     clearSsoBrowserData: async (_options) => ssoService.cancel(),
@@ -405,7 +375,6 @@ export function createStudioWebHost(options: {
       mcp.installMcpServer({ command: process.execPath, args: [join(options.runtimeRoot, "dist", "mcp-entry.js")] });
     },
     sendAgentEvent: () => undefined,
-    restoreMainWindow: () => undefined,
     openPath: async (path: string) => {
       try {
         await openSystemTarget(path, platform);

@@ -18,7 +18,6 @@
     "LICENSE"
   ],
   "dependencies": {
-    "electron": "41.10.3",
     "uit-runtime": "1.3.5"
   },
   "engines": {
