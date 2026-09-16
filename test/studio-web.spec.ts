@@ -105,3 +105,47 @@ test("opens the current Studio renderer through the authenticated web bridge", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("reconnects the event stream and preserves buffered and live events", async ({ page }) => {
+  const { server, directory } = await startFixtureServer();
+  let eventAttempts = 0;
+  await page.route("**/api/events", async (route) => {
+    eventAttempts += 1;
+    if (eventAttempts === 1) {
+      // Return a valid SSE response whose connection closes after the initial
+      // comment. This exercises browser-managed reconnect behavior after the
+      // stream has opened, rather than a pre-response request failure.
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" },
+        body: ": connected\n\n"
+      });
+      return;
+    }
+    await route.continue();
+  });
+  try {
+    let eventResponses = 0;
+    const reconnectResponse = page.waitForResponse((response) => response.url().endsWith("/api/events") && response.status() === 200 && ++eventResponses === 2);
+    await page.goto(server.launchUrl());
+    await expect(page.locator("#account-label")).toHaveText("Course accounts (2)");
+    await page.evaluate(() => {
+      (window as any).__sseProbe = [];
+      (window as any).__removeSseProbe = window.uit.agent.onEvent((message: unknown) => (window as any).__sseProbe.push(message));
+    });
+
+    const buffered = { method: "test/reconnect", params: { sequence: 1 } };
+    server.publish(buffered);
+    await reconnectResponse;
+    await expect.poll(() => page.evaluate(() => (window as any).__sseProbe)).toEqual([buffered]);
+
+    const live = { method: "test/reconnect", params: { sequence: 2 } };
+    server.publish(live);
+    await expect.poll(() => page.evaluate(() => (window as any).__sseProbe)).toEqual([buffered, live]);
+    expect(eventAttempts).toBe(2);
+  } finally {
+    await page.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
