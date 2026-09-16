@@ -106,8 +106,6 @@ function smokeEnvironment(profile) {
     UIT_DISABLE_CONFIG: "1",
     CODEX_HOME: join(profile, "codex")
   };
-  delete env.UIT_STUDIO_ELECTRON;
-  delete env.UIT_STUDIO_WEB;
   return env;
 }
 
