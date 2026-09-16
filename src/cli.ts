@@ -26,6 +26,7 @@ import {
 } from "./commands.js";
 import { runMcpServer, installMcpServer } from "./mcp-server.js";
 import { cmdLoginSso, type SsoLoginLauncher } from "./sso-login.js";
+import { VERSION } from "./version.js";
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
 const LEGACY_SITE_BASE_URL = "https://coursesold.uit.edu.vn";
@@ -124,6 +125,7 @@ export function createProgram(
   program
     .name("uit")
     .description("CLI for courses.uit.edu.vn (Moodle LMS at UIT).")
+    .version(VERSION, "-v, --version", "output the version number")
     .addHelpText("after", WORKFLOW)
     .option("--json", "JSON output for scripts and agents")
     .exitOverride();
@@ -327,7 +329,7 @@ export async function main(argv = process.argv, api: ApiClient = defaultApiClien
       return 0;
     }
     if (error && typeof error === "object" && "exitCode" in error && "message" in error && !(error instanceof CliError)) {
-      const exitCode = Number((error as any).exitCode || 1);
+      const exitCode = Number((error as any).exitCode ?? 1);
       if ((error as any).code !== "commander.helpDisplayed") return exitCode;
       return 0;
     }

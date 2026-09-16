@@ -93,6 +93,7 @@ Your Moodle, at terminal speed.
 
 ```bash
 npm install -g uit-cli
+uit --version
 ```
 
 Or install the signed-checksum standalone release:
@@ -107,6 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/ins
 
 ```bash
 npm install -g uit-cli
+uit --version
 ```
 
 Or use the standalone release:
@@ -123,6 +125,7 @@ Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
 
 ```powershell
 npm install -g uit-cli
+uit --version
 ```
 </details>
 
