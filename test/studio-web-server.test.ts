@@ -198,4 +198,14 @@ describe("Studio web server", () => {
     expect(replayFrame).toContain('"sequence":2');
     await replayReader.cancel();
   });
+
+  it("closes an open SSE stream without waiting for the browser", async () => {
+    const { server } = await createServer();
+    const session = await authenticate(server);
+    const stream = await request(server, "/api/events", { headers: { Cookie: session.cookie } });
+    const reader = stream.body!.getReader();
+    await reader.read();
+    await expect(server.close()).resolves.toBeUndefined();
+    await reader.cancel().catch(() => undefined);
+  });
 });

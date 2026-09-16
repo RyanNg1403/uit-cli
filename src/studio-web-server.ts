@@ -767,7 +767,10 @@ export async function startStudioWebServer(options: StudioWebServerOptions = {})
       sessions.clear();
       for (const client of clients) {
         clients.delete(client);
-        client.end();
+        // SSE responses are intentionally long-lived. Destroy them during
+        // shutdown so server.close() cannot wait for a browser reconnect or
+        // an otherwise-open event stream to finish naturally.
+        client.destroy();
       }
       await core?.shutdown().catch(() => undefined);
       await new Promise<void>((resolveClose) => {

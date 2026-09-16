@@ -97,6 +97,7 @@ test("opens the current Studio renderer through the authenticated web bridge", a
     const hash = await page.evaluate(() => window.location.hash);
     expect(hash).toBe("");
   } finally {
+    await page.close();
     await server.close();
     await rm(directory, { recursive: true, force: true });
   }

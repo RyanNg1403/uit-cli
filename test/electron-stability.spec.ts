@@ -272,6 +272,11 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
         });
       }
     })();
+    const stopStabilityHeartbeat = async () => {
+      stopHeartbeat = true;
+      wakeHeartbeat?.();
+      await heartbeat;
+    };
     const screenshot = async (name: string) => {
       const path = info.outputPath(`${name}.png`);
       await window.screenshot({ path });
@@ -426,6 +431,10 @@ test("one hidden Electron process survives an offline navigation and PDF soak", 
     expect(log.workers.filter((event) => event.event === "created")).toHaveLength(log.cycles);
     expect(log.soakDurationMs).toBeGreaterThanOrEqual(60_000);
     expect(log.heartbeats.length).toBeGreaterThanOrEqual(15);
+    // Do not let the background renderer evaluation race the deliberate
+    // reload below. An execution-context reset during navigation is not an
+    // application failure, but it is still observable as a failed heartbeat.
+    await stopStabilityHeartbeat();
     await window.reload();
     await expect(window.locator(".course-row")).toHaveCount(19);
     await navigation();
