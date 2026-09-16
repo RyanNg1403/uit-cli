@@ -171,7 +171,7 @@ async function waitForServer(
 }
 
 export function printStudioWebHelp(): void {
-  console.log("Usage: uit-studio --web [options]");
+  console.log("Usage: uit-studio [options]");
   console.log();
   console.log("Options:");
   console.log("  --no-open     print the temporary launch URL instead of opening it");

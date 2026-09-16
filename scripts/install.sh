@@ -3,7 +3,7 @@
 set -eu
 
 # This bootstrap script intentionally requires a POSIX shell. Windows users
-# should use `npm install -g uit-cli` or `npm install -g uit-studio` instead.
+# should use scripts/install.ps1 for the native Studio package.
 repository="${UIT_INSTALL_REPOSITORY:-RyanNg1403/uit-cli}"
 release="${UIT_INSTALL_VERSION:-latest}"
 mode="cli"
@@ -12,12 +12,13 @@ usage() {
   cat <<'EOF'
 Install UIT CLI, UIT Studio, or both from release assets.
 
-This curl installer is POSIX-only. Windows users should use npm.
+This curl installer is POSIX-only. Windows users should use the PowerShell
+installer at scripts/install.ps1 on Windows.
 
 Usage:
   install.sh                 Install UIT CLI (default)
   install.sh --cli           Install UIT CLI
-  install.sh --studio        Install UIT Studio for macOS or Linux
+  install.sh --studio        Install the native web Studio for macOS or Linux
   install.sh --all           Install UIT CLI and UIT Studio
   install.sh --help          Show this help
 
@@ -191,84 +192,17 @@ install_cli() {
   esac
 }
 
-install_macos_studio() {
+install_posix_studio() (
   command -v curl >/dev/null 2>&1 || fail "curl is required."
-  command -v shasum >/dev/null 2>&1 || fail "shasum is required."
-  command -v ditto >/dev/null 2>&1 || fail "ditto is required."
-
+  command -v tar >/dev/null 2>&1 || fail "tar is required."
   case "$(uname -m)" in
-    arm64) architecture="arm64" ;;
-    *) fail "unsupported Mac architecture: $(uname -m)" ;;
-  esac
-
-  asset="UIT-Studio-macos-${architecture}.zip"
-  base_url="$(release_base_url)"
-
-  temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/uit-studio.XXXXXX")"
-  replacement_directory=""
-  target_application=""
-  backup_application=""
-  replacement_started=0
-  cleanup() {
-    status=$?
-    trap - EXIT HUP INT TERM
-    if [ "$replacement_started" -eq 1 ] && [ -n "$backup_application" ] && [ -e "$backup_application" ]; then
-      [ -z "$target_application" ] || rm -rf "$target_application"
-      mv "$backup_application" "$target_application" || :
-    fi
-    [ -z "$replacement_directory" ] || rm -rf "$replacement_directory"
-    rm -rf "$temporary_directory"
-    exit "$status"
-  }
-  trap cleanup EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-
-  printf 'Downloading UIT Studio for macOS (%s)...\n' "$architecture"
-  curl --fail --silent --show-error --location \
-    --output "$temporary_directory/$asset" "$base_url/$asset"
-  curl --fail --silent --show-error --location \
-    --output "$temporary_directory/$asset.sha256" "$base_url/$asset.sha256"
-
-  (
-    cd "$temporary_directory"
-    shasum --algorithm 256 --check "$asset.sha256"
-  ) || fail "the downloaded UIT Studio archive failed checksum verification."
-
-  ditto -x -k "$temporary_directory/$asset" "$temporary_directory/unpacked"
-  source_application="$temporary_directory/unpacked/UIT Studio.app"
-  [ -d "$source_application" ] || fail "the release archive does not contain UIT Studio.app."
-
-  applications_directory="${UIT_INSTALL_APPLICATIONS_DIR:-$HOME/Applications}"
-  target_application="$applications_directory/UIT Studio.app"
-  mkdir -p "$applications_directory"
-  replacement_directory="$(mktemp -d "$applications_directory/.uit-studio-install.XXXXXX")"
-  staged_application="$replacement_directory/UIT Studio.app"
-  backup_application="$replacement_directory/UIT Studio.previous.app"
-
-  # Complete the potentially slow copy before touching an existing install.
-  ditto "$source_application" "$staged_application" \
-    || fail "UIT Studio could not be staged. The previous installation was not changed."
-
-  if [ -e "$target_application" ]; then
-    replacement_started=1
-    mv "$target_application" "$backup_application"
-  fi
-  if ! mv "$staged_application" "$target_application"; then
-    fail "UIT Studio could not be installed. The previous installation was restored."
-  fi
-  replacement_started=0
-
-  printf '\nUIT Studio was installed at %s\n' "$target_application"
-  printf 'This free build is unsigned. If macOS blocks the first launch, use Open Anyway in System Settings > Privacy & Security.\n'
-}
-
-install_linux_studio() (
-  command -v curl >/dev/null 2>&1 || fail "curl is required."
-  case "$(uname -m)" in
-    x86_64|amd64) architecture="x64" ;;
-    *) fail "unsupported Linux architecture for UIT Studio: $(uname -m)" ;;
+    arm64)
+      [ "$(uname -s)" = "Darwin" ] || fail "unsupported Linux architecture for UIT Studio: arm64"; platform="macos"; platform_label="macOS"; architecture="arm64" ;;
+    x86_64|amd64)
+      [ "$(uname -s)" = "Linux" ] || fail "unsupported Mac architecture for UIT Studio: $(uname -m)"; platform="linux"; platform_label="Linux"; architecture="x64" ;;
+    aarch64)
+      [ "$(uname -s)" = "Linux" ] || fail "unsupported architecture for UIT Studio: $(uname -m)"; platform="linux"; platform_label="Linux"; architecture="arm64" ;;
+    *) fail "unsupported architecture for UIT Studio: $(uname -m)" ;;
   esac
   if command -v sha256sum >/dev/null 2>&1; then
     verify_checksum() { sha256sum --check "$1"; }
@@ -278,19 +212,27 @@ install_linux_studio() (
     fail "sha256sum or shasum is required."
   fi
 
-  asset="UIT-Studio-linux-${architecture}.AppImage"
+  asset="UIT-Studio-web-${platform}-${architecture}.tar.gz"
   base_url="$(release_base_url)"
   studio_directory="${UIT_INSTALL_STUDIO_DIR:-$HOME/.uit/studio/app}"
-  target_application="$studio_directory/UIT-Studio.AppImage"
   binary_directory="${UIT_INSTALL_BIN_DIR:-$HOME/.local/bin}"
   launcher="$binary_directory/uit-studio"
   temporary_directory="$(mktemp -d "${TMPDIR:-/tmp}/uit-studio.XXXXXX")"
-  temporary_application=""
+  replacement_directory=""
+  target_directory="$studio_directory"
+  backup_directory=""
+  replacement_started=0
   temporary_launcher=""
   cleanup() {
     status=$?
     trap - EXIT HUP INT TERM
-    [ -z "$temporary_application" ] || rm -f "$temporary_application"
+    if [ "$replacement_started" -eq 1 ]; then
+      rm -rf "$target_directory"
+      if [ -n "$backup_directory" ] && [ -e "$backup_directory" ]; then
+        mv "$backup_directory" "$target_directory" || :
+      fi
+    fi
+    [ -z "$replacement_directory" ] || rm -rf "$replacement_directory"
     [ -z "$temporary_launcher" ] || rm -f "$temporary_launcher"
     rm -rf "$temporary_directory"
     exit "$status"
@@ -300,14 +242,17 @@ install_linux_studio() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
 
-  mkdir -p "$studio_directory" "$binary_directory"
   if [ -e "$launcher" ] || [ -L "$launcher" ]; then
-    if [ ! -L "$launcher" ] || [ "$(readlink "$launcher")" != "$target_application" ]; then
+    if [ ! -L "$launcher" ] || [ "$(readlink "$launcher")" != "$target_directory/bin/uit-studio" ]; then
       fail "$launcher already exists and is not managed by the UIT installer."
     fi
   fi
 
-  printf 'Downloading UIT Studio for Linux (%s)...\n' "$architecture"
+  target_parent="$(dirname "$target_directory")"
+  mkdir -p "$target_parent" "$binary_directory"
+  replacement_directory="$(mktemp -d "$target_parent/.uit-studio-install.XXXXXX")"
+
+  printf 'Downloading UIT Studio for %s (%s)...\n' "$platform_label" "$architecture"
   curl --fail --silent --show-error --location \
     --output "$temporary_directory/$asset" "$base_url/$asset"
   curl --fail --silent --show-error --location \
@@ -317,19 +262,43 @@ install_linux_studio() (
     verify_checksum "$asset.sha256"
   ) || fail "the downloaded UIT Studio archive failed checksum verification."
 
-  temporary_application="$(mktemp "$studio_directory/.UIT-Studio.AppImage.XXXXXX")"
-  cp "$temporary_directory/$asset" "$temporary_application"
-  chmod 700 "$temporary_application"
-  mv -f "$temporary_application" "$target_application"
-  temporary_application=""
+  while IFS= read -r archive_entry; do
+    case "$archive_entry" in
+      uit-studio|uit-studio/*) ;;
+      *) fail "the downloaded UIT Studio archive contains an unsafe path." ;;
+    esac
+  done <<EOF
+$(tar -tzf "$temporary_directory/$asset")
+EOF
+  tar -xzf "$temporary_directory/$asset" -C "$replacement_directory"
+  source_directory="$replacement_directory/uit-studio"
+  [ -x "$source_directory/bin/uit-studio" ] || fail "the release archive does not contain the native UIT Studio launcher."
+  [ -x "$source_directory/bin/node" ] || fail "the release archive does not contain the bundled Node.js runtime."
+
+  backup_directory="$replacement_directory/previous"
+  if [ -e "$target_directory" ]; then
+    replacement_started=1
+    mv "$target_directory" "$backup_directory"
+  fi
+  if ! mv "$source_directory" "$target_directory"; then
+    fail "UIT Studio could not be installed. The previous installation was restored."
+  fi
+  replacement_started=1
 
   temporary_launcher="$binary_directory/.uit-studio-launcher.$$"
   rm -f "$temporary_launcher"
-  ln -s "$target_application" "$temporary_launcher"
-  mv -f "$temporary_launcher" "$launcher"
+  ln -s "$target_directory/bin/uit-studio" "$temporary_launcher"
+  if ! mv -f "$temporary_launcher" "$launcher"; then
+    temporary_launcher=""
+    fail "UIT Studio launcher could not be installed. The previous installation was restored."
+  fi
   temporary_launcher=""
+  replacement_started=0
+  rm -rf "$replacement_directory"
+  replacement_directory=""
 
-  printf '\nUIT Studio was installed at %s\n' "$target_application"
+  printf '\nUIT Studio was installed at %s\n' "$launcher"
+  printf 'This command starts the local web Studio in your default browser.\n'
   case ":$PATH:" in
     *":$binary_directory:"*) ;;
     *) printf 'Add %s to your PATH to run uit-studio from any terminal.\n' "$binary_directory" ;;
@@ -338,9 +307,8 @@ install_linux_studio() (
 
 install_studio() {
   case "$(uname -s)" in
-    Darwin) install_macos_studio ;;
-    Linux) install_linux_studio ;;
-    *) fail "UIT Studio release assets are available for macOS and Linux; use npm on Windows." ;;
+    Darwin|Linux) install_posix_studio ;;
+    *) fail "Use scripts/install.ps1 -Studio for the native Windows Studio package." ;;
   esac
 }
 

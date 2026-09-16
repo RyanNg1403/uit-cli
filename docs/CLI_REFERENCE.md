@@ -1,18 +1,81 @@
-# CLI Reference
+# UIT CLI and Studio CLI Reference
 
-Full reference for every `uit` command. For a quick overview, see [README.md](../README.md).
+This reference covers both user-facing commands:
+
+| Command | Purpose |
+|---|---|
+| `uit` | Terminal-first access to UIT Moodle courses, materials, assignments, and submissions. |
+| `uit-studio` | Starts the local UIT Studio backend and opens the Studio web app in the default browser. |
+
+For installation instructions, see [README.md](../README.md). The canonical
+Studio command is `uit-studio`; this project does not add `uit studio`.
+
+## `uit-studio`
+
+UIT Studio is a local web application. The command starts (or reuses) one
+loopback-only Studio backend and opens its authenticated URL in the system
+browser. npm and native installations expose the same command and behavior.
+
+```bash
+uit-studio
+```
+
+The browser used to display Studio may be Chrome, Edge, Firefox, Safari, or
+another current browser. UIT SSO is handled separately by the Studio-managed,
+package-owned Playwright Chromium runtime, so users do not need to install a
+browser specifically for sign-in. The temporary SSO browser closes after the
+session is captured.
+
+### Studio options
+
+| Flag | Description |
+|---|---|
+| `-v, --version` | Print the installed Studio package version and exit without starting anything. |
+| `-h, --help` | Show Studio command help and exit. |
+| `--no-open` | Start or reuse the backend and print the temporary URL without opening a browser. |
+| `--foreground` | Keep a newly started backend attached to the terminal. Useful for diagnostics. |
+| `--stop` | Stop the current user's running Studio backend. |
+
+Examples:
+
+```bash
+uit-studio --version
+uit-studio --no-open
+uit-studio --foreground
+uit-studio --stop
+```
+
+`--no-open`, `--foreground`, and `--stop` are lifecycle and diagnostic
+options. They do not select a separate web mode; normal `uit-studio` launch
+already uses the web app.
+
+### Studio authentication and shared state
+
+Sign in through the Studio UI with UIT SSO or a legacy Moodle account. Studio
+shares the canonical session store at `~/.uit/sessions.json` with `uit` and
+preserves course workspaces and Studio state under `~/.uit`.
+
+The native Studio archive includes Node.js and the pinned SSO Chromium runtime.
+The npm installation requires Node.js 24.0+ and provisions that Chromium
+revision during installation. Neither installation requires system Chrome,
+Edge, or Chromium for SSO.
 
 ---
 
-## Global flags
+## `uit`
+
+The `uit` command is the terminal-first Moodle interface. Run `uit --help` for
+the workflow diagram and ID chain.
+
+### Global flags
 
 | Flag | Description |
 |---|---|
 | `-v, --version` | Print the installed CLI version and exit. |
 | `--json` | Output structured JSON on stdout. Errors also return JSON. |
-| `--help` | Show help with workflow diagram and ID chain. |
+| `-h, --help` | Show help with workflow diagram and ID chain. |
 
-## URL support
+### URL support
 
 Any command that accepts an ID also accepts a Moodle URL. The CLI extracts the ID from the URL automatically.
 
@@ -25,7 +88,7 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ---
 
-## `uit login` (or `uit init`)
+### `uit login` (or `uit init`)
 
 Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` restores the v1.0/v1.1 Student ID/password flow for the old Moodle portal.
 
@@ -41,8 +104,6 @@ uit login --legacy
 
 # Non-interactive legacy token setup:
 uit login --legacy --username YOUR_STUDENT_ID --password YOUR_PASSWORD
-
-
 ```
 
 Prefer the interactive browser login (`uit login`) or `uit login --legacy` for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
@@ -53,7 +114,7 @@ SSO and token sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix)
 
 ---
 
-## `uit courses`
+### `uit courses`
 
 List enrolled courses. Each row includes a **course ID** used by most other commands.
 
@@ -66,7 +127,7 @@ uit courses --current    # current semester only (heuristic based on category ID
 
 ---
 
-## `uit contents <course_id>`
+### `uit contents <course_id>`
 
 Browse the full course tree — sections, modules, and files.
 
@@ -95,7 +156,7 @@ The left column is the **module ID** — pass it to `uit view`.
 
 ---
 
-## `uit view <id>`
+### `uit view <id>`
 
 Inspect any module. Type-aware — shows different details based on the module type. Accepts a **module ID** (from `uit contents`) or an **assignment ID** (from `uit deadlines`).
 
@@ -144,7 +205,7 @@ Description:
 
 ---
 
-## `uit view-discussion <discussion_id>`
+### `uit view-discussion <discussion_id>`
 
 Read all posts in a forum discussion thread. Shows author, date, message content, extracted URLs, and attachments.
 
@@ -156,7 +217,7 @@ Works on any forum discussion — announcements, course forums, or any discussio
 
 ---
 
-## `uit reply <post_id> <message>`
+### `uit reply <post_id> <message>`
 
 Reply to a forum post. The subject line defaults to `Re: <original subject>`.
 
@@ -173,7 +234,7 @@ The `post_id` comes from `uit view-discussion`.
 
 ---
 
-## `uit announcements <course_id>`
+### `uit announcements <course_id>`
 
 Shortcut to read the "Cac thong bao" (announcements) forum that every course has. Automatically finds the forum module.
 
@@ -190,7 +251,7 @@ uit announcements 19438 --full     # show full message content with URLs
 
 ---
 
-## `uit download <course_id>`
+### `uit download <course_id>`
 
 Download course files. Preserves the Moodle folder structure (section/subfolder/file). Existing files are skipped by default.
 
@@ -219,7 +280,7 @@ A `.h5p` file is a ZIP — you can also open it directly in [H5P](https://h5p.or
 
 ---
 
-## `uit deadlines`
+### `uit deadlines`
 
 List assignment deadlines across all courses. Each row includes an **assignment ID** for use with `uit submit` and `uit status`.
 
@@ -235,7 +296,7 @@ Assignments with no due date show an empty DUE column but are still listed.
 
 ---
 
-## `uit events`
+### `uit events`
 
 List upcoming events across all courses — assignments, quizzes, calendar events, and more. A superset of `uit deadlines` that includes non-assignment events.
 
@@ -258,7 +319,7 @@ Uses Moodle's calendar API (`core_calendar_get_action_events_by_timesort`) under
 
 ---
 
-## `uit open <id>`
+### `uit open <id>`
 
 Open a Moodle page in the default browser. Accepts module IDs, assignment IDs, or Moodle URLs.
 
@@ -281,7 +342,7 @@ By default, the ID is treated as a module ID (cmid). If that fails, the CLI trie
 
 ---
 
-## `uit submit <assign_id> <file>`
+### `uit submit <assign_id> <file>`
 
 Upload a file and submit it to an assignment. Shows confirmation with submission status.
 
@@ -293,7 +354,7 @@ The `assign_id` comes from `uit deadlines` (ID column) or `uit view` on an assig
 
 ---
 
-## `uit status <assign_id>`
+### `uit status <assign_id>`
 
 Check your submission status, attempt number, submitted files, and grade (if available).
 
@@ -303,7 +364,7 @@ uit status 101617
 
 ---
 
-## `uit grades <course_id>`
+### `uit grades <course_id>`
 
 Show grade report for a course.
 
@@ -315,7 +376,7 @@ uit grades 19207
 
 ---
 
-## `uit functions [keyword]`
+### `uit functions [keyword]`
 
 List the 420+ Moodle web service functions available to your token. Grouped by module.
 
@@ -328,7 +389,7 @@ uit functions quiz                # search quiz functions
 
 ---
 
-## `uit raw <function> [key=value ...]`
+### `uit raw <function> [key=value ...]`
 
 Call any Moodle API function directly. The escape hatch for anything the built-in commands don't cover.
 
@@ -360,7 +421,23 @@ For full parameter schemas, see the [Moodle Web Service API functions reference]
 
 ---
 
-## JSON mode
+### `uit mcp`
+
+Run the UIT Model Context Protocol (MCP) server for Codex over stdin/stdout,
+or register it in the Codex configuration.
+
+```bash
+uit mcp          # Run the long-lived MCP server; normally started by Codex
+uit mcp install  # Add or update [mcp_servers.uit] in ~/.codex/config.toml
+```
+
+`uit mcp install` writes the configuration atomically and verifies the saved
+entry. The MCP server is available only from inside a UIT course workspace and
+uses the active session from `~/.uit/sessions.json`.
+
+---
+
+### JSON mode
 
 Add `--json` before any command. All output becomes structured JSON on stdout.
 
@@ -384,7 +461,7 @@ Errors exit with code 1. The `hint` field is included when the CLI can suggest a
 
 ---
 
-## Configuration
+### Configuration
 
 | Variable | Description |
 |---|---|
@@ -408,7 +485,14 @@ uit-cli/
     api.ts        # Moodle REST client (call, upload, download)
     config.ts     # shared session configuration
     output.ts     # output formatting and ID/URL helpers
+    studio-core.ts          # transport-neutral Studio service
+    studio-web-server.ts    # loopback web transport and lifecycle control
+    studio-web-launcher.ts  # 'uit-studio' backend launcher
+    studio-sso.ts           # package-owned Chromium SSO service
+  packages/
+    uit-studio/             # published 'uit-studio' launcher package
+    uit-runtime/            # shared compiled Studio runtime package
   test/           # regression tests with mocked Moodle responses
-  package.json    # npm package definition and 'uit' binary
+  package.json    # root package definition and 'uit' binary
   tsconfig.json   # TypeScript compiler configuration
 ```

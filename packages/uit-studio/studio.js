@@ -23,10 +23,17 @@ if (launcherArgs.length === 1 && (launcherArgs[0] === "--help" || launcherArgs[0
   console.log("Options:");
   console.log("  -v, --version  output the version number");
   console.log("  -h, --help     display help for command");
+  console.log("  --no-open      start/reuse Studio without opening the browser");
+  console.log("  --foreground   keep the Studio backend attached to this terminal");
+  console.log("  --stop         stop the current user's Studio backend");
   process.exit(0);
 }
 
-const webMode = process.env.UIT_STUDIO_WEB === "1";
+// Local web launch is the canonical package behavior. The environment-only
+// Electron escape hatch remains available until the migration's final cutover
+// removes the legacy adapter entirely; it is deliberately not documented as a
+// user-facing command or flag.
+const webMode = process.env.UIT_STUDIO_WEB === "1" || process.env.UIT_STUDIO_ELECTRON !== "1";
 const require = createRequire(import.meta.url);
 const packageRoot = dirname(require.resolve("uit-runtime/package.json"));
 

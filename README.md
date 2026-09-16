@@ -18,8 +18,9 @@
 
 Your course space. Built to focus.
 
-The npm installation requires [Node.js 24.0+](https://nodejs.org/). Native
-release packages include their own runtime.
+Both installation methods launch the same local web Studio with `uit-studio`.
+The npm installation requires [Node.js 24.0+](https://nodejs.org/); native
+release packages include Node.js and the SSO Chromium runtime.
 
 <details>
 <summary>macOS</summary>
@@ -29,7 +30,7 @@ npm install -g uit-studio
 uit-studio
 ```
 
-Or install the Apple Silicon macOS release app:
+Or install the Apple Silicon native web release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
@@ -44,7 +45,7 @@ npm install -g uit-studio
 uit-studio
 ```
 
-Or install the Linux AppImage release:
+Or install the Linux native web release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio
@@ -54,14 +55,23 @@ curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/ins
 <details>
 <summary>Windows</summary>
 
-Install [Node.js 24.0+](https://nodejs.org/), then run in PowerShell:
+Install the native web release from PowerShell:
+
+```powershell
+$installer = Join-Path $env:TEMP "uit-studio-install.ps1"
+Invoke-WebRequest https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.ps1 -OutFile $installer
+powershell -ExecutionPolicy Bypass -File $installer -Studio
+uit-studio
+uit-studio --version
+```
+
+The npm alternative requires [Node.js 24.0+](https://nodejs.org/):
 
 ```powershell
 npm install -g uit-studio
 uit-studio
 ```
 
-Windows release installers are also available on the [Releases page](https://github.com/RyanNg1403/uit-cli/releases).
 </details>
 
 ### Agent mode requirement
