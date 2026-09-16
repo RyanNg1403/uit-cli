@@ -75,7 +75,7 @@ describe("curl installer", () => {
     const launcherDirectory = `${directory}/local-bin`;
     await promisify(execFile)("mkdir", ["-p", bin]);
     await writeFile(`${bin}/uname`, '#!/bin/sh\n[ "$1" = "-s" ] && printf "Linux\\n" || printf "x86_64\\n"\n');
-    await writeFile(`${bin}/curl`, '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--output" ]; then shift; printf "AppImage\\n" > "$1"; fi\n  shift\ndone\n');
+    await writeFile(`${bin}/curl`, '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--output" ]; then shift; printf "archive\\n" > "$1"; fi\n  shift\ndone\n');
     await writeFile(`${bin}/sha256sum`, "#!/bin/sh\nexit 0\n");
     await writeFile(`${bin}/tar`, '#!/bin/sh\ncase "$1" in\n  -t*) printf "uit-studio\\nuit-studio/bin\\nuit-studio/bin/uit-studio\\nuit-studio/bin/node\\n" ;;\n  -x*)\n    destination=""\n    while [ "$#" -gt 0 ]; do\n      if [ "$1" = "-C" ]; then shift; destination="$1"; fi\n      shift\n    done\n    mkdir -p "$destination/uit-studio/bin"\n    printf "#!/bin/sh\\n" > "$destination/uit-studio/bin/uit-studio"\n    printf "node\\n" > "$destination/uit-studio/bin/node"\n    chmod 755 "$destination/uit-studio/bin/uit-studio" "$destination/uit-studio/bin/node"\n    ;;\n  *) exit 1 ;;\nesac\n');
     await Promise.all(["uname", "curl", "sha256sum", "tar"].map((name) => chmod(`${bin}/${name}`, 0o755)));

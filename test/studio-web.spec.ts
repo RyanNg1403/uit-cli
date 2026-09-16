@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test, expect } from "playwright/test";
-import { courses, fileTypes } from "./fixtures/desktop";
+import { courses, fileTypes } from "./fixtures/studio";
 import { startStudioWebServer, type StudioWebServer } from "../src/studio-web-server.js";
 
 const currentSessions = [
@@ -74,7 +74,7 @@ function fakeCore() {
 async function startFixtureServer(): Promise<{ server: StudioWebServer; directory: string }> {
   const directory = await mkdtemp(join(tmpdir(), "uit-studio-web-browser-"));
   const server = await startStudioWebServer({
-    staticRoot: resolve("desktop/renderer"),
+    staticRoot: resolve("studio/renderer"),
     controlFile: join(directory, "server.json"),
     userDataPath: join(directory, "profile"),
     createCore: async (_host) => fakeCore()

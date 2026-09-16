@@ -157,7 +157,6 @@ async function main() {
     const healthBody = await health.json();
     assert(healthBody.ok === true && healthBody.pid === control.pid && healthBody.port === control.port, "Native Studio health response is inconsistent with its control record.");
 
-    assert(!existsSync(join(root, "app", "node_modules", "electron")), "Native Studio archive contains Electron.");
     const browserRoot = join(runtimeRoot, "browsers");
     const manifest = JSON.parse(await readFile(join(browserRoot, "chromium.json"), "utf8"));
     const executablePath = resolve(browserRoot, manifest.executablePath);
