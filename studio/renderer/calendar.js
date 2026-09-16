@@ -50,6 +50,7 @@ window.UitCalendar = class {
 
   reset() {
     this.generation++;
+    this.setLoading(false);
     this.events = [];
     this.accounts = [];
     this.day = null;
@@ -72,18 +73,25 @@ window.UitCalendar = class {
     this.get("reminder-status").textContent = result.error || (result.supported ? "Desktop and in-app reminders are available while Studio is running." : "Desktop notifications are unavailable. In-app reminders are available while Studio is running.");
   }
 
+  setLoading(loading) {
+    this.loading = loading;
+    this.root.classList.toggle("calendar-loading", loading);
+    this.root.setAttribute("aria-busy", String(loading));
+    this.get("refresh").disabled = loading;
+  }
+
   async load(refresh = false) {
     const generation = ++this.generation;
     const year = this.date.getFullYear(), month = this.date.getMonth() + 1;
     this.events = [];
+    this.setLoading(true);
     this.render();
-    this.get("refresh").disabled = true;
     this.get("status").textContent = "Loading calendar…";
     this.get("error").hidden = true;
-    this.root.setAttribute("aria-busy", "true");
     try {
       const result = await window.uit.calendar.list({ year, month, refresh });
       if (generation !== this.generation) return;
+      this.setLoading(false);
       this.events = result.events;
       this.accounts = result.accounts;
       this.options("account", "All accounts", this.accounts.map((account) => [JSON.stringify([account.baseUrl, account.userId]), `${new URL(account.baseUrl).host}${new URL(account.baseUrl).pathname.replace(/\/$/, "")} · ${account.userId}`]));
@@ -94,12 +102,12 @@ window.UitCalendar = class {
       this.get("status").textContent = !this.accounts.length ? "Connect a course account to see your calendar." : `${result.errors.length ? "Some accounts could not be updated. " : ""}Checked ${new Date(result.updatedAt).toLocaleTimeString()} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
     } catch (error) {
       if (generation !== this.generation) return;
+      this.setLoading(false);
+      this.render();
       this.get("error").hidden = false;
       this.get("error").textContent = error.message;
       this.get("status").textContent = "Calendar could not be loaded. Try refreshing.";
       this.get("agenda").replaceChildren();
-    } finally {
-      if (generation === this.generation) { this.get("refresh").disabled = false; this.root.removeAttribute("aria-busy"); }
     }
     try {
       const settings = await window.uit.calendar.settings();
@@ -207,6 +215,7 @@ window.UitCalendar = class {
         week.append(surface);
         cell.style.gridRow = "1";
         cell.type = "button";
+        cell.disabled = this.loading;
         cell.dataset.day = String(day);
         cell.setAttribute("aria-label", `${new Date(year, month, day).toLocaleDateString(undefined, { dateStyle: "full" })}, ${filtered.filter((event) => this.onDay(event, day)).length} events`);
         cell.setAttribute("aria-pressed", String(this.day === day));
@@ -242,6 +251,14 @@ window.UitCalendar = class {
     const events = filtered.filter((event) => this.day === null ? Array.from({ length: days }, (_, index) => index + 1).some((day) => this.onDay(event, day)) : this.onDay(event, this.day));
     const agenda = this.get("agenda");
     agenda.replaceChildren();
+    if (this.loading) {
+      for (let index = 0; index < 3; index++) {
+        const skeleton = this.element("div", undefined, "calendar-agenda-skeleton");
+        skeleton.setAttribute("aria-hidden", "true");
+        agenda.append(skeleton);
+      }
+      return;
+    }
     if (!events.length) agenda.append(this.element("p", "No events for this selection. Moodle events and assignments with dates appear here.", "empty"));
     for (const event of events) {
       const card = this.element("details", undefined, "calendar-event");

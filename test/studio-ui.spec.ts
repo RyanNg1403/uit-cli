@@ -63,6 +63,29 @@ test("Calendar submission windows continue across weeks, reveal details and hand
   expect(widths.every((width) => width > 0 && width < 390)).toBe(true);
 });
 
+test("Calendar shows loading placeholders and clears them after success or failure", async ({ page, boot }, info) => {
+  await boot();
+  await control(page, "hold", "calendar.list");
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator("#view-calendar")).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator(".calendar-agenda-skeleton")).toHaveCount(3);
+  await expect(page.locator("#calendar-agenda")).not.toContainText("No events");
+  await expect(page.locator(".calendar-day").first()).toBeDisabled();
+  await page.screenshot({ path: info.outputPath("calendar-loading.png") });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await page.locator("#calendar-status").evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("none");
+  await control(page, "unhold", "calendar.list");
+  await control(page, "release", "calendar.list");
+  await expect(page.locator(".calendar-agenda-skeleton")).toHaveCount(0);
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await control(page, "fail", "calendar.list", "Calendar unavailable");
+  await page.locator("#calendar-refresh").click();
+  await expect(page.locator("#calendar-error")).toHaveText("Calendar unavailable");
+  await expect(page.locator("#view-calendar")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".calendar-agenda-skeleton")).toHaveCount(0);
+  await expect(page.locator("#calendar-refresh")).toBeEnabled();
+});
+
 test("Calendar recovers from errors and ignores stale month responses", async ({ page, boot }) => {
   await boot({ fail: { "calendar.list": "Calendar unavailable" } });
   await page.locator('[data-view="calendar"]').click();
