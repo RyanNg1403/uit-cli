@@ -8,6 +8,7 @@ Full reference for every `uit` command. For a quick overview, see [README.md](..
 
 | Flag | Description |
 |---|---|
+| `-v, --version` | Print the installed CLI version and exit. |
 | `--json` | Output structured JSON on stdout. Errors also return JSON. |
 | `--help` | Show help with workflow diagram and ID chain. |
 

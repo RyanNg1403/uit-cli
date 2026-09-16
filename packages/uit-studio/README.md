@@ -8,6 +8,7 @@ Desktop workspace for UIT Moodle courses, with optional Codex Agent mode.
 ```bash
 npm install -g uit-studio
 uit-studio
+uit-studio --version
 ```
 </details>
 
@@ -17,6 +18,7 @@ uit-studio
 ```bash
 npm install -g uit-studio
 uit-studio
+uit-studio --version
 ```
 
 Or install the Linux AppImage release:
@@ -34,6 +36,7 @@ Install [Node.js 20.19+](https://nodejs.org/), then run in PowerShell:
 ```powershell
 npm install -g uit-studio
 uit-studio
+uit-studio --version
 ```
 
 Release installers: [GitHub Releases](https://github.com/RyanNg1403/uit-cli/releases).
