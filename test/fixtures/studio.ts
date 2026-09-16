@@ -28,7 +28,7 @@ export const fileTypes = [
   { filename: "diagram.svg", mimetype: "image/svg+xml", text: '<svg onload="window.previewExecuted=true" />' },
   { filename: "archive.zip", mimetype: "application/zip", text: "not executable" },
   { filename: "slide.pdf", mimetype: "application/pdf", text: pdfFixture() },
-  { filename: "pixel.png", mimetype: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=" },
+  { filename: "pixel.png", mimetype: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=" },
   { filename: "fake.pdf", mimetype: "application/pdf", text: "<html>Not a PDF</html>" },
   { filename: "script.py", mimetype: "text/x-python", text: "print('hello from memory')" },
   { filename: "readme.md", mimetype: "text/markdown", text: "# Lesson notes in memory" },
