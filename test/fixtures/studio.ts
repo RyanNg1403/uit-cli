@@ -71,6 +71,8 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (failures[method]) { const message = failures[method]; delete failures[method]; throw new Error(message); }
     const save = () => { session?.setItem("mock.sessions", JSON.stringify(connected)); return status(); };
     if (method === "session.status") return status();
+    if (method === "calendar.announcements") return { items: [], errors: [] };
+    if (method === "calendar.openAnnouncement") return;
     if (method === "calendar.settings") { if (input) remindersEnabled = input.enabled; return { enabled: remindersEnabled, supported: true, error: "" }; }
     if (method === "calendar.list") return {
       accounts: connected, errors: [], updatedAt: Date.now(),
@@ -144,7 +146,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     unhold: (method: string) => held.delete(method),
   };
   window.uit = Object.fromEntries(Object.entries({
-    calendar: ["list", "settings", "open"],
+    calendar: ["list", "settings", "open", "announcements", "openAnnouncement"],
     session: ["status", "login", "ssoLogin", "logout"],
     courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
     codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect", "releaseLock", "lockStatus", "openDesktop", "readRollout", "writeClipboard"],

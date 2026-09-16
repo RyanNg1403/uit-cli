@@ -86,6 +86,58 @@ test("Calendar shows loading placeholders and clears them after success or failu
   await expect(page.locator("#calendar-refresh")).toBeEnabled();
 });
 
+test("Calendar announcements sort by update or posting date and use account filters", async ({ page, boot }, info) => {
+  await boot();
+  await page.evaluate(() => {
+    window.uit.calendar.announcements = async () => ({ errors: [], items: [
+      { key: "a", baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Older post, recently updated", author: "Lecturer", message: "<script>unsafe</script>", createdAt: 100, updatedAt: 400 },
+      { key: "b", baseUrl: "https://coursesold.uit.edu.vn", userId: 202, courseId: 1, courseName: "LEGACY-CS01", subject: "Newer post", author: "Lecturer", message: "Notice", createdAt: 300, updatedAt: 350 },
+      { key: "c", baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Unknown dates", author: "", message: "" },
+    ] });
+  });
+  await page.locator('[data-view="calendar"]').click();
+  const posts = page.locator("#calendar-announcements-list details");
+  await expect(posts).toHaveCount(3);
+  await expect(posts.first()).toContainText("Older post, recently updated");
+  await expect(posts.last()).toContainText("Posted: Unavailable · Updated: Unavailable");
+  await page.locator("#calendar-announcements-sort").selectOption("createdAt");
+  await expect(posts.first()).toContainText("Newer post");
+  await posts.first().locator("summary").click();
+  await posts.first().getByRole("button", { name: "Open announcement in Moodle" }).click();
+  expect((await calls(page, "calendar.openAnnouncement"))[0].input).toEqual({ key: "b" });
+  await page.locator("#calendar-account").selectOption(JSON.stringify([CURRENT, 101]));
+  await expect(posts).toHaveCount(2);
+  await expect(page.locator("#calendar-announcements-list script")).toHaveCount(0);
+  await page.locator("#calendar-announcements-title").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("calendar-announcements.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Calendar reveals announcements five at a time below deadline reminders", async ({ page, boot }) => {
+  await boot();
+  await page.evaluate(() => {
+    window.uit.calendar.announcements = async () => ({ errors: [], items: Array.from({ length: 12 }, (_, i) => ({
+      key: `post-${i}`, baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01",
+      subject: `Notice ${i}`, message: "Announcement content", createdAt: 100 + i, updatedAt: 200 + i,
+    })) });
+  });
+  await page.locator('[data-view="calendar"]').click();
+  const posts = page.locator("#calendar-announcements-list details");
+  await expect(posts).toHaveCount(5);
+  expect(await page.locator(".calendar-reminder-settings").evaluate((element) => Boolean(element.compareDocumentPosition(document.querySelector(".calendar-announcements")!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+  await posts.first().locator("summary").click();
+  await page.locator("#calendar-announcements-more").click();
+  await expect(posts).toHaveCount(10);
+  await expect(posts.first()).toHaveAttribute("open", "");
+  await expect(page.locator("#calendar-announcements-more")).toHaveText("Show 2 more announcements (10 of 12)");
+  await page.locator("#calendar-announcements-more").click();
+  await expect(posts).toHaveCount(12);
+  await expect(page.locator("#calendar-announcements-more")).toBeHidden();
+  await page.locator("#calendar-announcements-sort").selectOption("createdAt");
+  await expect(posts).toHaveCount(5);
+});
+
 test("Calendar recovers from errors and ignores stale month responses", async ({ page, boot }) => {
   await boot({ fail: { "calendar.list": "Calendar unavailable" } });
   await page.locator('[data-view="calendar"]').click();

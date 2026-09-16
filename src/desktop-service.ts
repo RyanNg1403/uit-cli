@@ -96,6 +96,8 @@ export interface AnnouncementSummary {
   author: string;
   message: string;
   timestamp?: number;
+  createdAt?: number;
+  updatedAt?: number;
   replies: number;
   courseId: number;
   moduleId?: number;
@@ -572,6 +574,8 @@ export async function listAnnouncements(courseId: number, api: ApiClient = defau
           author: cleanHtml(discussion.userfullname),
           message: cleanHtml(discussion.message),
           timestamp: Number(discussion.timemodified || discussion.created || 0) || undefined,
+          createdAt: Number(discussion.created) > 0 && Number.isFinite(Number(discussion.created)) ? Number(discussion.created) : undefined,
+          updatedAt: Number(discussion.timemodified) > 0 && Number.isFinite(Number(discussion.timemodified)) ? Number(discussion.timemodified) : undefined,
           replies: Number(discussion.numreplies || 0),
           files: filesFrom(discussion.attachments, discussion.messageinlinefiles),
           url: credentialFreeUrl(discussion.url),

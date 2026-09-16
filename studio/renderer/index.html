@@ -63,6 +63,14 @@
           <div class="calendar-agenda-heading"><h2 id="calendar-agenda-title">Events this month</h2><button id="calendar-all-days" class="text-button" hidden>Show whole month</button></div>
           <div id="calendar-agenda" class="calendar-agenda"></div>
           <details class="calendar-reminder-settings"><summary>Deadline reminders</summary><label class="calendar-toggle"><input id="calendar-reminders" type="checkbox" /> Remind me before deadlines</label><p class="muted">Reminders arrive within 24 hours and 1 hour of deadlines that Moodle marks as needing action. Studio must be running. Calendar checks for changes every 5 minutes; reminders are checked every minute. Times use your computer's time zone.</p><p id="calendar-reminder-status" class="muted" role="status"></p></details>
+          <section class="calendar-announcements" aria-labelledby="calendar-announcements-title">
+            <div class="calendar-agenda-heading"><h2 id="calendar-announcements-title">Course announcements</h2><div class="calendar-navigation"><label class="field">Sort by<select id="calendar-announcements-sort"><option value="updatedAt">Last updated</option><option value="createdAt">Date posted</option></select></label><button id="calendar-announcements-refresh" class="secondary-button">Refresh announcements</button></div></div>
+            <p class="muted">Across all dates · Newest first. Account, course and search filters apply.</p>
+            <p id="calendar-announcements-status" class="muted" role="status"></p>
+            <p id="calendar-announcements-error" class="form-error" role="alert" hidden></p>
+            <div id="calendar-announcements-list" class="calendar-agenda"></div>
+            <button id="calendar-announcements-more" class="text-button" hidden>Show more announcements</button>
+          </section>
         </section>
         <section id="view-agent" class="conversation" aria-label="Codex thread" hidden>
           <header class="thread-header">

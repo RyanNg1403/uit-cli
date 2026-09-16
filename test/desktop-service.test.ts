@@ -259,6 +259,17 @@ describe("desktop service", () => {
     call.mockRestore();
   });
 
+  it("keeps announcement posting and update dates separate without inventing missing dates", async () => {
+    const call = vi.spyOn(defaultApiClient, "call").mockImplementation(async (name) => {
+      if (name === "mod_forum_get_forums_by_courses") return [{ id: 12, cmid: 9, type: "news" }];
+      return { discussions: [{ discussion: 4, created: 100, timemodified: 200 }, { discussion: 5, created: 300 }] };
+    });
+    const posts = await listAnnouncements(42);
+    expect(posts.find((post) => post.id === 4)).toMatchObject({ createdAt: 100, updatedAt: 200 });
+    expect(posts.find((post) => post.id === 5)).toMatchObject({ createdAt: 300, updatedAt: undefined });
+    call.mockRestore();
+  });
+
   it("lists course participants and maps roles cleanly", async () => {
     const api = {
       call: vi.fn().mockResolvedValue([

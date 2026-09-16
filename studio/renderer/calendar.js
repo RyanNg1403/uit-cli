@@ -6,6 +6,9 @@ window.UitCalendar = class {
     this.date = new Date();
     this.date.setDate(1);
     this.events = [];
+    this.announcements = [];
+    this.announcementGeneration = 0;
+    this.announcementLimit = 5;
     this.accounts = [];
     this.generation = 0;
     this.day = null;
@@ -21,6 +24,9 @@ window.UitCalendar = class {
     this.get("all-days").onclick = () => { this.day = null; this.render(); };
     for (const id of ["course", "type", "search"]) this.get(id).addEventListener("input", () => this.render());
     this.get("account").onchange = () => { this.courseOptions(); this.render(); };
+    this.get("announcements-sort").onchange = () => { this.announcementLimit = 5; this.renderAnnouncements(); };
+    this.get("announcements-refresh").onclick = () => { void this.loadAnnouncements(true); };
+    this.get("announcements-more").onclick = () => { this.announcementLimit += 5; this.renderAnnouncements(); };
     this.get("reminders").onchange = async () => {
       const input = this.get("reminders");
       input.disabled = true;
@@ -46,10 +52,95 @@ window.UitCalendar = class {
     return document.body.textContent || "";
   }
 
-  show() { void this.load(); }
+  show() { void this.load(); void this.loadAnnouncements(); }
+
+  async loadAnnouncements(refresh = false) {
+    const generation = ++this.announcementGeneration;
+    this.announcementsLoading = true;
+    this.get("announcements-refresh").disabled = true;
+    this.get("announcements-list").setAttribute("aria-busy", "true");
+    this.get("announcements-status").textContent = "Loading announcements…";
+    this.get("announcements-error").hidden = true;
+    if (!this.announcements.length) {
+      const skeleton = this.element("div", undefined, "calendar-agenda-skeleton");
+      skeleton.setAttribute("aria-hidden", "true");
+      this.get("announcements-list").replaceChildren(skeleton);
+    }
+    try {
+      const result = await window.uit.calendar.announcements({ refresh });
+      if (generation !== this.announcementGeneration) return;
+      this.announcements = result.items;
+      this.announcementsLoading = false;
+      this.announcementLimit = 5;
+      this.courseOptions();
+      this.renderAnnouncements();
+      this.get("announcements-error").hidden = !result.errors.length;
+      this.get("announcements-error").textContent = result.errors.join(" ");
+      this.get("announcements-status").textContent = result.errors.length ? "Some sources could not be checked." : "";
+    } catch {
+      if (generation !== this.announcementGeneration) return;
+      this.announcementsLoading = false;
+      this.renderAnnouncements();
+      this.get("announcements-status").textContent = "";
+      this.get("announcements-error").hidden = false;
+      this.get("announcements-error").textContent = "Announcements could not be loaded. Try refreshing.";
+    } finally {
+      if (generation === this.announcementGeneration) {
+        this.get("announcements-refresh").disabled = false;
+        this.get("announcements-list").removeAttribute("aria-busy");
+      }
+    }
+  }
+
+  renderAnnouncements() {
+    const account = this.get("account").value, course = this.get("course").value;
+    const query = this.get("search").value.trim().toLocaleLowerCase();
+    const sort = this.get("announcements-sort").value;
+    const selection = JSON.stringify([account, course, query, sort]);
+    if (selection !== this.announcementSelection) { this.announcementLimit = 5; this.announcementSelection = selection; }
+    const entries = this.announcements.filter((entry) => (!account || this.accountKey(entry) === account) && (!course || this.courseKey(entry) === course)
+      && (!query || `${entry.subject} ${entry.courseName} ${entry.author} ${entry.message}`.toLocaleLowerCase().includes(query)))
+      .sort((a, b) => (b[sort] || 0) - (a[sort] || 0) || a.key.localeCompare(b.key));
+    const list = this.get("announcements-list");
+    const expanded = new Set([...list.querySelectorAll("details[open]")].map((card) => card.dataset.key));
+    list.replaceChildren();
+    this.get("announcements-more").hidden = entries.length <= this.announcementLimit;
+    this.get("announcements-more").textContent = `Show ${Math.min(5, Math.max(0, entries.length - this.announcementLimit))} more announcements (${Math.min(this.announcementLimit, entries.length)} of ${entries.length})`;
+    if (this.announcementsLoading && !this.announcements.length) {
+      const skeleton = this.element("div", undefined, "calendar-agenda-skeleton");
+      skeleton.setAttribute("aria-hidden", "true");
+      list.append(skeleton);
+      return;
+    }
+    if (!entries.length) list.append(this.element("p", "No announcements for this selection.", "empty"));
+    for (const entry of entries.slice(0, this.announcementLimit)) {
+      const card = this.element("details", undefined, "calendar-event");
+      card.dataset.key = entry.key;
+      card.open = expanded.has(entry.key);
+      const summary = this.element("summary");
+      summary.append(this.element("strong", entry.subject || "Announcement"));
+      summary.append(this.element("span", `${entry.courseName} · ${new URL(entry.baseUrl).host}${entry.author ? ` · ${entry.author}` : ""}`, "calendar-event-meta"));
+      const date = (timestamp) => timestamp ? new Date(timestamp * 1000).toLocaleString() : "Unavailable";
+      summary.append(this.element("span", `Posted: ${date(entry.createdAt)} · Updated: ${date(entry.updatedAt)}`, "calendar-event-meta"));
+      card.append(summary);
+      if (entry.message) card.append(this.element("p", entry.message, "calendar-description"));
+      const open = this.element("button", "Open announcement in Moodle", "secondary-button");
+      open.onclick = async () => {
+        open.disabled = true;
+        try { await window.uit.calendar.openAnnouncement({ key: entry.key }); }
+        catch (error) { this.get("announcements-error").hidden = false; this.get("announcements-error").textContent = error.message; }
+        finally { open.disabled = false; }
+      };
+      card.append(open);
+      list.append(card);
+    }
+  }
 
   reset() {
     this.generation++;
+    this.announcementGeneration++;
+    this.announcements = [];
+    this.announcementsLoading = false;
     this.setLoading(false);
     this.events = [];
     this.accounts = [];
@@ -57,7 +148,7 @@ window.UitCalendar = class {
     this.options("account", "All accounts", []);
     this.courseOptions();
     this.render();
-    if (!this.root.hidden) void this.load();
+    if (!this.root.hidden) this.show();
   }
 
   move(offset) {
@@ -126,7 +217,7 @@ window.UitCalendar = class {
 
   courseOptions() {
     const account = this.get("account").value;
-    const courses = new Map(this.events.filter((event) => !account || this.accountKey(event) === account).map((event) => [this.courseKey(event), `${event.courseName || "General events"} · ${new URL(event.baseUrl).host}`]));
+    const courses = new Map([...this.events, ...this.announcements].filter((event) => !account || this.accountKey(event) === account).map((event) => [this.courseKey(event), `${event.courseName || "General events"} · ${new URL(event.baseUrl).host}`]));
     this.options("course", "All courses", [...courses].sort((a, b) => a[1].localeCompare(b[1])));
   }
 
@@ -238,6 +329,7 @@ window.UitCalendar = class {
   }
 
   render() {
+    this.renderAnnouncements();
     const year = this.date.getFullYear(), month = this.date.getMonth(), today = new Date();
     this.get("month").textContent = this.date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
     this.get("jump").value = `${year}-${String(month + 1).padStart(2, "0")}`;

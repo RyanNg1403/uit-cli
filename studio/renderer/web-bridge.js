@@ -2,7 +2,7 @@
   if (window.uit) return;
 
   const methods = {
-    calendar: { list: "calendar:list", settings: "calendar:settings", open: "calendar:open" },
+    calendar: { announcements: "calendar:announcements", openAnnouncement: "calendar:open-announcement", list: "calendar:list", settings: "calendar:settings", open: "calendar:open" },
     session: {
       status: "session:status",
       login: "session:login",

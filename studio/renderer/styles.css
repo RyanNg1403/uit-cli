@@ -49,6 +49,9 @@
   .calendar-more { font-size: 10px; padding: 0 3px; }
 }
 .calendar-agenda { display: grid; gap: 10px; }
+.calendar-announcements { margin-top: 32px; padding-top: 8px; border-top: 1px solid var(--line); }
+.calendar-announcements .field { margin: 0; }
+#calendar-announcements-more { margin-top: 12px; }
 #calendar-status { display: flex; align-items: center; gap: 8px; min-height: 20px; }
 .calendar-loading #calendar-status::before { content: ""; width: 12px; height: 12px; flex-shrink: 0; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: working-spin .8s linear infinite; }
 .calendar-loading .calendar-date-surface { position: relative; }

@@ -936,6 +936,52 @@ async function disconnectAccount(baseUrl?: string): Promise<void> {
 }
 
 const calendarCache = new WeakMap<ApiClient, Map<string, { updatedAt: number; events: CalendarEvent[]; warning?: string }>>();
+type CalendarAnnouncement = { key: string; baseUrl: string; userId: number; courseId: number; courseName: string; id: number; subject: string; author: string; message: string; createdAt?: number; updatedAt?: number };
+const announcementCache = new WeakMap<ApiClient, { checkedAt: number; items: CalendarAnnouncement[]; failed: number; pending?: Promise<void> }>();
+
+async function calendarAnnouncements(refresh: boolean) {
+  const accounts = allCourseSessions();
+  const items: CalendarAnnouncement[] = [];
+  const errors: string[] = [];
+  await Promise.all(accounts.map(async (account) => {
+    let cached = announcementCache.get(account.api);
+    if (!cached) { cached = { checkedAt: 0, items: [], failed: 0 }; announcementCache.set(account.api, cached); }
+    const cache = cached;
+    if (!cache.pending && (refresh || Date.now() - cache.checkedAt > 5 * 60_000)) {
+      cache.pending = (async () => {
+        if (refresh) service.clearCourseCache(account.api);
+        const courses = await service.listCourses(account.api, account.userId);
+        const next: CalendarAnnouncement[] = [];
+        let cursor = 0, failed = 0;
+        await Promise.all(Array.from({ length: Math.min(3, courses.length) }, async () => {
+          while (cursor < courses.length) {
+            if (!allCourseSessions().some((current) => current.api === account.api)) return;
+            const course = courses[cursor++];
+            try {
+              for (const entry of await service.listAnnouncements(course.id, account.api)) {
+                next.push({ key: JSON.stringify(["announcement", account.baseUrl, account.userId, course.id, entry.id]), baseUrl: account.baseUrl, userId: account.userId,
+                  courseId: course.id, courseName: course.shortname, id: entry.id, subject: entry.subject, author: entry.author, message: entry.message,
+                  createdAt: entry.createdAt, updatedAt: entry.updatedAt });
+              }
+            } catch {
+              failed++;
+              next.push(...cache.items.filter((entry) => entry.courseId === course.id));
+            }
+          }
+        }));
+        cache.items = [...new Map(next.map((entry) => [entry.key, entry])).values()];
+        cache.failed = failed;
+        cache.checkedAt = Date.now();
+      })().finally(() => { cache.pending = undefined; });
+    }
+    try { await cache.pending; }
+    catch { cache.failed = Math.max(1, cache.failed); cache.checkedAt = Date.now(); }
+    if (!allCourseSessions().some((current) => current.api === account.api && current.userId === account.userId)) return;
+    items.push(...cache.items);
+    if (cache.failed) errors.push(`${siteLabel(account.baseUrl)}: Some announcements could not be updated. Previously loaded posts may be shown.`);
+  }));
+  return { items, errors };
+}
 let reminderTimer: NodeJS.Timeout | undefined;
 let reminderBusy = false;
 let reminderError = "";
@@ -1032,6 +1078,22 @@ async function checkCalendarReminders(): Promise<void> {
 
 export function createStudioHandlers(): Record<string, StudioHandler> {
   const handlers: Record<string, StudioHandler> = {
+    "calendar:announcements": (rawInput) => {
+      const input = requireObject(rawInput, "Announcement input");
+      if (typeof input.refresh !== "boolean") throw new Error("Refresh must be a boolean.");
+      return calendarAnnouncements(input.refresh);
+    },
+    "calendar:open-announcement": async (rawInput) => {
+      const key = requireString(requireObject(rawInput, "Announcement").key, "Announcement key");
+      for (const account of allCourseSessions()) {
+        const entry = announcementCache.get(account.api)?.items.find((entry) => entry.key === key && entry.userId === account.userId);
+        if (entry && Number.isSafeInteger(entry.id) && entry.id > 0) {
+          await host.openExternal(requireCourseFileUrl(`${account.baseUrl}/mod/forum/discuss.php?d=${entry.id}`, account.baseUrl));
+          return;
+        }
+      }
+      throw new Error("Refresh announcements before opening this post.");
+    },
     "session:status": () => sessionStatusPayload(),
     "calendar:list": (rawInput) => {
       const input = requireObject(rawInput, "Calendar input");
