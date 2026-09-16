@@ -107,6 +107,12 @@
   handle.addEventListener("lostpointercapture", () => finishDrag(true));
   handle.addEventListener("keydown", (event) => {
     if (mobile.matches || hasDialog() || drag) return;
+    if (event.key === "Tab" && collapsed && !event.shiftKey) {
+      // WebKit can skip the first focusable sibling after an inert sidebar.
+      event.preventDefault();
+      menu.focus();
+      return;
+    }
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     if (event.key === "Home") collapsed = true;
@@ -114,6 +120,11 @@
     else if (!collapsed) width = clampWidth(clampWidth(width) + (event.key === "ArrowRight" ? 10 : -10));
     render();
     persist();
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || !event.shiftKey || mobile.matches || hasDialog() || drag || !collapsed) return;
+    event.preventDefault();
+    handle.focus();
   });
 
   menu.addEventListener("click", toggle);
