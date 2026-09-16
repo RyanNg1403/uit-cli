@@ -626,6 +626,8 @@ function renderCourseList() {
     if (query || state.semester === "all") list.append(node("h3", "section-label", group.label));
     for (const course of group.courses) {
       const row = button("", "course-row", () => openCourse(course));
+      // WebKit's default macOS keyboard traversal omits buttons without an explicit tab index.
+      row.tabIndex = 0;
       row.dataset.courseKey = courseKey(course);
       const copy = node("span", "course-copy");
       copy.append(node("strong", "", course.fullname), node("small", "", `${siteLabel(course)} / Account ${course.userId}${course.discoveredVia === "url" ? " / Linked by URL" : ""}`));
@@ -1390,8 +1392,10 @@ function projectYearMatches(course, selected) {
   if (label === selected) return true;
   return projectYearOptions([course]).includes(selected);
 }
-function openProjectPicker(mode = "thread") {
+let projectPickerOpener = null;
+function openProjectPicker(mode = "thread", opener = document.activeElement) {
   if (!state.sessions.length) { openLogin(); return; }
+  projectPickerOpener = opener instanceof HTMLElement && opener !== document.body ? opener : null;
   $("#project-picker").dataset.mode = mode;
   $("#project-picker-title").textContent = mode === "project" ? "New project" : "Choose a project";
   $("#project-search").value = "";
@@ -1431,7 +1435,11 @@ function renderProjectOptions() {
     }
     if (!creating || group.label !== projectYear(group.courses[0])) section.append(node("h3", "", group.label));
     for (const course of group.courses) {
-      const option = button("", "project-option", () => { $("#project-picker").close(); addProject(course); persist(); newThread(course); });
+      const option = button("", "project-option", () => {
+        projectPickerOpener = null;
+        $("#project-picker").close();
+        addProject(course); persist(); newThread(course);
+      });
       option.append(node("strong", "", course.fullname), node("small", "", `${course.shortname} / ${siteLabel(course)} / Account ${course.userId}`));
       section.append(option);
     }
@@ -3014,8 +3022,13 @@ $("#page-title").addEventListener("keydown", (event) => {
   event.preventDefault();
   openCodexHome();
 });
-$("#new-project").addEventListener("click", () => openProjectPicker("project"));
+$("#new-project").addEventListener("click", (event) => openProjectPicker("project", event.currentTarget));
 $("#close-project-picker").addEventListener("click", () => $("#project-picker").close());
+$("#project-picker").addEventListener("close", () => {
+  const opener = projectPickerOpener;
+  projectPickerOpener = null;
+  if (opener?.isConnected && !opener.hidden && !opener.disabled) opener.focus();
+});
 $("#project-search").addEventListener("input", renderProjectOptions);
 $("#project-year").addEventListener("change", renderProjectOptions);
 $("#back-courses").addEventListener("click", () => showView("courses"));
