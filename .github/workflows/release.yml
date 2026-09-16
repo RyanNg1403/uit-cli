@@ -76,6 +76,25 @@ jobs:
           response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$install_home/.local/bin/uit" mcp)"
           printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
 
+      - name: Build native web Studio
+        run: npm run studio:package -- macos arm64 release-assets
+
+      - name: Smoke-test native web Studio archive
+        run: node scripts/smoke-standalone-studio.mjs
+        env:
+          UIT_STUDIO_ARCHIVE: release-assets/UIT-Studio-web-macos-arm64.tar.gz
+
+      - name: Smoke-test native web Studio installer
+        run: |
+          install_home="$(mktemp -d)"
+          trap 'rm -rf "$install_home"' EXIT
+          HOME="$install_home" \
+            UIT_INSTALL_BASE_URL="file://$PWD/release-assets" \
+            UIT_INSTALL_STUDIO_DIR="$install_home/.uit/studio/app" \
+            UIT_INSTALL_BIN_DIR="$install_home/.local/bin" \
+            scripts/install.sh --studio
+          "$install_home/.local/bin/uit-studio" --version
+
       - name: Upload release assets
         uses: actions/upload-artifact@v6
         with:
@@ -125,6 +144,28 @@ jobs:
           "$install_home/.local/bin/uit" --help >/dev/null
           response="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | "$install_home/.local/bin/uit" mcp)"
           printf '%s\n' "$response" | grep -F '"name":"uit-mcp"'
+
+      - name: Build native web Studio
+        if: matrix.arch == 'x64'
+        run: npm run studio:package -- linux x64 release-assets
+
+      - name: Smoke-test native web Studio archive
+        if: matrix.arch == 'x64'
+        run: xvfb-run --auto-servernum node scripts/smoke-standalone-studio.mjs
+        env:
+          UIT_STUDIO_ARCHIVE: release-assets/UIT-Studio-web-linux-x64.tar.gz
+
+      - name: Smoke-test native web Studio installer
+        if: matrix.arch == 'x64'
+        run: |
+          install_home="$(mktemp -d)"
+          trap 'rm -rf "$install_home"' EXIT
+          HOME="$install_home" \
+            UIT_INSTALL_BASE_URL="file://$PWD/release-assets" \
+            UIT_INSTALL_STUDIO_DIR="$install_home/.uit/studio/app" \
+            UIT_INSTALL_BIN_DIR="$install_home/.local/bin" \
+            scripts/install.sh --studio
+          "$install_home/.local/bin/uit-studio" --version
 
       - name: Build Linux Studio distributables
         if: matrix.arch == 'x64'
@@ -181,6 +222,23 @@ jobs:
             $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower()
             Set-Content -Path "$($_.FullName).sha256" -Value "$hash  $($_.Name)"
           }
+
+      - name: Build native web Studio
+        run: npm run studio:package -- windows x64 release-assets
+
+      - name: Smoke-test native web Studio archive
+        run: |
+          $env:UIT_STUDIO_ARCHIVE = (Resolve-Path "release-assets/UIT-Studio-web-windows-x64.zip").Path
+          node scripts/smoke-standalone-studio.mjs
+
+      - name: Smoke-test native web Studio installer
+        run: |
+          $installRoot = Join-Path $env:RUNNER_TEMP "uit-studio-installed"
+          $assetDirectory = (Resolve-Path "release-assets").Path.Replace('\', '/')
+          $env:UIT_INSTALL_BASE_URL = "file:///$assetDirectory"
+          $env:UIT_INSTALL_STUDIO_DIR = $installRoot
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/install.ps1 -Studio
+          & (Join-Path $installRoot "bin\uit-studio.cmd") --version
 
       - name: Smoke-test packaged Studio
         run: node scripts/smoke-packaged-studio.mjs

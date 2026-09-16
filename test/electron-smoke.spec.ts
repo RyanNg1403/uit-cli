@@ -157,6 +157,7 @@ test("real Electron PDF preview uses fixture IPC bytes, never saves or starts a 
       "course:assignments": [], "course:announcements": [],
       "course:preview": { filename: "slide.pdf", mimeType: "application/pdf", data: pdf },
       "codex:status": { installed: false, message: "Offline fixture: no Codex process" },
+      "session:sso-login": { authenticated: true, sessions: [{ baseUrl: course.baseUrl, userId: course.userId, authMode: "sso" }] },
     };
     for (const channel of [...Object.keys(responses), "course:materialize", "course:open", "workspace:create", "shell:open", "agent:start", "agent:send"]) {
       ipcMain.removeHandler(channel);
@@ -168,7 +169,7 @@ test("real Electron PDF preview uses fixture IPC bytes, never saves or starts a 
     }
     (globalThis as any).__smokeCalls = calls;
   }, { course, pdf });
-  await page.addInitScript(() => {
+  await page.evaluate(() => {
     (window as any).__pdfWorkers = { created: 0, terminated: 0 };
     const NativeWorker = window.Worker;
     window.Worker = class extends NativeWorker {
@@ -179,8 +180,13 @@ test("real Electron PDF preview uses fixture IPC bytes, never saves or starts a 
       terminate() { (window as any).__pdfWorkers.terminated++; super.terminate(); }
     };
   });
-  await page.reload();
+  // The renderer is already running in the real application window. Complete
+  // the fixture login through the real preload bridge instead of reloading the
+  // file document, which can detach the Electron frame on hosted runners.
+  await page.getByRole("button", { name: "Connect accounts", exact: true }).click();
+  await page.getByRole("button", { name: "Continue with UIT SSO", exact: true }).click();
   await expect(page.locator(".course-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "Close accounts", exact: true }).click();
   await page.locator(".course-row").click();
   await page.locator("#contents-panel .resource-open").filter({ hasText: "slide.pdf" }).click();
   await expect(page.getByRole("dialog", { name: "slide.pdf", exact: true })).toBeVisible();

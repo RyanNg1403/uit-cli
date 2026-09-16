@@ -1,7 +1,7 @@
 {
   "name": "uit-studio",
   "version": "1.3.5",
-  "description": "UIT Studio desktop workspace for UIT Moodle",
+  "description": "UIT Studio local web workspace for UIT Moodle",
   "license": "MIT",
   "type": "module",
   "repository": {
