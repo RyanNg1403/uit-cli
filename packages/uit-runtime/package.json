@@ -1,6 +1,6 @@
 {
   "name": "uit-runtime",
-  "version": "1.3.5",
+  "version": "2.0.0",
   "description": "Shared runtime for UIT CLI and UIT Studio",
   "license": "MIT",
   "type": "module",
