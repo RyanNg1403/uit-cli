@@ -19,6 +19,6 @@
 - [ ] `npm test` passes (unit & integration tests)
 - [ ] `npm run typecheck` passes without errors
 - [ ] `npm run lint` passes (ESLint clean)
-- [ ] `npm run test:electron` passes (if modifying Studio Desktop or Electron main/renderer)
+- [ ] `npm run test:studio:web` passes (if modifying Studio web or native packaging)
 - [ ] `npm run package:check` and `npm run studio:check` pass (if modifying packaging or dependencies)
 - [ ] Added or updated automated tests for new behavior

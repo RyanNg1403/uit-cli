@@ -8,6 +8,7 @@ import { defaultApiClient } from "./api.js";
 import { get, save } from "./config.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 import { extractH5pPackage } from "./unzip.js";
+import { submitAssignmentFile } from "./assignment-submission.js";
 import {
   clean,
   die,
@@ -842,23 +843,16 @@ export async function cmdDeadlines(args: { course_id?: number; all?: boolean }, 
 export async function cmdSubmit(args: { assign_id: number; file: string }, ctx = createContext()): Promise<void> {
   const filepath = args.file;
   if (!existsSync(filepath)) die(`file not found: ${filepath}`);
-  if (!isJsonMode()) console.log(`Uploading ${filepath}...`);
-  const uploadResult = await ctx.api.uploadFile(filepath);
-  const itemId = uploadResult.itemid;
-  if (!itemId) die("upload failed", `response: ${JSON.stringify(uploadResult)}`);
-  if (!isJsonMode()) console.log(`Submitting to assignment ${args.assign_id}...`);
-  await ctx.api.call("mod_assign_save_submission", {
-    assignmentid: args.assign_id,
-    "plugindata[files_filemanager]": itemId
+  const result = await submitAssignmentFile(args.assign_id, filepath, ctx.api, (phase) => {
+    if (isJsonMode()) return;
+    console.log(phase === "uploading" ? `Uploading ${filepath}...` : `Submitting to assignment ${args.assign_id}...`);
   });
-  const status = await ctx.api.call<MoodleRecord>("mod_assign_get_submission_status", { assignid: args.assign_id });
-  const sub = status.lastattempt?.submission || {};
   out({
     status: "submitted",
-    assign_id: args.assign_id,
-    file: basename(filepath),
-    submission_status: sub.status || "unknown",
-    time: ts(sub.timemodified || 0)
+    assign_id: result.assignId,
+    file: result.file,
+    submission_status: result.submissionStatus,
+    time: ts(result.time)
   });
 }
 

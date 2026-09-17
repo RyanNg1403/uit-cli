@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgram, main } from "../src/cli.js";
 import { resetConfigCache } from "../src/config.js";
 import type { ApiClient } from "../src/types.js";
+import { VERSION } from "../src/version.js";
 import { makeZip } from "./zip-fixture.js";
 
 const originalCwd = process.cwd();
 let tempDir: string;
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
+let stdoutWriteSpy: ReturnType<typeof vi.spyOn>;
 let stdout = "";
 let stderr = "";
 
@@ -34,6 +36,10 @@ beforeEach(() => {
   resetConfigCache();
   stdout = "";
   stderr = "";
+  stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    stdout += String(chunk);
+    return true;
+  });
   stdoutSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
     stdout += `${args.join(" ")}\n`;
   });
@@ -48,19 +54,29 @@ afterEach(() => {
   delete process.env.UIT_USER_ID;
   stdoutSpy.mockRestore();
   stderrSpy.mockRestore();
+  stdoutWriteSpy.mockRestore();
   process.chdir(originalCwd);
   resetConfigCache();
   rmSync(tempDir, { recursive: true, force: true });
 });
 
 describe("CLI command flows", () => {
+  it.each(["--version", "-v"])("prints %s without starting a command", async (flag) => {
+    const api = mockApi({});
+
+    const code = await main(["node", "uit", flag], api);
+
+    expect(code).toBe(0);
+    expect(stdout).toBe(`${VERSION}\n`);
+    expect(stderr).toBe("");
+    expect(api.call).not.toHaveBeenCalled();
+  });
+
   it("shows supported login methods without exposing token or arbitrary URL options", async () => {
     const program = createProgram(mockApi({}));
-    const initCommand = program.commands.find((command) => command.name() === "init");
     const loginCommand = program.commands.find((command) => command.name() === "login");
 
-    expect(initCommand?.helpInformation()).not.toContain("--token");
-    expect(initCommand?.helpInformation()).not.toContain("--url");
+    expect(program.commands.some((command) => command.name() === "init")).toBe(false);
     expect(loginCommand?.helpInformation()).toContain("--legacy");
     expect(loginCommand?.helpInformation()).toContain("--sso");
     expect(loginCommand?.helpInformation()).not.toContain("--token");

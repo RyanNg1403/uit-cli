@@ -6,20 +6,28 @@ const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageRoot = join(repositoryRoot, "packages", "uit-runtime");
 const sourceDist = join(repositoryRoot, "dist");
 const targetDist = join(packageRoot, "dist");
-const sourceDesktop = join(repositoryRoot, "desktop-build");
-const targetDesktop = join(packageRoot, "desktop-build");
+const sourceStudio = join(repositoryRoot, "studio-build");
+const targetStudio = join(packageRoot, "studio-build");
 
 const sharedModules = [
+  "assignment-submission",
   "ajax-helpers",
   "api",
+  "calendar",
   "codex-client",
   "commands",
   "config",
   "desktop-service",
   "mcp-server",
   "mcp-entry",
+  "studio-core",
+  "studio-thread-store",
+  "studio-sso",
+  "studio-web-server",
+  "studio-web-launcher",
   "moodle-session-client",
   "output",
+  "session-health",
   "types",
   "uit-tools",
   "unzip"
@@ -28,8 +36,8 @@ const sharedModules = [
 if (!existsSync(join(sourceDist, "desktop-service.js"))) {
   throw new Error("Build dist/ before preparing the UIT runtime package.");
 }
-if (!existsSync(join(sourceDesktop, "main.js"))) {
-  throw new Error("Build desktop-build/ before preparing the UIT runtime package.");
+if (!existsSync(join(sourceStudio, "renderer", "index.html"))) {
+  throw new Error("Build studio-build/ before preparing the UIT runtime package.");
 }
 
 rmSync(targetDist, { recursive: true, force: true });
@@ -42,7 +50,7 @@ for (const moduleName of sharedModules) {
   }
 }
 
-rmSync(targetDesktop, { recursive: true, force: true });
-cpSync(sourceDesktop, targetDesktop, { recursive: true });
+rmSync(targetStudio, { recursive: true, force: true });
+cpSync(sourceStudio, targetStudio, { recursive: true });
 
 console.log(`Prepared ${packageRoot} from ${sourceDist}.`);

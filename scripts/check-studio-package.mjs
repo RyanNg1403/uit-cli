@@ -36,8 +36,8 @@ if (studioPackage.dependencies?.playwright || studioPackage.devDependencies?.pla
 }
 
 const runtimePackage = JSON.parse(readFileSync("packages/uit-runtime/package.json", "utf8"));
-if (runtimePackage.dependencies?.playwright || runtimePackage.optionalDependencies?.playwright) {
-  throw new Error("uit-runtime must not install Playwright");
+if (runtimePackage.dependencies?.playwright !== "1.63.0") {
+  throw new Error("uit-runtime must install the pinned Playwright 1.63.0 dependency");
 }
 
 const runtime = pack("packages/uit-runtime");
@@ -47,19 +47,28 @@ const runtimeUnexpected = runtimeFiles.filter((path) => (
   path !== "README.md" &&
   path !== "package.json" &&
   !path.startsWith("dist/") &&
-  !path.startsWith("desktop-build/")
+  !path.startsWith("studio-build/")
 ));
 if (runtimeUnexpected.length > 0) {
   throw new Error(`uit-runtime package contains unexpected files: ${runtimeUnexpected.join(", ")}`);
 }
 for (const required of [
+  "dist/assignment-submission.js",
+  "dist/calendar.js",
   "dist/desktop-service.js",
   "dist/mcp-server.js",
   "dist/mcp-entry.js",
+  "dist/session-health.js",
+  "dist/studio-core.js",
+  "dist/studio-thread-store.js",
+  "dist/studio-sso.js",
+  "dist/studio-web-server.js",
+  "dist/studio-web-launcher.js",
   "dist/uit-tools.js",
-  "desktop-build/main.js",
-  "desktop-build/preload.cjs",
-  "desktop-build/renderer/assets/uit-dau-dau-icon.png"
+  "studio-build/renderer/index.html",
+  "studio-build/renderer/renderer.js",
+  "studio-build/renderer/calendar.js",
+  "studio-build/renderer/assets/uit-dau-dau-icon.png"
 ]) {
   if (!runtimeFiles.includes(required)) throw new Error(`uit-runtime package is missing ${required}`);
 }
@@ -67,5 +76,10 @@ for (const forbidden of ["dist/cli.js", "dist/sso-login.js"]) {
   if (runtimeFiles.includes(forbidden)) throw new Error(`uit-runtime package must not contain ${forbidden}`);
 }
 
+// Resolve transitive service imports from the prepared runtime, where a
+// missing module can otherwise go unnoticed until native server startup.
+await import("../packages/uit-runtime/dist/desktop-service.js");
+await import("../packages/uit-runtime/dist/studio-core.js");
+
 console.log(`Verified uit-studio npm package (${studio.size} bytes).`);
-console.log(`Verified Playwright-free uit-runtime package (${runtime.size} bytes).`);
+console.log(`Verified bundled-Chromium uit-runtime package (${runtime.size} bytes).`);

@@ -52,43 +52,14 @@ export function resetConfigCache(): void {
 
 export function readSessionsFile(): SessionsData {
   const sessionsFile = getSessionsFilePath();
-  if (existsSync(sessionsFile)) {
-    try {
-      const data = JSON.parse(readFileSync(sessionsFile, "utf8"));
-      if (data && typeof data === "object" && !Array.isArray(data)) return data;
-      if (Array.isArray(data)) return { legacy: data };
-    } catch {
-      // Fall through
-    }
+  if (!existsSync(sessionsFile)) return {};
+  try {
+    const data = JSON.parse(readFileSync(sessionsFile, "utf8"));
+    if (data && typeof data === "object" && !Array.isArray(data)) return data;
+  } catch {
+    // load() will report that no active session exists.
   }
-  // Migration fallback: check legacy files if present
-  const oldSsoPaths = [
-    join(homedir(), ".uit", "sso-session.json"),
-    join(homedir(), ".uit", ".sso-session.json")
-  ];
-  let migratedSso: SsoSessionData | null = null;
-  for (const p of oldSsoPaths) {
-    if (existsSync(p)) {
-      try {
-        migratedSso = JSON.parse(readFileSync(p, "utf8"));
-        break;
-      } catch {
-        // Ignore malformed legacy files and continue checking migration sources.
-      }
-    }
-  }
-  const oldLegacyPath = join(homedir(), ".uit", "legacy-sessions.json");
-  let migratedLegacy: LegacySessionData[] | null = null;
-  if (existsSync(oldLegacyPath)) {
-    try {
-      const records = JSON.parse(readFileSync(oldLegacyPath, "utf8"));
-      if (Array.isArray(records)) migratedLegacy = records;
-      else if (records && typeof records === "object" && records.token) migratedLegacy = [records];
-    } catch {
-      // Ignore malformed legacy data; load() will report that no session exists.
-    }
-  }
-  return { sso: migratedSso, legacy: migratedLegacy };
+  return {};
 }
 
 export function writeSessionsFile(data: SessionsData): void {
@@ -175,7 +146,7 @@ function load(): Config {
   throw new CliError("No active UIT session found. Run: uit login (SSO) or uit login --legacy");
 }
 
-/** Resolve the same active session configuration for CLI, MCP, and desktop callers. */
+/** Resolve the same active session configuration for CLI, MCP, and Studio callers. */
 export function getActiveConfig(options: { fresh?: boolean } = {}): Readonly<Config> {
   if (options.fresh) resetConfigCache();
   return load();

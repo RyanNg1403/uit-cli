@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
-import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeCourseFile, materializeFile, previewableMime, previewFile, resolveCourseFile, resolveCourseResource } from "../src/desktop-service.js";
+import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeCourseFile, materializeFile, previewableMime, previewFile, resolveClassCodeSemesters, resolveCourseFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
 
 const state = vi.hoisted(() => ({ home: "" }));
@@ -67,12 +68,59 @@ afterEach(async () => {
 
 describe("course semesters and metadata", () => {
   it.each([
+    ["SE114.R11", 2026, 1], ["IT008.R12", 2026, 1],
+    ["SE101.Q22", 2025, 2], ["PE232.Q221", 2025, 2], ["CS336.Q11", 2025, 1],
+    ["CS114.P23", 2024, 2], ["CS115.P11.TTNT", 2024, 1],
+    ["MA006.O122", 2023, 1], ["IT002.O21.TTNT", 2023, 2], ["ENG02.O16", 2023, 1]
+  ])("recognizes UIT class %s independently of Moodle dates", async (shortname, year, term) => {
+    const records = await listCourses(client({ core_enrol_get_users_courses: [
+      { id: 1, shortname: "IT001.O11", startdate: Date.UTC(2023, 8, 11) / 1000 },
+      { id: 2, shortname: "IT004.P17", startdate: Date.UTC(2024, 8, 2) / 1000 },
+      { id: 42, shortname, startdate: term === 2 ? Date.UTC(year + 1, 0, 26) / 1000 : 0, categoryname: "Computer Science" }
+    ] }), 7);
+    const course = resolveClassCodeSemesters(records).find((item) => item.id === 42)!;
+    expect(course.semester).toEqual({ id: `${year}-${year + 1}-hk${term}`, label: `HK${term} ${year}-${year + 1}`, sortOrder: year * 10 + term, source: "name" });
+  });
+
+  it.each(["TTNT2023", "UIT-SV", "CS101.S11", "CS101.R", "CS101.R11 invalid"])("does not guess a semester for %s", async (shortname) => {
+    const [course] = resolveClassCodeSemesters(await listCourses(client({ core_enrol_get_users_courses: [{ id: 42, shortname }] }), 7));
+    expect(course.semester.id).toBe("unknown");
+  });
+
+  it("keeps explicit semester metadata ahead of the class-code fallback", async () => {
+    const [course] = resolveClassCodeSemesters(await listCourses(client({ core_enrol_get_users_courses: [
+      { id: 42, shortname: "CS101.R11", categoryname: "HK2 2025-2026" }
+    ] }), 7));
+    expect(course.semester).toMatchObject({ id: "2025-2026-hk2", source: "category" });
+  });
+
+  it.each([2023, 2033])("derives year codes from course evidence, not the clock or a fixed year table (%s)", async (year) => {
+    const records = await listCourses(client({ core_enrol_get_users_courses: [
+      { id: 1, shortname: "IT001.O11", startdate: Date.UTC(year, 8, 11) / 1000 },
+      { id: 2, shortname: "IT004.P17", startdate: Date.UTC(year + 1, 8, 2) / 1000 },
+      { id: 3, shortname: "SE114.R11" }
+    ] }), 7);
+    expect(resolveClassCodeSemesters(records).find((item) => item.id === 3)?.semester.id).toBe(`${year + 3}-${year + 4}-hk1`);
+  });
+
+  it("does not infer undated classes from conflicting year-code evidence", async () => {
+    const records = await listCourses(client({ core_enrol_get_users_courses: [
+      { id: 1, shortname: "IT001.O11", startdate: Date.UTC(2023, 8, 11) / 1000 },
+      { id: 2, shortname: "IT004.P17", startdate: Date.UTC(2026, 8, 2) / 1000 },
+      { id: 3, shortname: "SE114.R11" }
+    ] }), 7);
+    expect(resolveClassCodeSemesters(records).find((item) => item.id === 3)?.semester.id).toBe("unknown");
+  });
+
+  it.each([
     [{ semester: 2, academicyear: "2024-2025" }, "2024-2025-hk2", "metadata"],
     [{ semester: { id: "term-7", label: "Custom term", sortOrder: 7 } }, "term-7", "metadata"],
     [{ categoryid: 8, categoryname: "HK1 2025-2026" }, "2025-2026-hk1", "category"],
     [{ coursecategory: "HK2 2025-2026" }, "2025-2026-hk2", "category"],
     [{ fullname: "CS - Semester II 2023/24" }, "2023-2024-hk2", "name"],
     [{ shortname: "CS_HK1_2022-2023" }, "2022-2023-hk1", "name"],
+    [{ categoryname: "2025-2026", fullname: "CS - HK2" }, "2025-2026-hk2", "name"],
+    [{ categoryname: "2025", fullname: "CS - HK1 2025-2026" }, "2025-2026-hk1", "name"],
     [{ startdate: Date.UTC(2024, 0, 1) / 1000 }, "2024", "startdate"]
   ])("normalizes semester without fabricating dates: %j", async (fields, id, source) => {
     const api = client({ core_enrol_get_users_courses: [{ id: 42, ...fields }] });
@@ -145,10 +193,9 @@ describe("course semesters and metadata", () => {
     { fullname: "Thesis", baseUrl: site },
     { fullname: "Thesis", summary: "D\u00e0nh cho sinh vi\u00ean Kh\u00f3a 2022" },
     { categoryname: "Khoa h\u1ecdc M\u00e1y t\u00ednh" }
-  ])("files courses without time evidence under the current year: %j", async (fields) => {
-    const now = new Date().getUTCFullYear();
+  ])("keeps courses without time evidence in Unknown semester: %j", async (fields) => {
     const [course] = await listCourses(client({ core_enrol_get_users_courses: [{ id: 42, ...fields }] }), 7);
-    expect(course.semester).toEqual({ id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" });
+    expect(course.semester).toEqual({ id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" });
   });
 
   it.each([
@@ -173,12 +220,11 @@ describe("course semesters and metadata", () => {
       { id: 5, semester: "<b>Special term</b>" },
       { id: 6, semester: { id: "label-term", label: "HK1 2026-2027" } }
     ] }), 7);
-    expect(courses.map((course) => course.id)).toEqual([1, 99, 3, 6, 4, 2, 5]);
+    expect(courses.map((course) => course.id)).toEqual([1, 3, 6, 4, 2, 99, 5]);
     expect(courses[0].semester).toEqual({ id: "custom", label: "Custom term", sortOrder: 20270, source: "metadata" });
-    const now = new Date().getUTCFullYear();
-    expect(courses[1].semester).toEqual({ id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" });
-    expect(courses[2].semester).toEqual({ id: "2026-2027-hk2", label: "HK2 2026-2027", sortOrder: 20262, source: "metadata" });
-    expect(courses[3].semester).toEqual({ id: "label-term", label: "HK1 2026-2027", sortOrder: 20261, source: "metadata" });
+    expect(courses[5].semester).toEqual({ id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" });
+    expect(courses[1].semester).toEqual({ id: "2026-2027-hk2", label: "HK2 2026-2027", sortOrder: 20262, source: "metadata" });
+    expect(courses[2].semester).toEqual({ id: "label-term", label: "HK1 2026-2027", sortOrder: 20261, source: "metadata" });
     expect(courses[6].semester).toEqual({ id: "metadata-<b>special term</b>", label: "Special term", sortOrder: 0, source: "metadata" });
   });
 
@@ -646,13 +692,38 @@ describe("deterministic materialization", () => {
     const destination = await materializeCourseFile(42, 20, "project.txt", api, { baseUrl: site, userId: 7, shortname: "SE362.Q21" });
     expect(destination).toBe(join(workspace.path, "materials", "module-20", "project.txt"));
     expect(JSON.parse(await readFile(join(state.home, ".uit", "courses", "manifest.json"), "utf8"))).toMatchObject({
-      version: 1,
+      version: 2,
       courses: [{ baseUrl: site, moodleUserId: 7, courseId: 42, studentId: "23521146", studentName: "NguyenThuanPhat", courseCode: "SE362.Q21", path: "current/23521146-NguyenThuanPhat/SE362.Q21" }]
     });
-    expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q22"));
+    expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(workspace.path);
   });
 
-  it("upgrades a fallback student directory when Moodle site info becomes available", async () => {
+  it("does not import workspaces from the removed legacy storage layout", async () => {
+    await home();
+    const siteKey = `${new URL(site).hostname}-${createHash("sha256").update(site).digest("hex").slice(0, 16)}`;
+    const oldRoot = join(state.home, ".uit", "courses", siteKey, "user-7", "course-42");
+    await mkdir(join(oldRoot, "materials"), { recursive: true });
+    await writeFile(join(oldRoot, "materials", "old.txt"), "preserve old layout");
+
+    const workspace = await courseWorkspace(42, "CS101", site, 7, client());
+
+    expect(workspace.path).not.toBe(oldRoot);
+    expect(await readFile(join(oldRoot, "materials", "old.txt"), "utf8")).toBe("preserve old layout");
+  });
+
+  it("does not import hashed material directories into the current workspace", async () => {
+    await home();
+    const workspace = await courseWorkspace(42, "CS101", site, 7, client());
+    const oldMaterials = join(workspace.path, "materials", "a".repeat(64));
+    await mkdir(oldMaterials, { recursive: true });
+    await writeFile(join(oldMaterials, "old.txt"), "preserve old materials");
+
+    await courseWorkspace(42, "CS101", site, 7, client());
+
+    expect(await readFile(join(oldMaterials, "old.txt"), "utf8")).toBe("preserve old materials");
+  });
+
+  it("does not migrate a fallback student directory when Moodle site info becomes available", async () => {
     await home();
     const fallback = await courseWorkspace(42, "SE362.Q21", site, 7, client({ core_user_get_users_by_field: [] }));
     await writeFile(join(fallback.path, "artifacts", "keep.txt"), "preserved");
@@ -662,7 +733,7 @@ describe("deterministic materialization", () => {
     });
 
     const upgraded = await courseWorkspace(42, "SE362.Q21", site, 7, api);
-    expect(upgraded.path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q21"));
+    expect(upgraded.path).toBe(fallback.path);
     expect(await readFile(join(upgraded.path, "artifacts", "keep.txt"), "utf8")).toBe("preserved");
   });
 

@@ -26,6 +26,7 @@ import {
 } from "./commands.js";
 import { runMcpServer, installMcpServer } from "./mcp-server.js";
 import { cmdLoginSso, type SsoLoginLauncher } from "./sso-login.js";
+import { VERSION } from "./version.js";
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
 const LEGACY_SITE_BASE_URL = "https://coursesold.uit.edu.vn";
@@ -124,6 +125,7 @@ export function createProgram(
   program
     .name("uit")
     .description("CLI for courses.uit.edu.vn (Moodle LMS at UIT).")
+    .version(VERSION, "-v, --version", "output the version number")
     .addHelpText("after", WORKFLOW)
     .option("--json", "JSON output for scripts and agents")
     .exitOverride();
@@ -154,28 +156,6 @@ export function createProgram(
         return;
       }
       await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
-    });
-
-  program
-    .command("init")
-    .description("Set up legacy credentials (~/.uit/sessions.json); use --sso for UIT SSO")
-    .option("--sso", "Sign in via UIT SSO (opens browser window)")
-    .option("-u, --username <username>", "Student ID for legacy token setup")
-    .option("-p, --password <password>", "Password for non-interactive legacy token setup")
-    .action(async (opts) => {
-      const hasLegacyCredentials = Boolean(opts.username || opts.password);
-      if (opts.sso && hasLegacyCredentials) {
-        throw new CliError("--sso cannot be combined with --username or --password.");
-      }
-      if (opts.sso) {
-        await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
-        return;
-      }
-      await cmdInit({
-        url: LEGACY_SITE_BASE_URL,
-        username: opts.username,
-        password: opts.password
-      });
     });
 
   program
@@ -327,7 +307,7 @@ export async function main(argv = process.argv, api: ApiClient = defaultApiClien
       return 0;
     }
     if (error && typeof error === "object" && "exitCode" in error && "message" in error && !(error instanceof CliError)) {
-      const exitCode = Number((error as any).exitCode || 1);
+      const exitCode = Number((error as any).exitCode ?? 1);
       if ((error as any).code !== "commander.helpDisplayed") return exitCode;
       return 0;
     }

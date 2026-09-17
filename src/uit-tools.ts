@@ -1,4 +1,8 @@
+import { realpathSync, statSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import type { ApiClient } from "./types.js";
+
+export const UIT_ASSIGNMENT_SUBMISSION_TOOL = "uit_submit_assignment";
 
 export interface UitToolSpec {
   type: "function";
@@ -13,6 +17,8 @@ export interface UitToolContext {
   userId: number;
   /** Optional Studio hint used when a legacy caller omits courseId. */
   defaultCourseId?: number;
+  /** Managed UIT course storage root; local write tools are confined to it. */
+  workspacePath?: string;
 }
 
 export interface UitToolServices {
@@ -30,6 +36,7 @@ export interface UitToolServices {
     api: ApiClient,
     identity: { baseUrl: string; userId: number }
   ): Promise<string>;
+  submitAssignment(courseId: number, assignmentId: number, filePath: string, api: ApiClient): Promise<unknown>;
 }
 
 const resourceSchema: Record<string, unknown> = {
@@ -113,15 +120,23 @@ export const UIT_TOOLS: UitToolSpec[] = [
       required: ["courseId", "moduleId", "filename"],
       additionalProperties: false
     }
+  },
+  {
+    type: "function",
+    name: UIT_ASSIGNMENT_SUBMISSION_TOOL,
+    description: "Upload and submit one local file to a UIT assignment. This changes upstream course data.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        courseId: { type: "integer", description: "Course ID from uit_courses or the current course." },
+        assignmentId: { type: "integer", description: "Assignment instance ID from uit_course_contents or uit_read_resource; do not use a course-module ID." },
+        filePath: { type: "string", description: "Local file path inside managed UIT course storage. Use the exact file the student confirmed." }
+      },
+      required: ["courseId", "assignmentId", "filePath"],
+      additionalProperties: false
+    }
   }
 ];
-
-const TOOL_ALIASES: Record<string, string> = {
-  uit_list_course_contents: "uit_course_contents",
-  uit_download_resource: "uit_download_material",
-  uit_list_participants: "uit_course_members",
-  uit_get_grades: "uit_course_grades"
-};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -143,6 +158,29 @@ function courseIdFor(args: Record<string, unknown>, context: UitToolContext): nu
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${label} must be a non-empty string.`);
   return value;
+}
+
+function workspaceFilePath(value: unknown, context: UitToolContext): string {
+  const filePath = requiredString(value, "File path");
+  if (!context.workspacePath) throw new Error("Managed UIT course storage is required for assignment submission.");
+  const workspace = resolve(context.workspacePath);
+  const candidate = resolve(workspace, filePath);
+  const candidateRelative = relative(workspace, candidate);
+  if (!candidateRelative || candidateRelative === ".." || candidateRelative.startsWith(`..${sep}`)) {
+    throw new Error("The submission file must be inside managed UIT course storage.");
+  }
+  try {
+    const workspaceReal = realpathSync(workspace);
+    const candidateReal = realpathSync(candidate);
+    if (candidateReal !== workspaceReal && !candidateReal.startsWith(`${workspaceReal}${sep}`)) {
+      throw new Error("The submission file must be inside managed UIT course storage.");
+    }
+    if (!statSync(candidateReal).isFile()) throw new Error("The submission path must be a regular file.");
+    return candidateReal;
+  } catch (error) {
+    if (error instanceof Error && /managed UIT course storage|regular file/.test(error.message)) throw error;
+    throw new Error("The submission file must be an existing regular file inside managed UIT course storage.", { cause: error });
+  }
 }
 
 function rejectFileUrl(args: Record<string, unknown>): void {
@@ -169,10 +207,9 @@ export function createUitToolExecutor(services: UitToolServices) {
     rawArgs: Record<string, unknown>,
     context: UitToolContext
   ): Promise<unknown> {
-    const name = TOOL_ALIASES[requestedName] || requestedName;
     const args = rawArgs || {};
 
-    switch (name) {
+    switch (requestedName) {
       case "uit_courses":
         return await services.listCourses(context.api, context.userId);
       case "uit_course_contents": {
@@ -208,6 +245,12 @@ export function createUitToolExecutor(services: UitToolServices) {
           userId: context.userId
         });
         return { path };
+      }
+      case UIT_ASSIGNMENT_SUBMISSION_TOOL: {
+        const courseId = courseIdFor(args, context);
+        const assignmentId = positiveId(args.assignmentId, "Assignment ID");
+        const filePath = workspaceFilePath(args.filePath, context);
+        return await services.submitAssignment(courseId, assignmentId, filePath, context.api);
       }
       default:
         throw new Error(`Unknown UIT tool: ${requestedName}`);

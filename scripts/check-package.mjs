@@ -17,11 +17,15 @@ const unexpected = files.filter((path) => (
   path !== "LICENSE" &&
   path !== "README.md" &&
   path !== "package.json" &&
+  path !== "scripts/provision-studio-chromium.mjs" &&
   !path.startsWith("dist/")
 ));
 
 if (!files.includes("dist/cli.js")) {
   throw new Error("npm package is missing dist/cli.js");
+}
+if (!files.includes("scripts/provision-studio-chromium.mjs")) {
+  throw new Error("npm package is missing its Chromium provisioning script");
 }
 if (unexpected.length > 0) {
   throw new Error(`npm package contains non-CLI files: ${unexpected.join(", ")}`);

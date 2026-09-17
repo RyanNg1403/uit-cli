@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UIT STUDIO</title>
+  <meta name="description" content="Fast, keyboard-driven Moodle client and AI web workspace for students at the University of Information Technology (VNU-HCM).">
+  <meta name="theme-color" content="#01060e">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ryanng1403.github.io/uit-cli/">
+  <meta property="og:title" content="UIT STUDIO">
+  <meta property="og:description" content="One workspace. Every course.">
+  <meta property="og:image" content="assets/studio-courses.png">
+
+  <!-- Favicon / UIT Đậu Đậu -->
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+
+  <!-- Ghostty's default typeface: JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav" id="main-nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-brand" aria-label="UIT STUDIO Home">
+        <img src="assets/icon.svg" alt="UIT Đậu Đậu" class="nav-brand-img">
+        <span class="nav-brand-name">UIT STUDIO</span>
+      </a>
+
+      <div class="nav-right">
+        <a class="nav-link" href="#download">Download</a>
+        <button id="theme-toggle" class="nav-theme-btn" aria-label="Toggle theme" title="Toggle theme">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+        <a class="nav-stars" href="https://github.com/RyanNg1403/uit-cli" target="_blank" rel="noopener noreferrer" aria-label="Star UIT STUDIO on GitHub">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2.3l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.12l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.3z"/>
+          </svg>
+          <span><strong>Star</strong> on GitHub</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="hero">
+    <div class="hero-grid" aria-hidden="true"></div>
+
+    <!-- Floating Marks (t3.codes style) -->
+    <div class="hero-float" aria-hidden="true">
+      <span class="hero-float-mark hf-uit">
+        <span class="hero-float-card" title="UIT Đậu Đậu">
+          <img src="assets/icon.svg" alt="UIT Đậu Đậu">
+        </span>
+      </span>
+      <span class="hero-float-mark hf-codex">
+        <span class="hero-float-card" title="OpenAI Codex">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+            <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.5045 4.5045 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.6667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
+          </svg>
+        </span>
+      </span>
+      <span class="hero-float-mark hf-terminal">
+        <span class="hero-float-card" title="Terminal">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+        </span>
+      </span>
+      <span class="hero-float-mark hf-uit-logo">
+        <span class="hero-float-card" title="University of Information Technology">
+          <img src="assets/uit.svg" alt="UIT Emblem" style="width: 26px; height: 26px; object-fit: contain;">
+        </span>
+      </span>
+    </div>
+
+    <div class="container hero-inner">
+      <h1 class="hero-title display" aria-label="UIT STUDIO">
+        <span class="title-char" aria-hidden="true">U</span><span class="title-char" aria-hidden="true">I</span><span class="title-char" aria-hidden="true">T</span><span class="title-space" aria-hidden="true"></span><span class="title-char" aria-hidden="true">S</span><span class="title-char" aria-hidden="true">T</span><span class="title-char" aria-hidden="true">U</span><span class="title-char" aria-hidden="true">D</span><span class="title-char" aria-hidden="true">I</span><span class="title-char" aria-hidden="true">O</span>
+      </h1>
+
+      <p class="hero-sub" aria-label="One workspace. Every course.">
+        <span class="hero-sub-copy" aria-hidden="true"><span class="subtitle-char">O</span><span class="subtitle-char">n</span><span class="subtitle-char">e</span><span class="subtitle-space"></span><span class="subtitle-char">w</span><span class="subtitle-char">o</span><span class="subtitle-char">r</span><span class="subtitle-char">k</span><span class="subtitle-char">s</span><span class="subtitle-char">p</span><span class="subtitle-char">a</span><span class="subtitle-char">c</span><span class="subtitle-char">e</span><span class="subtitle-char">.</span><span class="subtitle-space"></span><span class="subtitle-char">E</span><span class="subtitle-char">v</span><span class="subtitle-char">e</span><span class="subtitle-char">r</span><span class="subtitle-char">y</span><span class="subtitle-space"></span><span class="subtitle-char">c</span><span class="subtitle-char">o</span><span class="subtitle-char">u</span><span class="subtitle-char">r</span><span class="subtitle-char">s</span><span class="subtitle-char">e</span><span class="subtitle-char">.</span></span>
+      </p>
+
+      <div class="hero-actions">
+        <!-- Universal Install Box (npm) -->
+        <div class="hero-install-box">
+          <span class="hero-install-prompt">$</span>
+          <code class="hero-install-code" id="hero-cmd">npm install -g uit-studio</code>
+          <button class="hero-copy-btn" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy install command">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="hero-sub-actions">
+          <a class="hero-source-link" href="https://github.com/RyanNg1403/uit-cli" target="_blank" rel="noopener noreferrer">
+            <svg class="hero-source-mark" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 007.86 10.93c.58.1.79-.25.79-.56v-2c-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.68 1.25 3.33.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.67 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.18a10.96 10.96 0 015.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.57.23 2.73.11 3.02.74.8 1.18 1.83 1.18 3.08 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z"></path>
+            </svg>
+            <span>View on GitHub</span>
+            <svg class="hero-source-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 17L17 7M8 7h9v9"></path>
+            </svg>
+          </a>
+        </div>
+      </div>
+
+      <!-- Real Studio captures stay fully visible; the CLI is illustrated. -->
+      <div class="hero-preview">
+        <div class="preview-switcher" data-active-preview="workspace" role="tablist" aria-label="Product previews">
+          <span class="preview-slider" aria-hidden="true"></span>
+          <button class="preview-btn active" type="button" role="tab" aria-selected="true" aria-controls="preview-workspace" data-preview="workspace">Workspace</button>
+          <button class="preview-btn" type="button" role="tab" aria-selected="false" aria-controls="preview-agent" data-preview="agent">Agent</button>
+        </div>
+
+        <figure class="hero-screenshot-frame" data-preview="workspace" aria-label="UIT product previews">
+          <img id="preview-workspace" class="product-preview studio-capture" role="tabpanel" src="assets/studio-courses.png" alt="UIT Studio workspace showing course projects" loading="eager">
+
+          <img id="preview-agent" class="product-preview studio-capture" role="tabpanel" src="assets/studio-chat.png" alt="UIT Studio agent mode using course tools" loading="lazy" hidden>
+        </figure>
+      </div>
+    </div>
+  </header>
+
+  <!-- Platform Features Section -->
+  <section id="platform" class="sec-platform">
+
+    <!-- Block 1: Both SSO and legacy logins -->
+    <div class="platform-block">
+      <div class="container">
+        <h2 class="platform-heading">Both Logins in one app</h2>
+        <div class="byom-layout">
+          <div class="byom-copy">
+            <p class="platform-sub">Connect both UIT course accounts simultaneously.</p>
+            <p class="platform-sub">Access active coursework and past semester archives in one unified workspace without switching sessions or clearing cookies.</p>
+          </div>
+          <div class="byom-pair byom-pair--login" aria-label="UIT and Moodle work together seamlessly">
+            <div class="byom-logo byom-logo--uit" title="UIT">
+              <img src="assets/uit.svg" alt="UIT emblem" width="48" height="48">
+            </div>
+            <div
+              class="mascot-float"
+              data-floating-mascot
+              data-frames="assets/floating-0.png,assets/floating-1.png,assets/floating-2.png,assets/floating-3.png"
+              role="img"
+              aria-label="UIT mascot floating between the connected login providers"
+            >
+              <img class="mascot-float-frame is-active" src="assets/floating-0.png" alt="" width="112" height="112" decoding="async">
+              <img class="mascot-float-frame" src="assets/floating-1.png" alt="" width="112" height="112" decoding="async" hidden>
+              <img class="mascot-float-frame" src="assets/floating-2.png" alt="" width="112" height="112" decoding="async" hidden>
+              <img class="mascot-float-frame" src="assets/floating-3.png" alt="" width="112" height="112" decoding="async" hidden>
+            </div>
+            <div class="byom-logo byom-logo--moodle" title="Moodle">
+              <img src="assets/moodle.svg" alt="Moodle emblem" width="48" height="48">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Block 2: Bring your own subscription -->
+    <div class="platform-block">
+      <div class="container">
+        <h2 class="platform-heading">Bring your own subscription</h2>
+        <div class="byom-layout">
+          <div class="byom-copy">
+            <p class="platform-sub">UIT Studio never proxies traffic or resells tokens.</p>
+            <p class="platform-sub">Connect your student Moodle account and OpenAI Codex plan directly with the credentials you already have. We orchestrate them, you keep your plan.</p>
+          </div>
+          <div class="byom-pair" aria-label="UIT and OpenAI Codex work together perfectly">
+            <div class="byom-logo byom-logo--uit" title="UIT Moodle">
+              <img src="assets/uit.svg" alt="UIT emblem" width="48" height="48">
+            </div>
+            <div class="byom-heart" aria-hidden="true" title="Works together perfectly">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+              </svg>
+            </div>
+            <div class="byom-logo byom-logo--codex" title="OpenAI Codex">
+              <svg viewBox="0 0 24 24" width="44" height="44" fill="currentColor">
+                <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.5045 4.5045 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.6667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div class="mcp-tools" aria-labelledby="mcp-tools-heading">
+          <div class="mcp-tools-copy">
+            <span class="eyebrow">UIT MCP SERVER</span>
+            <h3 id="mcp-tools-heading">Course tools, ready for your agent</h3>
+            <p>Every tool runs in your connected course workspace with the access it actually needs.</p>
+          </div>
+          <div class="mcp-tool-workbench">
+            <div class="mcp-tool-table-wrap">
+              <div class="mcp-tool-windowbar" aria-hidden="true">
+                <div class="mcp-tool-window-dots">
+                  <span class="cmd-dot cmd-dot-red"></span>
+                  <span class="cmd-dot cmd-dot-yellow"></span>
+                  <span class="cmd-dot cmd-dot-green"></span>
+                </div>
+              </div>
+              <div class="mcp-tool-table" role="table" aria-label="UIT MCP tools available to Codex in a course workspace">
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_courses">
+                <code class="mcp-tool-name" role="rowheader">uit_courses</code>
+                <span class="mcp-tool-description" role="cell">List your accessible courses.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_course_contents">
+                <code class="mcp-tool-name" role="rowheader">uit_course_contents</code>
+                <span class="mcp-tool-description" role="cell">Read modules, assignments, and announcements.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_read_resource">
+                <code class="mcp-tool-name" role="rowheader">uit_read_resource</code>
+                <span class="mcp-tool-description" role="cell">Read one course resource.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_course_members">
+                <code class="mcp-tool-name" role="rowheader">uit_course_members</code>
+                <span class="mcp-tool-description" role="cell">List instructors and students.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_course_grades">
+                <code class="mcp-tool-name" role="rowheader">uit_course_grades</code>
+                <span class="mcp-tool-description" role="cell">Read grades and feedback.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_download_material">
+                <code class="mcp-tool-name" role="rowheader">uit_download_material</code>
+                <span class="mcp-tool-description" role="cell">Download a course file.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_submit_assignment">
+                <code class="mcp-tool-name" role="rowheader">uit_submit_assignment</code>
+                <span class="mcp-tool-description" role="cell">Submit a file to an assignment.</span>
+              </div>
+              </div>
+            </div>
+            <div class="mcp-tool-inspector" id="mcp-tool-inspector" hidden>
+              <div class="mcp-inspector-content">
+                <button class="mcp-inspector-close" type="button" aria-label="Close tool parameters">×</button>
+                <div class="mcp-inspector-head">
+                  <h4 id="mcp-inspector-title"></h4>
+                </div>
+                <div class="mcp-inspector-divider" aria-hidden="true"></div>
+                <div class="mcp-parameter-grid" id="mcp-parameter-grid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Block 3: Full VNU-HCM support coming soon -->
+    <div class="platform-block platform-block--marquee">
+      <div class="container">
+        <h2 class="platform-heading">Full VNU-HCM support coming soon <img class="platform-heading-logo" src="assets/vnu-hcm-logo.svg" alt="VNU-HCM"></h2>
+        <p class="platform-sub">Expanding beyond UIT to bring the same keyboard-driven workspace to every member university across Vietnam National University Ho Chi Minh City.</p>
+      </div>
+
+      <!-- VNU-HCM Logo Marquee -->
+      <div class="marquee-section" aria-label="VNU-HCM member university logos">
+        <div class="marquee-fade marquee-fade--left" aria-hidden="true"></div>
+        <div class="marquee-track">
+          <div class="marquee-group">
+            <img src="assets/uit.svg" alt="UIT — University of Information Technology" title="UIT — University of Information Technology" class="marquee-logo" loading="lazy">
+            <img src="assets/hcmus.svg" alt="HCMUS — University of Science" title="HCMUS — University of Science" class="marquee-logo" loading="lazy">
+            <img src="assets/hcmut.png" alt="HCMUT — University of Technology" title="HCMUT — University of Technology" class="marquee-logo" loading="lazy">
+            <img src="assets/ussh.png" alt="USSH — University of Social Sciences & Humanities" title="USSH — University of Social Sciences & Humanities" class="marquee-logo" loading="lazy">
+            <img src="assets/iu.png" alt="IU — International University" title="IU — International University" class="marquee-logo" loading="lazy">
+            <img src="assets/uel.png" alt="UEL — University of Economics and Law" title="UEL — University of Economics and Law" class="marquee-logo" loading="lazy">
+            <img src="assets/uhs.svg" alt="UHS — University of Health Sciences" title="UHS — University of Health Sciences" class="marquee-logo" loading="lazy">
+          </div>
+          <div class="marquee-group" aria-hidden="true">
+            <img src="assets/uit.svg" alt="" class="marquee-logo" loading="lazy">
+            <img src="assets/hcmus.svg" alt="" class="marquee-logo" loading="lazy">
+            <img src="assets/hcmut.png" alt="" class="marquee-logo" loading="lazy">
+            <img src="assets/ussh.png" alt="" class="marquee-logo" loading="lazy">
+            <img src="assets/iu.png" alt="" class="marquee-logo" loading="lazy">
+            <img src="assets/uel.png" alt="" class="marquee-logo" loading="lazy">
+            <img src="assets/uhs.svg" alt="" class="marquee-logo" loading="lazy">
+          </div>
+        </div>
+        <div class="marquee-fade marquee-fade--right" aria-hidden="true"></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- CLI capabilities -->
+  <section id="cli" class="sec-cli">
+    <div class="container">
+      <div class="cli-section-layout">
+        <div class="cli-section-copy">
+          <span class="eyebrow">UIT CLI</span>
+          <h2>Coursework from the command line</h2>
+          <p>Find courses, track deadlines, and download materials from your terminal.</p>
+
+          <div class="cli-capabilities">
+            <article class="cli-capability" data-cli-command="courses" tabindex="0" role="button" aria-controls="cli-terminal-courses">
+              <code>uit courses</code>
+              <span>List enrolled courses and filter to the current semester.</span>
+            </article>
+            <article class="cli-capability" data-cli-command="contents" tabindex="0" role="button" aria-controls="cli-terminal-contents">
+              <code>uit contents &lt;course_id&gt;</code>
+              <span>Browse sections, modules, forums, folders, and files.</span>
+            </article>
+            <article class="cli-capability" data-cli-command="deadlines" tabindex="0" role="button" aria-controls="cli-terminal-deadlines">
+              <code>uit deadlines</code>
+              <span>See upcoming assignments, quizzes, and calendar events at a glance.</span>
+            </article>
+            <article class="cli-capability" data-cli-command="download" tabindex="0" role="button" aria-controls="cli-terminal-download">
+              <code>uit download &lt;course_id&gt;</code>
+              <span>Pull course material locally for focused, offline study.</span>
+            </article>
+          </div>
+
+          <a class="cli-reference-link" href="https://github.com/RyanNg1403/uit-cli/blob/main/docs/CLI_REFERENCE.md" target="_blank" rel="noopener noreferrer">Read the CLI reference <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <div class="cli-section-terminal tile" aria-label="UIT CLI terminal preview">
+          <div class="hero-cli-illustration">
+            <div class="cli-mock-titlebar">
+              <div class="cli-mock-dots" aria-hidden="true">
+                <span class="cmd-dot cmd-dot-red"></span>
+                <span class="cmd-dot cmd-dot-yellow"></span>
+                <span class="cmd-dot cmd-dot-green"></span>
+              </div>
+              <div class="cli-mock-title">uit — courses.uit.edu.vn — zsh</div>
+              <div class="cli-mock-space" aria-hidden="true"></div>
+            </div>
+            <div class="cli-mock-body">
+              <div class="cli-terminal-command" id="cli-terminal-courses" data-cli-command="courses">
+                <div class="cli-mock-line cli-command-line">
+                  <span class="cli-mock-cmd">uit courses</span>
+                </div>
+                <div class="cli-mock-output">
+                  <div class="cli-table-head"><span>ID</span><span>SHORT</span><span>COURSE</span></div>
+                  <div class="cli-out-row"><span class="cli-c-id">19589</span><span class="cli-c-code">SE362.Q21</span><span class="cli-c-name">An toàn phần mềm và hệ thống</span></div>
+                  <div class="cli-out-row"><span class="cli-c-id">19227</span><span class="cli-c-code">CS410.Q21</span><span class="cli-c-name">Mạng neural và thuật giải di truyền</span></div>
+                </div>
+              </div>
+              <div class="cli-terminal-command" id="cli-terminal-contents" data-cli-command="contents">
+                <div class="cli-mock-line cli-command-line cli-gap">
+                  <span class="cli-mock-cmd">uit contents 19589</span>
+                </div>
+                <div class="cli-mock-output">
+                  <div class="cli-section-label">GENERAL</div>
+                  <div class="cli-content-row"><span>427868</span> <b>[folder]</b> Tài Liệu Môn Học</div>
+                  <div class="cli-file-row">└─ SE362.Q21_.pdf</div>
+                </div>
+              </div>
+              <div class="cli-terminal-command" id="cli-terminal-deadlines" data-cli-command="deadlines">
+                <div class="cli-mock-line cli-command-line cli-gap">
+                  <span class="cli-mock-cmd">uit deadlines</span>
+                </div>
+                <div class="cli-mock-output">
+                  <div class="cli-deadline-head"><span>DUE</span><span>COURSE</span><span>ASSIGNMENT</span><span>ID</span></div>
+                  <div class="cli-deadline-row"><span class="cli-deadline-due">2026-09-20</span><span class="cli-deadline-course"><b>SE362.Q21</b> · An toàn phần mềm</span><span class="cli-deadline-name">Lab 03: Static Analysis</span><span class="cli-c-id">84210</span></div>
+                </div>
+              </div>
+              <div class="cli-terminal-command" id="cli-terminal-download" data-cli-command="download">
+                <div class="cli-mock-line cli-command-line cli-gap">
+                  <span class="cli-mock-cmd">uit download 19589</span>
+                  <span class="cli-mock-cursor" aria-hidden="true"></span>
+                </div>
+                <div class="cli-mock-output">
+                  <div class="cli-download-row"><span class="cli-download-action">GET</span><span>SE362.Q21_.pdf</span><b>OK</b></div>
+                  <div class="cli-download-row"><span class="cli-download-action">GET</span><span>Chapter 1.pdf</span><b>OK</b></div>
+                  <div class="cli-download-summary">Saved 2 files → SE362.Q21/</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download & Platform Releases -->
+  <section id="download" class="sec-download">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Installation</span>
+        <h2>Your workspace, on every platform</h2>
+        <p>Install globally via npm, or grab standalone pre-compiled installers for macOS, Linux, and Windows.</p>
+      </div>
+
+      <div class="download-grid">
+        <!-- macOS -->
+        <div class="tile dl-card">
+          <div class="dl-card-head">
+            <!-- Authentic Apple Logo -->
+            <svg class="dl-platform-icon" viewBox="0 0 170 170" fill="currentColor" aria-hidden="true">
+              <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.04-7.6-7.85-11.7-14.42-6-9.56-10.73-20.17-14.19-31.84-3.46-11.67-5.19-22.84-5.19-33.51 0-14.54 3.73-26.6 11.19-36.19 7.46-9.59 16.79-14.47 27.99-14.65 4.8 0 10.15 1.25 16.06 3.76 5.91 2.51 9.87 3.86 11.88 4.05 2.57-.43 6.94-1.92 13.11-4.47 6.17-2.55 11.67-3.73 16.51-3.54 13.57.65 24.32 5.56 32.26 14.73-11.96 7.27-17.83 17.16-17.61 29.67.22 10.09 4.14 18.57 11.76 25.44 7.62 6.87 16.63 10.66 27.03 11.37-2.49 7.42-5.77 15.34-9.84 23.76zM119.22 31.95c0-7.39 2.65-14.28 7.95-20.67 5.3-6.39 11.76-10.42 19.38-12.08.11 1.09.16 2.13.16 3.12 0 7.39-2.82 14.49-8.46 21.3-5.64 6.81-12.44 10.73-20.4 11.75-.22-1.09-.33-2.23-.33-3.42z"/>
+            </svg>
+          </div>
+          <div class="dl-card-body">
+            <h3>macOS</h3>
+          </div>
+          <div class="os-tabs" role="tablist" aria-label="macOS installation options">
+            <button class="os-tab active" type="button" role="tab" aria-selected="true" data-os-target="mac-studio">Studio</button>
+            <button class="os-tab" type="button" role="tab" aria-selected="false" data-os-target="mac-cli">CLI</button>
+          </div>
+          <div class="os-panel dl-card-action" data-os-panel="mac-cli" hidden>
+            <div class="install-methods">
+              <div class="install-choice">
+              <div class="install-choice-label"><span>Standalone CLI</span><span>curl</span></div>
+              <div class="dl-snippet">
+                <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh', this)" aria-label="Copy macOS CLI installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+            </div>
+            <div class="install-choice">
+              <div class="install-choice-label"><span>CLI package</span><span>npm</span></div>
+              <div class="dl-snippet">
+                <code>npm install -g uit-cli</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-cli', this)" aria-label="Copy macOS CLI npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+              </div>
+            </div>
+          </div>
+          <div class="os-panel dl-card-action" data-os-panel="mac-studio">
+            <div class="install-methods">
+              <div class="install-choice">
+              <div class="install-choice-label"><span>Native</span><span>curl</span></div>
+              <div class="dl-snippet">
+                <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio', this)" aria-label="Copy macOS Studio installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+            </div>
+            <div class="install-choice">
+              <div class="install-choice-label"><span>NPM</span><span>npm</span></div>
+              <div class="dl-snippet">
+                <code>npm install -g uit-studio</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy macOS Studio npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Linux -->
+        <div class="tile dl-card">
+          <div class="dl-card-head">
+            <!-- Authentic Linux Tux Logo -->
+            <svg class="dl-platform-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12.001 2c-3.14 0-5.701 2.56-5.701 5.7 0 1.25.4 2.42 1.09 3.37-1.74 1.13-3.08 2.87-3.69 4.93h-.03c-.93 0-1.67.75-1.67 1.67v1.66c0 .92.74 1.67 1.67 1.67h1.49c.81 1.25 2.19 2.07 3.84 2.07 1.6 0 2.94-.78 3.75-1.99.79 1.21 2.13 1.99 3.75 1.99 1.65 0 3.03-.82 3.84-2.07h1.49c.93 0 1.67-.75 1.67-1.67v-1.66c0-.92-.74-1.67-1.67-1.67h-.03c-.61-2.06-1.95-3.8-3.69-4.93.69-.95 1.09-2.12 1.09-3.37C17.702 4.56 15.141 2 12.001 2zm-1.8 4.25c.69 0 1.25.56 1.25 1.25s-.56 1.25-1.25 1.25-1.25-.56-1.25-1.25.56-1.25 1.25-1.25zm3.6 0c.69 0 1.25.56 1.25 1.25s-.56 1.25-1.25 1.25-1.25-.56-1.25-1.25.56-1.25 1.25-1.25zm-1.8 2.5c.83 0 1.5.45 1.5 1s-.67 1-1.5 1-1.5-.45-1.5-1 .67-1 1.5-1z"/>
+            </svg>
+          </div>
+          <div class="dl-card-body">
+            <h3>Linux</h3>
+          </div>
+          <div class="os-tabs" role="tablist" aria-label="Linux installation options">
+            <button class="os-tab active" type="button" role="tab" aria-selected="true" data-os-target="linux-studio">Studio</button>
+            <button class="os-tab" type="button" role="tab" aria-selected="false" data-os-target="linux-cli">CLI</button>
+          </div>
+          <div class="os-panel dl-card-action" data-os-panel="linux-cli" hidden>
+            <div class="install-methods">
+              <div class="install-choice">
+              <div class="install-choice-label"><span>Standalone CLI</span><span>curl</span></div>
+              <div class="dl-snippet">
+                <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh', this)" aria-label="Copy Linux CLI installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+            </div>
+            <div class="install-choice">
+              <div class="install-choice-label"><span>CLI package</span><span>npm</span></div>
+              <div class="dl-snippet">
+                <code>npm install -g uit-cli</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-cli', this)" aria-label="Copy Linux CLI npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+              </div>
+            </div>
+          </div>
+          <div class="os-panel dl-card-action" data-os-panel="linux-studio">
+            <div class="install-methods">
+              <div class="install-choice">
+              <div class="install-choice-label"><span>Native</span><span>curl</span></div>
+              <div class="dl-snippet">
+                <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio', this)" aria-label="Copy Linux Studio installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+            </div>
+            <div class="install-choice">
+              <div class="install-choice-label"><span>NPM</span><span>npm</span></div>
+              <div class="dl-snippet">
+                <code>npm install -g uit-studio</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy Linux Studio npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Windows -->
+        <div class="tile dl-card">
+          <div class="dl-card-head">
+            <!-- Authentic Microsoft Windows Logo -->
+            <svg class="dl-platform-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M0 0h11.377v11.372H0zm12.623 0H24v11.372H12.623zM0 12.623h11.377V24H0zm12.623 0H24V24H12.623"/>
+            </svg>
+          </div>
+          <div class="dl-card-body">
+            <h3>Windows</h3>
+          </div>
+          <div class="os-tabs" role="tablist" aria-label="Windows installation options">
+            <button class="os-tab active" type="button" role="tab" aria-selected="true" data-os-target="windows-studio">Studio</button>
+            <button class="os-tab" type="button" role="tab" aria-selected="false" data-os-target="windows-cli">CLI</button>
+          </div>
+          <div class="os-panel dl-card-action" data-os-panel="windows-cli" hidden>
+            <div class="install-choice">
+              <div class="install-choice-label"><span>CLI package</span><span>npm</span></div>
+              <div class="dl-snippet">
+                <code>npm install -g uit-cli</code>
+                <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-cli', this)" aria-label="Copy Windows CLI npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="os-panel dl-card-action" data-os-panel="windows-studio">
+            <div class="install-methods windows-studio-methods">
+                  <div class="install-choice">
+                    <div class="install-choice-label"><span>Native</span><span>PowerShell</span></div>
+                    <div class="windows-command-list">
+                      <div class="dl-snippet">
+                        <code>$installer = Join-Path $env:TEMP &quot;uit-studio-install.ps1&quot;</code>
+                        <button class="dl-copy-btn" type="button" onclick="copyCommand(this.previousElementSibling.textContent, this)" aria-label="Copy Windows Studio temporary installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                      </div>
+                      <div class="dl-snippet">
+                        <code>Invoke-WebRequest https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.ps1 -OutFile $installer</code>
+                        <button class="dl-copy-btn" type="button" onclick="copyCommand(this.previousElementSibling.textContent, this)" aria-label="Copy Windows Studio download command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                      </div>
+                      <div class="dl-snippet">
+                        <code>powershell -ExecutionPolicy Bypass -File $installer -Studio</code>
+                        <button class="dl-copy-btn" type="button" onclick="copyCommand(this.previousElementSibling.textContent, this)" aria-label="Copy Windows Studio launch command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="install-choice">
+                    <div class="install-choice-label"><span>NPM</span><span>npm</span></div>
+                    <div class="dl-snippet">
+                      <code>npm install -g uit-studio</code>
+                      <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy Windows Studio npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                    </div>
+                  </div>
+                </div>
+            </div>
+          </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer (t3.codes style) -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/icon.svg" alt="UIT Đậu Đậu" width="20" height="20">
+        <span>&copy; UIT Open Source · MIT licensed</span>
+      </div>
+
+      <div class="footer-links">
+        <a href="https://github.com/RyanNg1403/uit-cli" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/RyanNg1403/uit-cli/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        <a href="https://github.com/RyanNg1403/uit-cli/blob/main/docs/CLI_REFERENCE.md" target="_blank" rel="noopener noreferrer">CLI Reference</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

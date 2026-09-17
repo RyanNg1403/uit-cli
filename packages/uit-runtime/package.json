@@ -1,7 +1,7 @@
 {
   "name": "uit-runtime",
-  "version": "1.3.5",
-  "description": "Shared Playwright-free runtime for UIT CLI and UIT Studio",
+  "version": "2.0.0",
+  "description": "Shared runtime for UIT CLI and UIT Studio",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -9,24 +9,24 @@
     "url": "git+https://github.com/RyanNg1403/uit-cli.git",
     "directory": "packages/uit-runtime"
   },
-  "main": "desktop-build/main.js",
+  "main": "dist/studio-web-launcher.js",
   "files": [
     "dist",
-    "desktop-build",
+    "studio-build",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
+    "postinstall": "node dist/studio-sso.js --install-browser",
     "prepack": "npm --prefix ../.. run build && node ../../scripts/prepare-runtime-package.mjs"
   },
   "dependencies": {
     "mammoth": "^1.12.2",
-    "pdfjs-dist": "4.10.38"
-  },
-  "peerDependencies": {
-    "electron": "41.10.3"
+    "open": "^11.0.4",
+    "pdfjs-dist": "4.10.38",
+    "playwright": "1.63.0"
   },
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.0.0"
   }
 }

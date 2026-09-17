@@ -1,14 +1,16 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
+import { submitAssignmentFile } from "./assignment-submission.js";
 import { activateSession as selectActiveSession, get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
 import { CodexClient } from "./codex-client.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
+export { calendarMonth, listCalendarEvents, addAssignmentIntervals, calendarReminders } from "./calendar.js";
 
 export interface DesktopLoginInput {
   username: string;
@@ -95,6 +97,8 @@ export interface AnnouncementSummary {
   author: string;
   message: string;
   timestamp?: number;
+  createdAt?: number;
+  updatedAt?: number;
   replies: number;
   courseId: number;
   moduleId?: number;
@@ -236,10 +240,10 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
   }
   const category = parse(categoryText, "category", academicYear);
   if (category) return category;
+  const name = parse(`${course.fullname || ""} ${course.shortname || ""}`, "name", academicYear || categoryText);
+  if (name) return name;
   const categoryYear = yearGroup(categoryText, "category");
   if (categoryYear) return categoryYear;
-  const name = parse(`${course.fullname || ""} ${course.shortname || ""}`, "name");
-  if (name) return name;
   const startdate = Number(course.startdate);
   if (startdate > 0 && Number.isFinite(startdate)) {
     const date = new Date(startdate * 1000);
@@ -250,36 +254,7 @@ function normalizeSemester(course: MoodleRecord): CourseSummary["semester"] {
       return { id: `${year}`, label: `${year}`, sortOrder: year * 10 + 9, source: "startdate" };
     }
   }
-  // A yearless term or conflicting term/year hints stay unknown; a complete
-  // absence of time hints files under the current year. Real evidence always
-  // wins when present, so the default self-corrects on refresh.
-  const seen = new Set<string>();
-  let conflict = false;
-  let hasTerm = false;
-  const scan = (value: unknown): void => {
-    if (conflict) return;
-    const raw = typeof value === "object" && value !== null ? (value as MoodleRecord).label ?? (value as MoodleRecord).name ?? (value as MoodleRecord).id : value;
-    if (raw === undefined || raw === null || String(raw).trim() === "") return;
-    const clean = cleanHtml(raw);
-    const text = /^0?[1-4]$/.test(clean) ? `HK${clean}` : normalize(raw);
-    if (seen.has(text)) return;
-    seen.add(text);
-    const foundTerms = new Set([...text.matchAll(termPattern)].map((term) => terms[term[1].toLowerCase()] || Number(term[1])));
-    const foundYears = new Set(academicYears(text).map(toYear));
-    if (foundTerms.size > 1 || foundYears.size > 1) conflict = true;
-    else if (foundTerms.size > 0) hasTerm = true;
-  };
-  scan(explicit);
-  scan(course.semestername);
-  scan(course.term);
-  for (const field of fields) scan(field.value);
-  scan(categoryText);
-  scan(course.fullname);
-  scan(course.shortname);
-  scan(course.summary);
-  if (conflict || hasTerm) return { id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" };
-  const now = new Date().getUTCFullYear();
-  return { id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" };
+  return { id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" };
 }
 
 function cleanHtml(value: unknown): string {
@@ -377,6 +352,34 @@ function mapCourse(course: MoodleRecord): CourseSummary {
     } : undefined,
     semester: normalizeSemester(course)
   };
+}
+
+/** Resolve UIT year letters from dated courses, including courses on the legacy portal. */
+export function resolveClassCodeSemesters<T extends CourseSummary>(courses: T[]): T[] {
+  const classCode = (course: CourseSummary) => /^\s*[A-Z]{2,4}\d{2,3}\.([A-Z])([12])\d{1,2}(?:\.[A-Z0-9]+)*\s*$/.exec(course.shortname);
+  const offsets = new Map<number, Set<string>>();
+  for (const course of courses) {
+    const code = classCode(course);
+    if (!code) continue;
+    const explicit = /^(\d{4})-\d{4}-hk([12])$/.exec(course.semester.id);
+    const startYear = course.startdate ? new Date(course.startdate * 1000).getUTCFullYear() : NaN;
+    const year = explicit && explicit[2] === code[2] ? Number(explicit[1]) : startYear - (code[2] === "2" ? 1 : 0);
+    if (!Number.isFinite(year)) continue;
+    const offset = year - code[1].charCodeAt(0);
+    if (!offsets.has(offset)) offsets.set(offset, new Set());
+    offsets.get(offset)!.add(code[1]);
+  }
+  const ranked = [...offsets].sort((a, b) => b[1].size - a[1].size);
+  // Require agreement across multiple year letters; ties are not enough evidence.
+  if (!ranked.length || ranked[0][1].size < 2 || ranked[0][1].size === ranked[1]?.[1].size) return courses;
+  const offset = ranked[0][0];
+  return courses.map((course) => {
+    const code = classCode(course);
+    if (!code || !["unknown", "startdate", "current"].includes(course.semester.source)) return course;
+    const year = offset + code[1].charCodeAt(0);
+    const term = Number(code[2]);
+    return { ...course, semester: { id: `${year}-${year + 1}-hk${term}`, label: `HK${term} ${year}-${year + 1}`, sortOrder: year * 10 + term, source: "name" } };
+  });
 }
 
 export async function listCourses(api: ApiClient = defaultApiClient, userId = Number(get("userId") || 0)): Promise<CourseSummary[]> {
@@ -499,6 +502,21 @@ export async function listAssignments(courseId: number, api: ApiClient = default
   }).sort((a: AssignmentSummary, b: AssignmentSummary) => (a.dueDate || Number.POSITIVE_INFINITY) - (b.dueDate || Number.POSITIVE_INFINITY));
 }
 
+/** Verify the assignment belongs to the selected course before mutating Moodle. */
+export async function submitAssignment(
+  courseId: number,
+  assignId: number,
+  filepath: string,
+  api: ApiClient = defaultApiClient
+) {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Course ID must be a positive integer.");
+  if (!Number.isSafeInteger(assignId) || assignId <= 0) throw new Error("Assignment ID must be a positive integer.");
+  const assignment = (await listAssignments(courseId, api)).find((item) => item.id === assignId);
+  if (!assignment) throw new Error("The assignment was not found in the selected course.");
+  if (assignment.unavailable?.instance) throw new Error(assignment.unavailable.instance);
+  return submitAssignmentFile(assignId, filepath, api);
+}
+
 export interface AssignmentSubmission {
   assignId: number;
   moduleId?: number;
@@ -572,6 +590,8 @@ export async function listAnnouncements(courseId: number, api: ApiClient = defau
           author: cleanHtml(discussion.userfullname),
           message: cleanHtml(discussion.message),
           timestamp: Number(discussion.timemodified || discussion.created || 0) || undefined,
+          createdAt: Number(discussion.created) > 0 && Number.isFinite(Number(discussion.created)) ? Number(discussion.created) : undefined,
+          updatedAt: Number(discussion.timemodified) > 0 && Number.isFinite(Number(discussion.timemodified)) ? Number(discussion.timemodified) : undefined,
           replies: Number(discussion.numreplies || 0),
           files: filesFrom(discussion.attachments, discussion.messageinlinefiles),
           url: credentialFreeUrl(discussion.url),
@@ -630,6 +650,18 @@ export async function listForumDiscussions(courseId: number, moduleId: number, a
     if (!Number.isSafeInteger(forumId) || forumId <= 0) throw error;
     return await read({ forumid: forumId });
   }
+}
+
+export async function readParticipantAvatar(courseId: number, memberId: number, baseUrl: string, api: ApiClient): Promise<{ mimeType: string; data: string } | null> {
+  const member = (await listCourseParticipants(courseId, api)).find((item) => item.id === memberId);
+  if (!member?.avatar || !api.readFile) return null;
+  const url = new URL(member.avatar, baseUrl);
+  if (url.protocol !== "https:" || url.origin !== new URL(baseUrl).origin || url.username || url.password ||
+      !/\/(?:webservice\/)?pluginfile\.php\/\d+\/user\/icon\//.test(url.pathname)) return null;
+  const result = await api.readFile(url.href);
+  const mimeType = result.mimeType.split(";")[0].trim().toLowerCase();
+  if (!/^image\/(?:png|jpeg|gif|webp)$/.test(mimeType) || result.data.byteLength > 2 * 1024 * 1024) return null;
+  return { mimeType, data: Buffer.from(result.data).toString("base64") };
 }
 
 export async function listCourseParticipants(courseId: number, api: ApiClient = defaultApiClient): Promise<CourseParticipant[]> {
@@ -989,12 +1021,12 @@ interface CourseManifestEntry {
 }
 
 interface CourseManifest {
-  version: 1;
+  version: 2;
   courses: CourseManifestEntry[];
   materializedFiles: Record<string, MaterializedFileRecord>;
 }
 
-const COURSE_MANIFEST_VERSION = 1 as const;
+const COURSE_MANIFEST_VERSION = 2 as const;
 const MANIFEST_LOCK_STALE_MS = 60_000;
 const MANIFEST_LOCK_ATTEMPTS = 100;
 const coursesDirectory = () => resolve(homedir(), ".uit", "courses");
@@ -1115,13 +1147,6 @@ export function workspacePath(courseId: number, baseUrl: string, userId: number,
   return resolve(coursesDirectory(), portalFolder(baseUrl), `user-${userId}`, safePathSegment(shortname, `course-${courseId}`));
 }
 
-function legacyWorkspacePath(courseId: number, baseUrl: string, userId: number): string {
-  const canonical = canonicalBaseUrl(baseUrl);
-  const site = new URL(canonical);
-  const siteKey = `${site.hostname.replace(/[^a-zA-Z0-9.-]/g, "_")}-${createHash("sha256").update(canonical).digest("hex").slice(0, 16)}`;
-  return resolve(coursesDirectory(), siteKey, `user-${userId}`, `course-${courseId}`);
-}
-
 async function ensureWorkspaceDirectories(root: string, children: string[]): Promise<void> {
   const coursesRoot = resolve(homedir(), ".uit", "courses");
   const relativeRoot = relative(coursesRoot, root);
@@ -1233,81 +1258,6 @@ function workspaceEntryPath(baseUrl: string, account: { studentId: string; stude
   return join(portalFolder(baseUrl), studentFolder(account), courseCode).split(sep).join("/");
 }
 
-async function moveWorkspace(from: string, to: string): Promise<void> {
-  if (samePath(from, to)) return;
-  try {
-    const source = await lstat(from);
-    if (source.isSymbolicLink() || !source.isDirectory()) throw new Error("UIT workspace is unsafe to move.");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  try {
-    await lstat(to);
-    throw new Error("Cannot migrate UIT course storage because the destination folder already exists.");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await mkdir(dirname(to), { recursive: true });
-  await rename(from, to);
-}
-
-function numberedMaterialPath(directory: string, filename: string, number: number): string {
-  const extension = extname(filename);
-  const stem = extension ? filename.slice(0, -extension.length) : filename;
-  return join(directory, number === 1 ? filename : `${stem} (${number})${extension}`);
-}
-
-async function migrateLegacyMaterialDirectories(root: string, courseId: number, api: ApiClient): Promise<void> {
-  const materials = join(root, "materials");
-  let entries: Array<{ name: string; isDirectory(): boolean }>;
-  try { entries = await readdir(materials, { withFileTypes: true }); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  const legacyDirectories = entries.filter((entry) => entry.isDirectory() && /^[a-f0-9]{64}$/.test(entry.name));
-  if (!legacyDirectories.length) return;
-
-  const modulesByFilename = new Map<string, number[]>();
-  try {
-    for (const module of await getCourseContents(courseId, api)) {
-      for (const file of module.files) {
-        const key = file.filename.normalize("NFC");
-        modulesByFilename.set(key, [...new Set([...(modulesByFilename.get(key) || []), module.id])]);
-      }
-    }
-  } catch {
-    // Preserve any source that the current portal can no longer describe.
-  }
-
-  for (const legacy of legacyDirectories) {
-    const legacyPath = join(materials, legacy.name);
-    const files = await readdir(legacyPath, { withFileTypes: true });
-    for (const item of files) {
-      if (!item.isFile()) continue;
-      const source = join(legacyPath, item.name);
-      const sourceInfo = await lstat(source);
-      if (sourceInfo.isSymbolicLink() || !sourceInfo.isFile()) continue;
-      const moduleIds = modulesByFilename.get(item.name.normalize("NFC")) || [];
-      const destinationDirectory = join(materials, moduleIds.length === 1 ? `module-${moduleIds[0]}` : "imported");
-      await ensureWorkspaceDirectories(root, [relative(root, destinationDirectory)]);
-      let destination = numberedMaterialPath(destinationDirectory, item.name, 1);
-      for (let number = 2; ; number += 1) {
-        try {
-          await lstat(destination);
-          destination = numberedMaterialPath(destinationDirectory, item.name, number);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          break;
-        }
-      }
-      await rename(source, destination);
-    }
-    if (!(await readdir(legacyPath)).length) await rm(legacyPath, { recursive: false, force: true });
-  }
-}
-
 async function resolveWorkspace(courseId: number, shortname: string, baseUrl: string, userId: number, api: ApiClient): Promise<{ path: string; created: boolean }> {
   if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error("A valid course and account identity is required for the workspace.");
   const canonical = canonicalBaseUrl(baseUrl);
@@ -1319,29 +1269,16 @@ async function resolveWorkspace(courseId: number, shortname: string, baseUrl: st
     const key = courseKey(canonical, userId, courseId);
     const existingIndex = manifest.courses.findIndex((entry) => courseKey(entry.baseUrl, entry.moodleUserId, entry.courseId) === key);
     const existing = existingIndex >= 0 ? manifest.courses[existingIndex] : undefined;
-    let relativePath = existing?.path || desiredRelativePath;
-    let root = resolve(coursesDirectory(), relativePath);
+    const relativePath = existing?.path || desiredRelativePath;
+    const root = resolve(coursesDirectory(), relativePath);
     if (relative(coursesDirectory(), root).startsWith("..")) throw new Error("Invalid UIT course manifest path.");
-    if (existing && relativePath !== desiredRelativePath) {
-      const renamedRoot = resolve(coursesDirectory(), desiredRelativePath);
-      if (relative(coursesDirectory(), renamedRoot).startsWith("..")) throw new Error("Invalid UIT course manifest path.");
-      await moveWorkspace(root, renamedRoot);
-      root = renamedRoot;
-      relativePath = desiredRelativePath;
-    }
     let created = false;
     try { await stat(root); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const legacyRoot = legacyWorkspacePath(courseId, canonical, userId);
-      await moveWorkspace(legacyRoot, root);
-      try { await stat(root); } catch (missing) {
-        if ((missing as NodeJS.ErrnoException).code !== "ENOENT") throw missing;
-        created = true;
-      }
+      created = true;
     }
     await ensureWorkspaceDirectories(root, [".uit", join(".uit", "context"), "materials", "artifacts"]);
-    await migrateLegacyMaterialDirectories(root, courseId, api);
 
     const entry: CourseManifestEntry = {
       baseUrl: canonical,

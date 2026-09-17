@@ -51,14 +51,20 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test Studio web transport
+        run: npm run test:studio:web
+
       - name: Check installer
         run: npm run installer:check
 
       - name: Verify npm package
         run: npm run package:check
 
-  linux-electron:
-    name: Linux Electron
+      - name: Verify Studio package
+        run: npm run studio:check
+
+  linux-studio:
+    name: Linux Studio
     runs-on: ubuntu-latest
 
     steps:
@@ -89,17 +95,22 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Check desktop build
-        run: npm run desktop:check
+      - name: Check Studio web build
+        run: npm run studio:web:check
 
-      - name: Test desktop UI
-        run: npx playwright test desktop-ui pdf-preview sidebar
+      - name: Test Studio UI
+        run: xvfb-run --auto-servernum npx playwright test studio-ui sidebar --grep-invert='/pdf/i' --workers=1
 
-      - name: Test native Electron smoke and stability
-        run: xvfb-run --auto-servernum npx playwright test electron-smoke electron-stability --workers=1
+      - name: Build native web Studio archive
+        run: npm run studio:package -- linux x64 release-assets
 
-  windows-electron:
-    name: Windows Electron
+      - name: Smoke-test native web Studio archive
+        run: xvfb-run --auto-servernum node scripts/smoke-standalone-studio.mjs
+        env:
+          UIT_STUDIO_ARCHIVE: release-assets/UIT-Studio-web-linux-x64.tar.gz
+
+  windows-studio:
+    name: Windows Studio
     runs-on: windows-latest
 
     steps:
@@ -131,19 +142,35 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install chromium
 
-      - name: Check desktop build
-        run: npm run desktop:check
+      - name: Check PowerShell installer syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path scripts/install.ps1), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-Host
+            exit 1
+          }
 
-      - name: Test desktop UI
+      - name: Check Studio web build
+        run: npm run studio:web:check
+
+      - name: Test Studio UI
         # Keep Chromium contexts serialized on Windows. The runner's socket
         # table intermittently reports ERR_NO_BUFFER_SPACE with four workers.
-        run: npx playwright test desktop-ui pdf-preview sidebar --workers=1
+        run: npx playwright test studio-ui sidebar --grep-invert='/pdf/i' --workers=1
 
-      - name: Test native Electron smoke and stability
-        run: npx playwright test electron-smoke electron-stability --workers=1
+      - name: Build native web Studio archive
+        run: npm run studio:package -- windows x64 release-assets
 
-  macos-electron:
-    name: macOS Electron
+      - name: Smoke-test native web Studio archive
+        run: |
+          $env:UIT_STUDIO_ARCHIVE = (Resolve-Path "release-assets/UIT-Studio-web-windows-x64.zip").Path
+          node scripts/smoke-standalone-studio.mjs
+
+  macos-studio:
+    name: macOS Studio
     runs-on: macos-26
 
     steps:
@@ -174,13 +201,18 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install chromium
 
-      - name: Check desktop build
-        run: npm run desktop:check
+      - name: Check Studio web build
+        run: npm run studio:web:check
 
-      - name: Test desktop UI
-        # PDF.js and Chromium are resource-sensitive on hosted macOS runners;
-        # one worker keeps the lifecycle tests deterministic.
-        run: npx playwright test desktop-ui pdf-preview sidebar --workers=1
+      - name: Test Studio UI
+        # Keep browser contexts serialized on hosted macOS runners; one worker
+        # keeps the UI lifecycle tests deterministic.
+        run: npx playwright test studio-ui sidebar --grep-invert='/pdf/i' --workers=1
 
-      - name: Test native Electron smoke and stability
-        run: npx playwright test electron-smoke electron-stability --workers=1
+      - name: Build native web Studio archive
+        run: npm run studio:package -- macos arm64 release-assets
+
+      - name: Smoke-test native web Studio archive
+        run: node scripts/smoke-standalone-studio.mjs
+        env:
+          UIT_STUDIO_ARCHIVE: release-assets/UIT-Studio-web-macos-arm64.tar.gz

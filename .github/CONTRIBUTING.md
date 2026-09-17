@@ -6,7 +6,7 @@ Thanks for contributing to `uit-cli`! This guide explains our Git workflow, deve
 
 ## 1. Development Prerequisites
 
-- **Node.js**: `>= 20.19.0`
+- **Node.js**: `>= 24.0.0`
 - **npm**: `>= 10.0.0`
 - **Supported Platforms**: macOS, Linux, Windows
 
@@ -65,7 +65,7 @@ main ─────────────────────────
    - Feature and fix branches for that release cycle are merged into the release branch.
 
 5. **Release Finalization & Deployment**:
-   - Once all fixes are merged into `release/<version>`, versions are synchronized, changelogs updated, and full test pipelines (including Electron stability) pass.
+   - Once all fixes are merged into `release/<version>`, versions are synchronized, changelogs updated, and full cross-platform Studio web/native checks pass.
    - The release branch is merged into `main`.
    - Creating a git tag (`v<version>`) on `main` triggers automated builds and deployments to GitHub Releases and npm.
 
@@ -83,7 +83,7 @@ main ─────────────────────────
 # Unit & integration tests
 npm test
 
-# TypeScript typechecking (CLI + Desktop + Preload)
+# TypeScript typechecking (CLI + Studio web runtime)
 npm run typecheck
 
 # Code formatting & linting
@@ -94,9 +94,8 @@ npm run package:check
 npm run studio:check
 npm run installer:check
 
-# Electron desktop stability (run before submitting desktop PRs)
-npm run test:electron
-npm run test:desktop
+# Studio browser and transport checks
+npm run test:studio:web
 ```
 
 ---

@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import type { ApiClient } from "./types.js";
 import { createTokenApiClient, createSessionApiClient } from "./api.js";
 import { getActiveConfig } from "./config.js";
-import { createUitToolExecutor, UIT_TOOLS, type UitToolServices } from "./uit-tools.js";
+import { createUitToolExecutor, UIT_ASSIGNMENT_SUBMISSION_TOOL, UIT_TOOLS, type UitToolServices } from "./uit-tools.js";
 import * as desktopService from "./desktop-service.js";
 
 function packageVersion(): string {
@@ -84,10 +84,118 @@ const uitToolServices: UitToolServices = {
   listCourseParticipants: (courseId, api) => desktopService.listCourseParticipants(courseId, api),
   getCourseGrades: (courseId, api, userId) => desktopService.getCourseGrades(courseId, api, userId),
   resolveCourseResource: (courseId, reference, api) => desktopService.resolveCourseResource(courseId, reference as unknown as desktopService.CourseResourceReference, api),
-  materializeCourseFile: (courseId, moduleId, filename, api, identity) => desktopService.materializeCourseFile(courseId, moduleId, filename, api, identity)
+  materializeCourseFile: (courseId, moduleId, filename, api, identity) => desktopService.materializeCourseFile(courseId, moduleId, filename, api, identity),
+  submitAssignment: (courseId, assignmentId, filePath, api) => desktopService.submitAssignment(courseId, assignmentId, filePath, api)
 };
 
 const executeUitTool = createUitToolExecutor(uitToolServices);
+
+type JsonRpcId = string | number;
+type PendingElicitation = {
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const SUBMISSION_CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1_000;
+const ASSIGNMENT_SUBMISSION_REJECTION_MESSAGE = "Assignment submission was declined by the user; no file was uploaded or submitted.";
+
+class AssignmentSubmissionRejectedError extends Error {
+  constructor() {
+    super(ASSIGNMENT_SUBMISSION_REJECTION_MESSAGE);
+    this.name = "AssignmentSubmissionRejectedError";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function assignmentSubmissionElicitation(args: Record<string, unknown>): Record<string, unknown> {
+  const courseId = String(args.courseId ?? "unknown");
+  const assignmentId = String(args.assignmentId ?? "unknown");
+  const filePath = String(args.filePath ?? "unknown");
+  return {
+    mode: "form",
+    message: `Confirm submitting ${filePath} to assignment ${assignmentId} in course ${courseId}. This changes upstream course data.`,
+    requestedSchema: {
+      type: "object",
+      properties: {
+        confirmed: {
+          type: "boolean",
+          title: "Confirm assignment submission",
+          description: "Accept only if the assignment and file shown above are correct."
+        }
+      },
+      required: ["confirmed"]
+    },
+    _meta: {
+      uit_confirmation: "assignment_submission",
+      server_name: "uit",
+      tool_name: UIT_ASSIGNMENT_SUBMISSION_TOOL,
+      tool_description: "Upload and submit one local file to a UIT assignment. This changes upstream course data.",
+      tool_params: args
+    }
+  };
+}
+
+export function acceptsAssignmentSubmissionElicitation(result: unknown): boolean {
+  if (!isRecord(result) || result.action !== "accept" || !isRecord(result.content)) return false;
+  return result.content.confirmed === true;
+}
+
+export interface McpServerOptions {
+  input?: NodeJS.ReadableStream;
+  output?: NodeJS.WritableStream;
+  executeTool?: (name: string, args: Record<string, any>) => Promise<unknown>;
+}
+
+function requestElicitation(
+  send: (message: Record<string, unknown>) => void,
+  pending: Map<JsonRpcId, PendingElicitation>,
+  params: Record<string, unknown>
+): Promise<unknown> {
+  const id = randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error("Assignment submission confirmation timed out."));
+    }, SUBMISSION_CONFIRMATION_TIMEOUT_MS);
+    pending.set(id, { resolve, reject, timer });
+    try {
+      send({ jsonrpc: "2.0", id, method: "elicitation/create", params });
+    } catch (error) {
+      clearTimeout(timer);
+      pending.delete(id);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+async function requestAssignmentSubmissionConfirmation(
+  send: (message: Record<string, unknown>) => void,
+  pending: Map<JsonRpcId, PendingElicitation>,
+  args: Record<string, unknown>
+): Promise<void> {
+  const result = await requestElicitation(send, pending, assignmentSubmissionElicitation(args));
+  if (!acceptsAssignmentSubmissionElicitation(result)) throw new AssignmentSubmissionRejectedError();
+}
+
+function markAssignmentSubmissionConfirmed(result: unknown): unknown {
+  const confirmation = {
+    confirmationStatus: "approved",
+    confirmationSource: "UIT Studio"
+  };
+  return isRecord(result) ? { ...result, ...confirmation } : { result, ...confirmation };
+}
+
+function assignmentSubmissionRejectedResult(): Record<string, string> {
+  return {
+    confirmationStatus: "rejected",
+    submissionStatus: "not_submitted",
+    message: ASSIGNMENT_SUBMISSION_REJECTION_MESSAGE
+  };
+}
 
 export async function executeMcpTool(
   name: string,
@@ -98,24 +206,35 @@ export async function executeMcpTool(
     throw new Error("UIT MCP tools are only available inside a UIT course workspace.");
   }
   const session = resolveAvailableSession(cwd);
-  return await executeUitTool(name, args, session);
+  return await executeUitTool(name, args, { ...session, workspacePath: resolve(cwd) });
 }
 
-export function runMcpServer(): void {
+export function runMcpServer(options: McpServerOptions = {}): void {
+  const input = options.input || process.stdin;
+  const output = options.output || process.stdout;
+  const executeTool = options.executeTool || ((name, args) => executeMcpTool(name, args));
   const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
+    input,
+    output,
     terminal: false
   });
 
   const send = (message: Record<string, unknown>) => {
-    process.stdout.write(`${JSON.stringify(message)}\n`);
+    output.write(`${JSON.stringify(message)}\n`);
   };
+  const pendingElicitations = new Map<JsonRpcId, PendingElicitation>();
 
   // A pipe-based smoke test and a real MCP host both signal shutdown by
   // closing stdin. Do not keep the closed input stream referenced after the
   // last response has flushed; active requests still keep their own handles.
-  rl.on("close", () => process.stdin.unref?.());
+  rl.on("close", () => {
+    for (const pending of pendingElicitations.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("MCP client disconnected before assignment submission confirmation."));
+    }
+    pendingElicitations.clear();
+    if (input === process.stdin) process.stdin.unref?.();
+  });
 
   rl.on("line", async (line) => {
     const trimmed = line.trim();
@@ -129,6 +248,19 @@ export function runMcpServer(): void {
     }
 
     const { id, method, params } = request;
+
+    if (method === undefined) {
+      if (typeof id === "string" || typeof id === "number") {
+        const pending = pendingElicitations.get(id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          pendingElicitations.delete(id);
+          if (request.error) pending.reject(new Error(request.error.message || "MCP elicitation failed."));
+          else pending.resolve(request.result);
+        }
+      }
+      return;
+    }
 
     if (method === "initialize") {
       send({
@@ -169,7 +301,11 @@ export function runMcpServer(): void {
       const toolName = params?.name;
       const toolArgs = params?.arguments || {};
       try {
-        const result = await executeMcpTool(toolName, toolArgs);
+        if (toolName === UIT_ASSIGNMENT_SUBMISSION_TOOL) {
+          await requestAssignmentSubmissionConfirmation(send, pendingElicitations, toolArgs);
+        }
+        const result = await executeTool(toolName, toolArgs);
+        const output = toolName === UIT_ASSIGNMENT_SUBMISSION_TOOL ? markAssignmentSubmissionConfirmed(result) : result;
         send({
           jsonrpc: "2.0",
           id,
@@ -177,12 +313,23 @@ export function runMcpServer(): void {
             content: [
               {
                 type: "text",
-                text: typeof result === "string" ? result : JSON.stringify(result, null, 2)
+                text: typeof output === "string" ? output : JSON.stringify(output, null, 2)
               }
             ]
           }
         });
       } catch (error) {
+        if (error instanceof AssignmentSubmissionRejectedError) {
+          send({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: JSON.stringify(assignmentSubmissionRejectedResult(), null, 2) }]
+            }
+          });
+          return;
+        }
         send({
           jsonrpc: "2.0",
           id,

@@ -2,11 +2,12 @@ __pycache__/
 *.egg-info/
 *.egg
 dist/
-desktop-build/
+studio-build/
 build/
 .eggs/
 *.pyc
 node_modules/
+browsers/
 coverage/
 .env
 .uit.json
@@ -15,6 +16,9 @@ playwright-report/
 release/
 release-assets/
 packages/uit-runtime/dist/
-packages/uit-runtime/desktop/
+packages/uit-runtime/studio-build/
+packages/uit-runtime/browsers/
 .opencode/
 AGENTS.md
+docs/MICROSOFT_MOODLE_AUTH.md
+image-*.png
