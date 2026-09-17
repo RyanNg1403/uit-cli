@@ -1707,7 +1707,7 @@ function renderYoloToggle() {
   control.setAttribute("aria-pressed", String(enabled));
   control.classList.toggle("is-active", enabled);
   control.title = enabled
-    ? "YOLO is on for this thread: Codex can use workspace and UIT tools without asking. Click to require approval for the next turn."
+    ? "YOLO is on for this thread: Codex can use workspace and read-only UIT tools without asking. Assignment submissions still require fresh confirmation. Click to require approval for the next turn."
     : "Approval mode is on for this thread: review workspace and UIT tool requests before they run. Click to enable YOLO for the next turn.";
   control.disabled = !thread || Boolean(thread.busy || thread.pending || thread.archived);
 }
@@ -2617,13 +2617,14 @@ function renderApprovals() {
   for (const approval of thread?.approvals || []) {
     const box = node("section", "approval"); box.dataset.requestId = String(approval.requestId);
     const isMcp = approval.kind === "mcp";
+    const requiresExplicitConfirmation = approval.requiresExplicitConfirmation === true || approval.toolName === "uit_submit_assignment";
     box.append(node("h3", "", isMcp ? "Allow this UIT tool?" : "Allow this action?"));
     const toolLabel = `${approval.serverName || "UIT"} · ${approval.toolName || "UIT course tool"}`;
     if (isMcp) {
       box.append(node("p", "approval-tool-label", toolLabel));
       if (approval.description) box.append(node("p", "approval-description", approval.description));
       if (approval.argumentsText) box.append(node("pre", "approval-arguments", approval.argumentsText));
-      box.append(node("p", "approval-help", "Allow once or for this Studio session."));
+      box.append(node("p", "approval-help", requiresExplicitConfirmation ? "This assignment submission always requires a fresh confirmation." : "Allow once or for this Studio session."));
     } else box.append(node("pre", "", approval.command));
     const decide = async (approved, remember = false) => {
       if (approval.pending) return;
@@ -2646,9 +2647,11 @@ function renderApprovals() {
     actions.append(button("Deny", "secondary-button", () => decide(false)));
     if (isMcp) {
       actions.append(button("Allow once", "primary-button", () => decide(true)));
-      const always = button("Always allow", "secondary-button approval-session-button", () => decide(true, true));
-      always.title = "Approve future UIT MCP tool requests until you disconnect or restart Studio.";
-      actions.append(always);
+      if (!requiresExplicitConfirmation) {
+        const always = button("Always allow", "secondary-button approval-session-button", () => decide(true, true));
+        always.title = "Approve future UIT MCP tool requests until you disconnect or restart Studio.";
+        actions.append(always);
+      }
     } else actions.append(button("Allow", "primary-button", () => decide(true)));
     box.append(actions);
     if (approval.error) box.append(node("p", "form-error", approval.error));
@@ -2747,6 +2750,7 @@ function handleAgentEvent(message) {
         toolName: params.toolName,
         description: typeof params.description === "string" ? params.description : "",
         argumentsText: typeof params.argumentsText === "string" ? params.argumentsText : "",
+        requiresExplicitConfirmation: params.requiresExplicitConfirmation === true,
         command: String(params.command || params.reason || "No action details were provided. Deny if you cannot verify the request.")
       });
       break;

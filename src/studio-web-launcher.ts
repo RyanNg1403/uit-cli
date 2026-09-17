@@ -20,6 +20,12 @@ export interface StudioWebLauncherOptions {
   pollIntervalMs?: number;
 }
 
+export interface StudioWebStopOptions {
+  controlFile?: string;
+  shutdownTimeoutMs?: number;
+  pollIntervalMs?: number;
+}
+
 type JsonRecord = Record<string, unknown>;
 
 function errorMessage(error: unknown): string {
@@ -123,6 +129,33 @@ async function removeStaleControlFile(path: string): Promise<void> {
   await unlink(path).catch(() => undefined);
 }
 
+/** Stop the one server recorded by the authenticated loopback control file. */
+export async function stopStudioWebServer(options: StudioWebStopOptions = {}): Promise<boolean> {
+  const controlFile = resolve(options.controlFile || process.env.UIT_STUDIO_CONTROL_FILE || defaultControlFile());
+  const record = await readControlRecord(controlFile);
+  if (!record || !(await healthy(record))) {
+    await removeStaleControlFile(controlFile);
+    return false;
+  }
+
+  const response = await controlRequest(record, "/api/control/stop", "POST");
+  if (!response?.ok) throw new Error("The UIT Studio web server rejected the stop request.");
+  await response.arrayBuffer();
+
+  const timeoutMs = options.shutdownTimeoutMs || 5_000;
+  const intervalMs = options.pollIntervalMs || 100;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const current = await readControlRecord(controlFile);
+    if (!current || !(await healthy(current))) {
+      await removeStaleControlFile(controlFile);
+      return true;
+    }
+    await sleep(intervalMs);
+  }
+  throw new Error("Timed out while stopping the UIT Studio web server.");
+}
+
 function spawnWebServer(
   options: StudioWebLauncherOptions,
   runtimeRoot: string,
@@ -159,7 +192,10 @@ async function waitForServer(
 }
 
 export function printStudioWebHelp(): void {
-  console.log("Usage: uit-studio [options]");
+  console.log("Usage: uit-studio [command]");
+  console.log();
+  console.log("Commands:");
+  console.log("  stop          stop the running UIT Studio server");
   console.log();
   console.log("Options:");
   console.log("  -h, --help    display help for command");

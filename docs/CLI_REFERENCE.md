@@ -33,6 +33,12 @@ session is captured.
 | `-v, --version` | Print the installed Studio package version and exit without starting anything. |
 | `-h, --help` | Show Studio command help and exit. |
 
+### Studio commands
+
+| Command | Description |
+|---|---|
+| `uit-studio stop` | Stop the currently running local Studio server. If no server is running, it exits without changing anything. |
+
 Examples:
 
 ```bash
@@ -422,6 +428,11 @@ uit mcp install  # Add or update [mcp_servers.uit] in ~/.codex/config.toml
 `uit mcp install` writes the configuration atomically and verifies the saved
 entry. The MCP server is available only from inside a UIT course workspace and
 uses the active session from `~/.uit/sessions.json`.
+
+Agent mode also exposes `uit_submit_assignment`. It verifies the assignment and
+the local file, then uploads and submits the file to Moodle. This is the only
+write-capable UIT MCP tool and UIT Studio always asks for a fresh confirmation
+immediately before it runs, including when YOLO mode is enabled.
 
 ---
 

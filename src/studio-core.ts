@@ -21,6 +21,7 @@ import type {
   CourseSummary,
   DesktopSession,
 } from "./desktop-service.js";
+import { UIT_ASSIGNMENT_SUBMISSION_TOOL } from "./uit-tools.js";
 
 type JsonRecord = Record<string, any>;
 export interface StudioSsoResult {
@@ -230,6 +231,10 @@ function mcpApprovalDetails(request: AgentRequest): { serverName: string; toolNa
   const toolParams = meta.tool_params;
   const argumentsText = toolParams === undefined ? "" : `Arguments: ${JSON.stringify(toolParams)}`;
   return { serverName, toolName, description, argumentsText };
+}
+
+export function requiresExplicitUitMcpApproval(request: AgentRequest): boolean {
+  return isUitMcpToolApproval(request) && mcpApprovalDetails(request).toolName === UIT_ASSIGNMENT_SUBMISSION_TOOL;
 }
 
 function respondToRequestError(request: CodexServerRequest, error: unknown): void {
@@ -728,17 +733,19 @@ async function handleAgentRequest(request: AgentRequest): Promise<void> {
   const binding = threadBindings.get(request.params.threadId);
   if (!binding) throw new Error("No verified course is bound to this thread.");
   if (isUitMcpToolApproval(request)) {
-    if (binding.yolo !== false || allowAllUitMcpRequests) {
+    const details = mcpApprovalDetails(request);
+    const requiresExplicitConfirmation = requiresExplicitUitMcpApproval(request);
+    if (!requiresExplicitConfirmation && (binding.yolo !== false || allowAllUitMcpRequests)) {
       codex.respond(request.id, mcpApprovalResult(true));
       return;
     }
-    const details = mcpApprovalDetails(request);
     approvals.set(request.id, request);
     sendAgentEvent({ method: "agent/approval", params: {
       requestId: request.id, threadId: request.params.threadId, taskId: binding.taskId, kind: "mcp",
       serverName: details.serverName, toolName: details.toolName,
       description: details.description, argumentsText: details.argumentsText,
-      command: `${details.serverName} · ${details.toolName}`
+      command: `${details.serverName} · ${details.toolName}`,
+      ...(requiresExplicitConfirmation ? { requiresExplicitConfirmation: true } : {})
     } });
     return;
   }
@@ -1273,8 +1280,11 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const request = approvals.get(input.requestId);
       if (!request || typeof input.approved !== "boolean") throw new Error("This approval is no longer available.");
       if (input.remember !== undefined && input.remember !== "uit-session") throw new Error("Unknown approval persistence option.");
-      if (input.remember === "uit-session" && (!input.approved || !isUitMcpToolApproval(request))) throw new Error("Only an approved UIT tool request can be remembered for this session.");
-      codex.respond(request.id, isUitMcpToolApproval(request)
+      const isMcpApproval = isUitMcpToolApproval(request);
+      const requiresExplicitConfirmation = requiresExplicitUitMcpApproval(request);
+      if (input.remember === "uit-session" && (!input.approved || !isMcpApproval)) throw new Error("Only an approved UIT tool request can be remembered for this session.");
+      if (input.remember === "uit-session" && requiresExplicitConfirmation) throw new Error("Assignment submissions always require fresh explicit confirmation and cannot be remembered.");
+      codex.respond(request.id, isMcpApproval
         ? mcpApprovalResult(input.approved)
         : { decision: input.approved ? "accept" : "decline" });
       if (input.remember === "uit-session") allowAllUitMcpRequests = true;

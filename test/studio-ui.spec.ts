@@ -1360,6 +1360,26 @@ test("composer groups YOLO, Fast, and model controls, with UIT approvals availab
   await expect(page.locator("#agent-status")).toHaveText("Ready");
 });
 
+test("assignment submission approval always requires a fresh confirmation", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await page.getByLabel("Message Codex").fill("Submit the confirmed assignment file");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start")).at(-1)!.input;
+  const params = { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}` };
+  await emit(page, "agent/approval", {
+    ...params, requestId: "submission-approval", kind: "mcp", serverName: "uit", toolName: "uit_submit_assignment",
+    requiresExplicitConfirmation: true,
+    description: "Upload and submit one local file to a UIT assignment.",
+    argumentsText: "Arguments: {\"assignmentId\":50664,\"filePath\":\"report.pdf\"}", command: "uit · uit_submit_assignment"
+  });
+  await expect(page.locator(".approval")).toContainText("fresh confirmation");
+  await expect(page.getByRole("button", { name: "Always allow", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Allow once", exact: true }).click();
+  expect((await calls(page, "agent.approve")).at(-1)!.input).toEqual({ requestId: "submission-approval", approved: true });
+});
+
 test("failed first send persists prompted thread, restores draft and resource for retry after reload", async ({ page, boot }) => {
   await boot();
   await openCourse(page);

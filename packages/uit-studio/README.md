@@ -13,6 +13,7 @@ The npm installation requires [Node.js 24.0+](https://nodejs.org/).
 npm install -g uit-studio
 uit-studio
 uit-studio --version
+uit-studio stop
 ```
 
 </details>
@@ -24,6 +25,7 @@ uit-studio --version
 npm install -g uit-studio
 uit-studio
 uit-studio --version
+uit-studio stop
 ```
 
 Or install the Linux native web release:
@@ -44,6 +46,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scri
 powershell -ExecutionPolicy Bypass -File $installer -Studio
 uit-studio
 uit-studio --version
+uit-studio stop
 ```
 
 The npm alternative requires [Node.js 24.0+](https://nodejs.org/).

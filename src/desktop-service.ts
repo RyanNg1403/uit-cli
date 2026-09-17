@@ -5,6 +5,7 @@ import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
+import { submitAssignmentFile } from "./assignment-submission.js";
 import { activateSession as selectActiveSession, get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
 import { CodexClient } from "./codex-client.js";
@@ -499,6 +500,21 @@ export async function listAssignments(courseId: number, api: ApiClient = default
       unavailable: unavailableFrom({ ...(id === undefined ? { instance: "Assignment instance unavailable. Open the assignment on the course site for its full details." } : {}), ...assignment.unavailable })
     };
   }).sort((a: AssignmentSummary, b: AssignmentSummary) => (a.dueDate || Number.POSITIVE_INFINITY) - (b.dueDate || Number.POSITIVE_INFINITY));
+}
+
+/** Verify the assignment belongs to the selected course before mutating Moodle. */
+export async function submitAssignment(
+  courseId: number,
+  assignId: number,
+  filepath: string,
+  api: ApiClient = defaultApiClient
+) {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Course ID must be a positive integer.");
+  if (!Number.isSafeInteger(assignId) || assignId <= 0) throw new Error("Assignment ID must be a positive integer.");
+  const assignment = (await listAssignments(courseId, api)).find((item) => item.id === assignId);
+  if (!assignment) throw new Error("The assignment was not found in the selected course.");
+  if (assignment.unavailable?.instance) throw new Error(assignment.unavailable.instance);
+  return submitAssignmentFile(assignId, filepath, api);
 }
 
 export interface AssignmentSubmission {

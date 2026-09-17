@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { runStudioWebLauncher } from "../src/studio-web-launcher.js";
+import { runStudioWebLauncher, stopStudioWebServer } from "../src/studio-web-launcher.js";
 import { readControlRecord, startStudioWebServer, type StudioWebServer } from "../src/studio-web-server.js";
 
 const studioDirectory = resolve("packages/uit-studio");
@@ -35,7 +35,8 @@ describe("Studio launcher", () => {
 
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Usage: uit-studio [options]");
+    expect(result.stdout).toContain("Usage: uit-studio [command]");
+    expect(result.stdout).toContain("stop");
     expect(result.stderr).toBe("");
   });
 
@@ -71,6 +72,36 @@ describe("Studio launcher", () => {
       expect(new URL(opened[0]).hash).not.toBe(new URL(opened[1]).hash);
     } finally {
       await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("stops the healthy backend through its authenticated control record", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "uit-studio-stop-test-"));
+    const staticRoot = join(directory, "renderer");
+    const controlFile = join(directory, "server.json");
+    await mkdir(staticRoot);
+    await writeFile(join(staticRoot, "index.html"), "<!doctype html><title>UIT Studio fixture</title>");
+    const server = await startStudioWebServer({
+      staticRoot,
+      controlFile,
+      userDataPath: join(directory, "profile"),
+      createCore: async () => ({ handlers: () => ({}), shutdown: async () => undefined })
+    });
+    try {
+      await expect(stopStudioWebServer({ controlFile, pollIntervalMs: 10, shutdownTimeoutMs: 2_000 })).resolves.toBe(true);
+      await expect(readControlRecord(controlFile)).resolves.toBeUndefined();
+    } finally {
+      await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a missing backend as a successful no-op", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "uit-studio-stop-empty-"));
+    try {
+      await expect(stopStudioWebServer({ controlFile: join(directory, "server.json") })).resolves.toBe(false);
+    } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });

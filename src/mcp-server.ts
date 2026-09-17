@@ -84,7 +84,8 @@ const uitToolServices: UitToolServices = {
   listCourseParticipants: (courseId, api) => desktopService.listCourseParticipants(courseId, api),
   getCourseGrades: (courseId, api, userId) => desktopService.getCourseGrades(courseId, api, userId),
   resolveCourseResource: (courseId, reference, api) => desktopService.resolveCourseResource(courseId, reference as unknown as desktopService.CourseResourceReference, api),
-  materializeCourseFile: (courseId, moduleId, filename, api, identity) => desktopService.materializeCourseFile(courseId, moduleId, filename, api, identity)
+  materializeCourseFile: (courseId, moduleId, filename, api, identity) => desktopService.materializeCourseFile(courseId, moduleId, filename, api, identity),
+  submitAssignment: (courseId, assignmentId, filePath, api) => desktopService.submitAssignment(courseId, assignmentId, filePath, api)
 };
 
 const executeUitTool = createUitToolExecutor(uitToolServices);
@@ -98,7 +99,7 @@ export async function executeMcpTool(
     throw new Error("UIT MCP tools are only available inside a UIT course workspace.");
   }
   const session = resolveAvailableSession(cwd);
-  return await executeUitTool(name, args, session);
+  return await executeUitTool(name, args, { ...session, workspacePath: resolve(cwd) });
 }
 
 export function runMcpServer(): void {

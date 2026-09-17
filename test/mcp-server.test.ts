@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -34,7 +34,8 @@ describe("mcp-server workspace gating and tools", () => {
     expect(toolNames).toContain("uit_course_members");
     expect(toolNames).toContain("uit_course_grades");
     expect(toolNames).toContain("uit_download_material");
-    expect(toolNames.length).toBe(6);
+    expect(toolNames).toContain("uit_submit_assignment");
+    expect(toolNames.length).toBe(7);
   });
 
   it("resolves downloads by module ID and filename instead of a model-supplied URL", () => {
@@ -63,6 +64,37 @@ describe("mcp-server workspace gating and tools", () => {
 
     await expect(execute("uit_download_material", { courseId: 42, moduleId: 10, filename: "lecture.pdf" }, { api, baseUrl: "https://courses.uit.edu.vn", userId: 7 })).resolves.toEqual({ path: "/course/material.pdf" });
     expect(materializeCourseFile).toHaveBeenCalledWith(42, 10, "lecture.pdf", api, { baseUrl: "https://courses.uit.edu.vn", userId: 7 });
+  });
+
+  it("confines assignment submissions to the active workspace and verifies the course", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "uit-submit-tool-"));
+    const filePath = join(directory, "report.pdf");
+    writeFileSync(filePath, "report");
+    const submitAssignment = vi.fn().mockResolvedValue({ status: "submitted", assignId: 7, file: "report.pdf" });
+    const execute = createUitToolExecutor({
+      listCourses: vi.fn(),
+      getCourseContents: vi.fn(),
+      listAssignments: vi.fn(),
+      listAnnouncements: vi.fn(),
+      listCourseParticipants: vi.fn(),
+      getCourseGrades: vi.fn(),
+      resolveCourseResource: vi.fn(),
+      materializeCourseFile: vi.fn(),
+      submitAssignment
+    } as unknown as UitToolServices);
+    const api = {} as ApiClient;
+
+    try {
+      await expect(execute("uit_submit_assignment", { courseId: 42, assignmentId: 7, filePath }, {
+        api, baseUrl: "https://courses.uit.edu.vn", userId: 7, workspacePath: directory
+      })).resolves.toEqual({ status: "submitted", assignId: 7, file: "report.pdf" });
+      expect(submitAssignment).toHaveBeenCalledWith(42, 7, realpathSync(filePath), api);
+      await expect(execute("uit_submit_assignment", { courseId: 42, assignmentId: 7, filePath: "/tmp/report.pdf" }, {
+        api, baseUrl: "https://courses.uit.edu.vn", userId: 7, workspacePath: directory
+      })).rejects.toThrow("inside managed UIT course storage");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("passes the ID-based resource reference without a file URL", async () => {
