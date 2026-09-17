@@ -1,6 +1,161 @@
 import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, STORE, key, calls, control, emit, openCourse } from "./fixtures/studio";
 import type { Page } from "playwright/test";
 
+test("Calendar shows deadlines, filters accounts, navigates months and opens safe event references", async ({ page, boot }, info) => {
+  await boot();
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await expect(page.locator("#page-title")).toHaveText("Calendar");
+  await page.locator("#calendar-agenda summary").first().click();
+  await expect(page.locator(".calendar-description").first()).toHaveText("Submit the report.");
+  await page.getByRole("button", { name: "Open in Moodle", exact: true }).first().click();
+  expect((await calls(page, "calendar.open"))[0].input).toEqual({ key: JSON.stringify([CURRENT, 101, 900]) });
+  expect(await page.evaluate(() => window.previewExecuted)).toBeUndefined();
+  await page.locator("#calendar-account").selectOption(JSON.stringify([LEGACY, 202]));
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(1);
+  await expect(page.locator("#calendar-agenda")).toContainText("Legacy quiz closes");
+  await page.locator("#calendar-account").selectOption("");
+  await page.locator("#calendar-jump").fill("2027-01");
+  await expect.poll(async () => (await calls(page, "calendar.list")).at(-1)?.input).toMatchObject({ year: 2027, month: 1 });
+  await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "calendar.list")).at(-1)?.input).toMatchObject({ year: 2026, month: 12 });
+  await page.locator(".calendar-day").filter({ has: page.locator(".calendar-day-number", { hasText: /^20$/ }) }).click();
+  await expect(page.locator("#calendar-all-days")).toBeVisible();
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await page.locator(".calendar-reminder-settings summary").click();
+  await page.locator("#calendar-reminders").check();
+  await expect.poll(async () => (await calls(page, "calendar.settings")).some((call) => call.input?.enabled === true)).toBe(true);
+  await page.locator("#view-calendar").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: info.outputPath("calendar.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Calendar submission windows continue across weeks, reveal details and handle crowded days", async ({ page, boot }, info) => {
+  await boot();
+  await page.evaluate(() => {
+    const list = window.uit.calendar.list;
+    window.uit.calendar.list = async (input: any) => {
+      const result = await list(input);
+      const event = result.events[0];
+      event.opensAt = new Date(input.year, input.month - 2, 28, 8).getTime() / 1000;
+      event.start = event.end = new Date(input.year, input.month, 3, 23, 59).getTime() / 1000;
+      result.events.push(...Array.from({ length: 4 }, (_, index) => ({ ...event, key: `extra-${index}`, name: `Project ${index + 1}`, opensAt: new Date(input.year, input.month - 1, 10, 8).getTime() / 1000, start: new Date(input.year, input.month - 1, 22, 23, 59).getTime() / 1000 })));
+      return result;
+    };
+  });
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator(".calendar-window.continues-before").first()).toBeVisible();
+  await expect(page.locator(".calendar-window.continues-after").first()).toBeVisible();
+  await expect(page.locator(".calendar-more").first()).toBeVisible();
+  await page.locator(".calendar-window").first().click();
+  await expect(page.locator("details.calendar-event[open] .calendar-window-detail")).toContainText("Submissions open");
+  await expect(page.locator("details.calendar-event[open] .calendar-window-detail")).toContainText("Deadline");
+  await page.locator("#view-calendar").evaluate((element) => { element.scrollTop = 0; });
+  await page.screenshot({ path: info.outputPath("calendar-intervals-light.png") });
+  await page.locator("#appearance").selectOption("dark");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: info.outputPath("calendar-intervals-dark.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: info.outputPath("calendar-intervals-mobile.png") });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const widths = await page.locator(".calendar-segment").evaluateAll((bars) => bars.map((bar) => bar.getBoundingClientRect().width));
+  expect(widths.every((width) => width > 0 && width < 390)).toBe(true);
+});
+
+test("Calendar shows loading placeholders and clears them after success or failure", async ({ page, boot }, info) => {
+  await boot();
+  await control(page, "hold", "calendar.list");
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator("#view-calendar")).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator(".calendar-agenda-skeleton")).toHaveCount(3);
+  await expect(page.locator("#calendar-agenda")).not.toContainText("No events");
+  await expect(page.locator(".calendar-day").first()).toBeDisabled();
+  await page.screenshot({ path: info.outputPath("calendar-loading.png") });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await page.locator("#calendar-status").evaluate((element) => getComputedStyle(element, "::before").animationName)).toBe("none");
+  await control(page, "unhold", "calendar.list");
+  await control(page, "release", "calendar.list");
+  await expect(page.locator(".calendar-agenda-skeleton")).toHaveCount(0);
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await control(page, "fail", "calendar.list", "Calendar unavailable");
+  await page.locator("#calendar-refresh").click();
+  await expect(page.locator("#calendar-error")).toHaveText("Calendar unavailable");
+  await expect(page.locator("#view-calendar")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".calendar-agenda-skeleton")).toHaveCount(0);
+  await expect(page.locator("#calendar-refresh")).toBeEnabled();
+});
+
+test("Calendar announcements sort by update or posting date and use account filters", async ({ page, boot }, info) => {
+  await boot();
+  await page.evaluate(() => {
+    window.uit.calendar.announcements = async () => ({ errors: [], items: [
+      { key: "a", baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Older post, recently updated", author: "Lecturer", message: "<script>unsafe</script>", createdAt: 100, updatedAt: 400 },
+      { key: "b", baseUrl: "https://coursesold.uit.edu.vn", userId: 202, courseId: 1, courseName: "LEGACY-CS01", subject: "Newer post", author: "Lecturer", message: "Notice", createdAt: 300, updatedAt: 350 },
+      { key: "c", baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Unknown dates", author: "", message: "" },
+    ] });
+  });
+  await page.locator('[data-view="calendar"]').click();
+  const posts = page.locator("#calendar-announcements-list details");
+  await expect(posts).toHaveCount(3);
+  await expect(posts.first()).toContainText("Older post, recently updated");
+  await expect(posts.last()).toContainText("Posted: Unavailable · Updated: Unavailable");
+  await page.locator("#calendar-announcements-sort").selectOption("createdAt");
+  await expect(posts.first()).toContainText("Newer post");
+  await posts.first().locator("summary").click();
+  await posts.first().getByRole("button", { name: "Open announcement in Moodle" }).click();
+  expect((await calls(page, "calendar.openAnnouncement"))[0].input).toEqual({ key: "b" });
+  await page.locator("#calendar-account").selectOption(JSON.stringify([CURRENT, 101]));
+  await expect(posts).toHaveCount(2);
+  await expect(page.locator("#calendar-announcements-list script")).toHaveCount(0);
+  await page.locator("#calendar-announcements-title").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("calendar-announcements.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Calendar reveals announcements five at a time below deadline reminders", async ({ page, boot }) => {
+  await boot();
+  await page.evaluate(() => {
+    window.uit.calendar.announcements = async () => ({ errors: [], items: Array.from({ length: 12 }, (_, i) => ({
+      key: `post-${i}`, baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01",
+      subject: `Notice ${i}`, message: "Announcement content", createdAt: 100 + i, updatedAt: 200 + i,
+    })) });
+  });
+  await page.locator('[data-view="calendar"]').click();
+  const posts = page.locator("#calendar-announcements-list details");
+  await expect(posts).toHaveCount(5);
+  expect(await page.locator(".calendar-reminder-settings").evaluate((element) => Boolean(element.compareDocumentPosition(document.querySelector(".calendar-announcements")!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+  await posts.first().locator("summary").click();
+  await page.locator("#calendar-announcements-more").click();
+  await expect(posts).toHaveCount(10);
+  await expect(posts.first()).toHaveAttribute("open", "");
+  await expect(page.locator("#calendar-announcements-more")).toHaveText("Show 2 more announcements (10 of 12)");
+  await page.locator("#calendar-announcements-more").click();
+  await expect(posts).toHaveCount(12);
+  await expect(page.locator("#calendar-announcements-more")).toBeHidden();
+  await page.locator("#calendar-announcements-sort").selectOption("createdAt");
+  await expect(posts).toHaveCount(5);
+});
+
+test("Calendar recovers from errors and ignores stale month responses", async ({ page, boot }) => {
+  await boot({ fail: { "calendar.list": "Calendar unavailable" } });
+  await page.locator('[data-view="calendar"]').click();
+  await expect(page.locator("#calendar-error")).toHaveText("Calendar unavailable");
+  await page.locator("#calendar-refresh").click();
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+  await control(page, "hold", "calendar.list");
+  await page.getByRole("button", { name: "Next month", exact: true }).click();
+  await page.getByRole("button", { name: "Next month", exact: true }).click();
+  await control(page, "unhold", "calendar.list");
+  await control(page, "release", "calendar.list", 1);
+  await expect(page.locator("#calendar-refresh")).toBeEnabled();
+  const month = await page.locator("#calendar-month").textContent();
+  await control(page, "release", "calendar.list");
+  await expect(page.locator("#calendar-month")).toHaveText(month!);
+  await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
+});
+
 async function sendAndStop(page: Page, message: string) {
   await page.getByLabel("Message Codex").fill(message);
   await page.locator("#send-agent").click();
@@ -167,12 +322,12 @@ test("New project groups years clearly and filters the requested year", async ({
   await boot();
   await page.locator('[data-view="agent"]').click();
   await page.locator("#new-project").click();
-  await expect(page.locator(".project-year-heading h2")).toHaveText(["2026", "2025", "Unknown year"]);
+  await expect(page.locator(".project-year-heading h2")).toHaveText(["2026", "2025", "Other courses"]);
   await expect(page.locator(".project-year-heading span")).toHaveText(["17 courses", "1 course", "1 course"]);
   await page.getByLabel("Academic year", { exact: true }).selectOption("2025");
   await expect(page.locator(".project-option")).toHaveCount(1);
   await expect(page.locator(".project-option")).toContainText(courses[17].fullname);
-  await page.getByLabel("Academic year", { exact: true }).selectOption("Unknown year");
+  await page.getByLabel("Academic year", { exact: true }).selectOption("Other courses");
   await expect(page.locator(".project-option")).toContainText(courses[18].fullname);
   await page.getByLabel("Academic year", { exact: true }).selectOption("all");
   await page.screenshot({ path: info.outputPath("project-years.png") });
@@ -188,18 +343,48 @@ test("academic-year ranges match each year offered by the project filter", async
   }, "2026"))).toBe(true);
 });
 
+test("Agent sidebar keeps semesters separate within the same year", async ({ page, boot }) => {
+  await boot({ storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[0], courses[15], courses[18]], threads: [] }) });
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#course-nav .semester-nav h3")).toHaveText([semesters[0].label, semesters[1].label]);
+  await expect(page.locator("#course-nav .project")).toHaveCount(3);
+});
+
+test("uncertain dates are omitted while explicit academic years remain visible", async ({ page, boot }) => {
+  await boot();
+  const labels = await page.evaluate(() => {
+    const semesterOf = (window as any).semesterOf;
+    const yearOnly = { semester: { id: "2025-2026", label: "2025-2026", source: "category" } };
+    return [
+      semesterOf(yearOnly).label,
+      semesterOf({ semester: semesterOf(yearOnly) }).label,
+      semesterOf({ semester: { id: "2026", label: "2026", source: "current" } }).label,
+      semesterOf({ semester: { id: "2021", label: "2021", source: "startdate" } }).label,
+      semesterOf({ semester: { id: "unknown", label: "Unknown semester", source: "unknown" } }).label
+    ];
+  });
+  expect(labels).toEqual(["2025-2026", "2025-2026", "", "", ""]);
+});
+
+test("a single undated project stays visible without a semester heading", async ({ page, boot }) => {
+  await boot({ storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[18]], threads: [] }) });
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#course-nav .project")).toHaveCount(1);
+  await expect(page.locator("#course-nav .semester-nav h3")).toHaveCount(0);
+});
+
 test("all semesters default, complete grouped rail, semester filter and search", async ({ page, boot }, info) => {
   await boot();
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue("all");
-  await expect(page.locator("#semester-select option")).toHaveText(["All semesters", ...semesters.map((s) => s.label), "Unknown semester"]);
-  await expect(page.locator("#course-nav .semester-nav h3")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#semester-select option")).toHaveText(["All semesters", ...semesters.map((s) => s.label), "Other courses"]);
+  await expect(page.locator("#course-nav .semester-nav h3")).toHaveText([...semesters.map((s) => s.label)]);
   await expect(page.locator("#course-nav .project")).toHaveCount(19);
   await expect(page.locator(".course-row")).toHaveCount(19);
   await expect(page.locator(".course-row").last()).toContainText("Computer science 19");
   await page.screenshot({ path: info.outputPath("studio-courses.png"), fullPage: true });
   await page.getByRole("searchbox").fill("  Legacy Moodle ");
   await expect(page.locator(".course-row")).toHaveCount(5);
-  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label)]);
   await page.getByRole("searchbox").fill("cs13");
   await expect(page.locator(".course-row")).toHaveCount(1);
   await expect(page.locator(".course-row")).toContainText("Computer science 13");
@@ -211,7 +396,7 @@ test("all semesters default, complete grouped rail, semester filter and search",
   await expect(page.locator(".course-row")).toHaveCount(2);
   await page.getByLabel("Semester", { exact: true }).selectOption("all");
   await expect(page.locator(".course-row")).toHaveCount(19);
-  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#course-grid .section-label")).toHaveText([...semesters.map((s) => s.label)]);
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.locator(".course-row")).toHaveCount(19);
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue("all");
@@ -254,7 +439,7 @@ test("Codex projects are explicitly selected, persist empty and new threads choo
   await expect(page.getByRole("dialog", { name: "New project", exact: true })).toBeVisible();
   await expect(page.locator("#project-picker")).toHaveAttribute("data-mode", "project");
   await expect(page.locator("#picker-new-project")).toHaveCount(0);
-  await expect(page.locator("#project-options h3")).toHaveText([...semesters.map((s) => s.label), "Unknown semester"]);
+  await expect(page.locator("#project-options h3")).toHaveText([...semesters.map((s) => s.label)]);
   await expect(page.locator(".project-option")).toHaveCount(19);
   await page.locator(".project-option").filter({ hasText: "Legacy algorithms" }).click();
   await expect(page.locator("#project-picker")).toBeHidden();
@@ -343,7 +528,7 @@ test("global search finds an unknown-semester thesis without changing the semest
   await page.getByRole("searchbox", { name: "Search courses", exact: true }).fill("  THESIS  ");
   await expect(page.locator(".course-row")).toHaveCount(1);
   await expect(page.locator(".course-row")).toContainText("Graduation thesis");
-  await expect(page.locator("#course-grid .section-label")).toHaveText(["Unknown semester"]);
+  await expect(page.locator("#course-grid .section-label")).toHaveCount(0);
   await expect(page.getByLabel("Semester", { exact: true })).toHaveValue(semesters[0].id);
   await page.getByRole("searchbox", { name: "Search courses", exact: true }).fill("missing-thesis-xyz");
   await expect(page.locator(".course-row")).toHaveCount(0);
@@ -1726,6 +1911,9 @@ for (const width of [390, 320]) {
     await boot();
     await page.getByRole("button", { name: "Open navigation" }).click();
     await expect(page.locator("#close-sidebar")).toBeFocused();
+    // Focus is set as the drawer opens. Wait for its transform to finish before
+    // exercising native select traversal, which races that animation on macOS.
+    await expect(page.locator("#sidebar")).toHaveCSS("transform", "none");
     expect(await page.locator("#main").evaluate((element: HTMLElement) => element.inert)).toBe(true);
     await page.keyboard.press("Shift+Tab");
     await expect(page.locator("#account-button")).toBeFocused();
@@ -1765,6 +1953,27 @@ for (const width of [390, 320]) {
     await page.screenshot({ path: info.outputPath(`dark-mobile-${width}-agent.png`), fullPage: true });
   });
 }
+
+test("member avatars load as blobs and fall back to role icons", async ({ page, boot }) => {
+  await boot();
+  await page.evaluate(() => {
+    window.uit.courses.participants = async () => [
+      { id: 1, fullname: "Alice", roles: ["student"], avatar: "https://courses.uit.edu.vn/avatar/1" },
+      { id: 2, fullname: "Bob", roles: ["student"], avatar: "https://courses.uit.edu.vn/avatar/2" }
+    ];
+    window.uit.courses.avatar = async ({ memberId }: { memberId: number }) => {
+      if (memberId === 2) throw new Error("Avatar unavailable");
+      return { mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" };
+    };
+  });
+  await openCourse(page);
+  await page.locator("#tab-members").click();
+  const alice = page.locator(".member-card").filter({ hasText: "Alice" });
+  await expect(alice.locator("img")).toHaveAttribute("src", /^blob:/);
+  await expect(page.locator(".member-card").filter({ hasText: "Bob" }).locator(".member-avatar svg")).toHaveCount(1);
+  await page.getByPlaceholder("Search members by name or role...").fill("Alice");
+  await expect(alice.locator("img")).toBeVisible();
+});
 
 test("course view displays Materials, Members, and Grades tabs with live data and search", async ({ page, boot }) => {
   await boot();

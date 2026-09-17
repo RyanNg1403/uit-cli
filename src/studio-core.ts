@@ -1,7 +1,8 @@
+import type { CalendarEvent } from "./calendar.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { ApiClient } from "./types.js";
 import type { SsoSessionData } from "./config.js";
 import type {
@@ -878,7 +879,7 @@ async function listConnectedCourses(): Promise<ConnectedCourse[]> {
   }));
   portalErrors = [...groups.flatMap((entry, index) => entry.status === "rejected" ? [{ baseUrl: sessions[index].baseUrl, message: errorMessage(entry.reason) }] : []), ...linkErrors];
   if (groups.every((entry) => entry.status === "rejected")) throw new Error(portalErrors.map((entry) => entry.message).join("\n"));
-  return groups.flatMap((entry) => entry.status === "fulfilled" ? entry.value : []);
+  return service.resolveClassCodeSemesters(groups.flatMap((entry) => entry.status === "fulfilled" ? entry.value : []));
 }
 
 async function linkCourse(rawInput: unknown): Promise<ConnectedCourse> {
@@ -934,9 +935,195 @@ async function disconnectAccount(baseUrl?: string): Promise<void> {
   service.clearCourseCache();
 }
 
+const calendarCache = new WeakMap<ApiClient, Map<string, { updatedAt: number; events: CalendarEvent[]; warning?: string }>>();
+type CalendarAnnouncement = { key: string; baseUrl: string; userId: number; courseId: number; courseName: string; id: number; subject: string; author: string; message: string; createdAt?: number; updatedAt?: number };
+const announcementCache = new WeakMap<ApiClient, { checkedAt: number; items: CalendarAnnouncement[]; failed: number; pending?: Promise<void> }>();
+
+async function calendarAnnouncements(refresh: boolean) {
+  const accounts = allCourseSessions();
+  const items: CalendarAnnouncement[] = [];
+  const errors: string[] = [];
+  await Promise.all(accounts.map(async (account) => {
+    let cached = announcementCache.get(account.api);
+    if (!cached) { cached = { checkedAt: 0, items: [], failed: 0 }; announcementCache.set(account.api, cached); }
+    const cache = cached;
+    if (!cache.pending && (refresh || Date.now() - cache.checkedAt > 5 * 60_000)) {
+      cache.pending = (async () => {
+        if (refresh) service.clearCourseCache(account.api);
+        const courses = await service.listCourses(account.api, account.userId);
+        const next: CalendarAnnouncement[] = [];
+        let cursor = 0, failed = 0;
+        await Promise.all(Array.from({ length: Math.min(3, courses.length) }, async () => {
+          while (cursor < courses.length) {
+            if (!allCourseSessions().some((current) => current.api === account.api)) return;
+            const course = courses[cursor++];
+            try {
+              for (const entry of await service.listAnnouncements(course.id, account.api)) {
+                next.push({ key: JSON.stringify(["announcement", account.baseUrl, account.userId, course.id, entry.id]), baseUrl: account.baseUrl, userId: account.userId,
+                  courseId: course.id, courseName: course.shortname, id: entry.id, subject: entry.subject, author: entry.author, message: entry.message,
+                  createdAt: entry.createdAt, updatedAt: entry.updatedAt });
+              }
+            } catch {
+              failed++;
+              next.push(...cache.items.filter((entry) => entry.courseId === course.id));
+            }
+          }
+        }));
+        cache.items = [...new Map(next.map((entry) => [entry.key, entry])).values()];
+        cache.failed = failed;
+        cache.checkedAt = Date.now();
+      })().finally(() => { cache.pending = undefined; });
+    }
+    try { await cache.pending; }
+    catch { cache.failed = Math.max(1, cache.failed); cache.checkedAt = Date.now(); }
+    if (!allCourseSessions().some((current) => current.api === account.api && current.userId === account.userId)) return;
+    items.push(...cache.items);
+    if (cache.failed) errors.push(`${siteLabel(account.baseUrl)}: Some announcements could not be updated. Previously loaded posts may be shown.`);
+  }));
+  return { items, errors };
+}
+let reminderTimer: NodeJS.Timeout | undefined;
+let reminderBusy = false;
+let reminderError = "";
+const reminderState = { enabled: false, sent: {} as Record<string, number> };
+let reminderLoaded: Promise<void> | undefined;
+let reminderWrite = Promise.resolve();
+
+async function loadReminderSettings(): Promise<void> {
+  reminderLoaded ??= (async () => {
+    if (process.env.UIT_DISABLE_CONFIG === "1") return;
+    try {
+      const saved = JSON.parse(await readFile(join(host.userDataPath, "calendar.json"), "utf8"));
+      reminderState.enabled = saved.enabled === true;
+      if (saved.sent && typeof saved.sent === "object" && !Array.isArray(saved.sent)) {
+        reminderState.sent = Object.fromEntries(Object.entries(saved.sent).filter((entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > Date.now() / 1000));
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") reminderError = "Could not read reminder settings. Save your preference to reset them.";
+    }
+  })();
+  return reminderLoaded;
+}
+
+function saveReminderSettings(): Promise<void> {
+  const content = JSON.stringify(reminderState);
+  const file = join(host.userDataPath, "calendar.json");
+  const pending = reminderWrite.catch(() => undefined).then(async () => {
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(`${file}.tmp`, content, { mode: 0o600 });
+    await rename(`${file}.tmp`, file);
+  });
+  reminderWrite = pending;
+  return pending;
+}
+
+async function connectedCalendar(year: number, month: number, refresh = false) {
+  const accounts = allCourseSessions();
+  const results = await Promise.allSettled(accounts.map(async (account) => {
+    let cache = calendarCache.get(account.api);
+    if (!cache) { cache = new Map(); calendarCache.set(account.api, cache); }
+    const key = `${year}-${month}`;
+    let value = cache.get(key);
+    if (refresh || !value || Date.now() - value.updatedAt > 5 * 60_000) {
+      value = { events: await service.listCalendarEvents(account, year, month), updatedAt: Date.now() };
+      try { value.events = await service.addAssignmentIntervals(account, value.events, year, month); }
+      catch { value.warning = `${siteLabel(account.baseUrl)}: Submission windows could not be loaded. Calendar events are still shown.`; }
+      if (cache.size >= 12) cache.delete(cache.keys().next().value!);
+      cache.set(key, value);
+    }
+    return value;
+  }));
+  const events: CalendarEvent[] = [];
+  const errors: PortalError[] = [];
+  const updated: number[] = [];
+  results.forEach((result, index) => {
+    const account = accounts[index];
+    if (!allCourseSessions().some((current) => current.api === account.api && current.userId === account.userId)) return;
+    if (result.status === "fulfilled") {
+      events.push(...result.value.events); updated.push(result.value.updatedAt);
+      if (result.value.warning) errors.push({ baseUrl: account.baseUrl, message: result.value.warning });
+    }
+    else errors.push({ baseUrl: account.baseUrl, message: `${siteLabel(account.baseUrl)}: Could not load calendar events. Reconnect this account or try again.` });
+  });
+  return { events: events.sort((a, b) => a.start - b.start), errors, updatedAt: updated.length ? Math.min(...updated) : Date.now(), accounts: allCourseSessions().map(({ baseUrl, userId }) => ({ baseUrl, userId })) };
+}
+
+async function checkCalendarReminders(): Promise<void> {
+  if (reminderBusy) return;
+  reminderBusy = true;
+  try {
+    await loadReminderSettings();
+    if (!reminderState.enabled || !allCourseSessions().length) return;
+    const now = new Date();
+    const end = new Date(now.getTime() + 24 * 3600_000);
+    const months = [now];
+    if (end.getMonth() !== now.getMonth()) months.push(end);
+    const results = await Promise.all(months.map((date) => connectedCalendar(date.getFullYear(), date.getMonth() + 1)));
+    if (!reminderState.enabled) return;
+    reminderError = results.flatMap((result) => result.errors.map((error) => error.message)).join(" ");
+    const events = [...new Map(results.flatMap((result) => result.events).map((event) => [event.key, event])).values()];
+    for (const reminder of service.calendarReminders(events, reminderState.sent, Date.now() / 1000)) {
+      const event = reminder.event;
+      if (!allCourseSessions().some((account) => account.baseUrl === event.baseUrl && account.userId === event.userId)) continue;
+      const body = `${event.courseName ? `${event.courseName}: ` : ""}${event.name}\nDue ${new Date(event.start * 1000).toLocaleString()}`;
+      sendAgentEvent({ method: "calendar/reminder", params: { name: event.name, body } });
+      reminderState.sent[reminder.key] = event.start;
+    }
+    reminderState.sent = Object.fromEntries(Object.entries(reminderState.sent).filter(([, deadline]) => deadline > Date.now() / 1000));
+    await saveReminderSettings();
+  } catch {
+    reminderError = "Could not update deadline reminders. Open Calendar and try refreshing.";
+  } finally { reminderBusy = false; }
+}
+
 export function createStudioHandlers(): Record<string, StudioHandler> {
   const handlers: Record<string, StudioHandler> = {
+    "calendar:announcements": (rawInput) => {
+      const input = requireObject(rawInput, "Announcement input");
+      if (typeof input.refresh !== "boolean") throw new Error("Refresh must be a boolean.");
+      return calendarAnnouncements(input.refresh);
+    },
+    "calendar:open-announcement": async (rawInput) => {
+      const key = requireString(requireObject(rawInput, "Announcement").key, "Announcement key");
+      for (const account of allCourseSessions()) {
+        const entry = announcementCache.get(account.api)?.items.find((entry) => entry.key === key && entry.userId === account.userId);
+        if (entry && Number.isSafeInteger(entry.id) && entry.id > 0) {
+          await host.openExternal(requireCourseFileUrl(`${account.baseUrl}/mod/forum/discuss.php?d=${entry.id}`, account.baseUrl));
+          return;
+        }
+      }
+      throw new Error("Refresh announcements before opening this post.");
+    },
     "session:status": () => sessionStatusPayload(),
+    "calendar:list": (rawInput) => {
+      const input = requireObject(rawInput, "Calendar input");
+      const { year, month } = service.calendarMonth(input.year, input.month);
+      return connectedCalendar(year, month, input.refresh === true);
+    },
+    "calendar:settings": async (rawInput) => {
+      await loadReminderSettings();
+      if (rawInput !== undefined) {
+        const input = requireObject(rawInput, "Reminder settings");
+        if (typeof input.enabled !== "boolean") throw new Error("Reminder preference must be a boolean.");
+        const previous = reminderState.enabled;
+        reminderState.enabled = input.enabled;
+        try { await saveReminderSettings(); } catch (error) { reminderState.enabled = previous; throw error; }
+        reminderError = "";
+        void checkCalendarReminders();
+      }
+      return { enabled: reminderState.enabled, supported: false, error: reminderError };
+    },
+    "calendar:open": async (rawInput) => {
+      const input = requireObject(rawInput, "Calendar event");
+      const key = requireString(input.key, "Event key");
+      for (const account of allCourseSessions()) {
+        for (const value of calendarCache.get(account.api)?.values() || []) {
+          const event = value.events.find((event) => event.key === key);
+          if (event) { await host.openExternal(requireCourseFileUrl(event.url, account.baseUrl)); return; }
+        }
+      }
+      throw new Error("Refresh Calendar before opening this event.");
+    },
     "session:login": async (rawInput) => {
       const input = requireObject(rawInput, "Login input");
       const baseUrl = normalizeSiteUrl(input?.baseUrl || CURRENT_SITE_BASE_URL);
@@ -981,6 +1168,11 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
     "course:assignments": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.listAssignments(courseId, session.api); },
     "course:announcements": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.listAnnouncements(courseId, session.api); },
     "course:participants": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.listCourseParticipants(courseId, session.api); },
+    "course:avatar": (rawInput) => {
+      const input = requireObject(rawInput, "Avatar input");
+      const { courseId, session } = courseSession(input);
+      return service.readParticipantAvatar(courseId, requirePositiveId(input.memberId, "Member ID"), session.baseUrl, session.api);
+    },
     "course:grades": (rawInput) => { const { courseId, session } = courseSession(rawInput); return service.getCourseGrades(courseId, session.api, session.userId); },
     "course:submission": (rawInput) => {
       const input = requireObject(rawInput, "Submission input");
@@ -1135,9 +1327,15 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
 export async function createStudioCore(newHost: StudioHost): Promise<StudioCore> {
   host = newHost;
   await loadService();
+  if (!reminderTimer && process.env.UIT_DISABLE_CONFIG !== "1") {
+    reminderTimer = setInterval(() => { void checkCalendarReminders(); }, 60_000);
+    reminderTimer.unref();
+    void checkCalendarReminders();
+  }
   return {
     handlers: createStudioHandlers,
     shutdown: async () => {
+      if (reminderTimer) { clearInterval(reminderTimer); reminderTimer = undefined; }
       if (idleLockTimer) {
         clearTimeout(idleLockTimer);
         idleLockTimer = undefined;

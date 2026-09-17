@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultApiClient } from "../src/api.js";
-import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, login, lookupCourse, sessionStatus } from "../src/desktop-service.js";
+import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, login, lookupCourse, readParticipantAvatar, sessionStatus } from "../src/desktop-service.js";
 import type { ApiClient } from "../src/types.js";
 
 const codexProbe = vi.hoisted(() => ({ connect: vi.fn(), readAccount: vi.fn(), disconnect: vi.fn() }));
@@ -14,6 +14,44 @@ beforeEach(() => {
 afterEach(() => { clearCourseCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("desktop service", () => {
+  it("reads member avatars through the authenticated client", async () => {
+    const avatar = "https://courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2?rev=1";
+    const api = {
+      call: vi.fn().mockResolvedValue([{ id: 7, fullname: "Student", profileimageurl: avatar }]),
+      readFile: vi.fn().mockResolvedValue({ mimeType: "image/png", data: Buffer.from("avatar") })
+    } as unknown as ApiClient;
+    await expect(readParticipantAvatar(1, 7, "https://courses.uit.edu.vn", api)).resolves.toEqual({ mimeType: "image/png", data: "YXZhdGFy" });
+    expect(api.readFile).toHaveBeenCalledWith(avatar);
+    await expect(readParticipantAvatar(1, 8, "https://courses.uit.edu.vn", api)).resolves.toBeNull();
+    expect(api.readFile).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "https://other.example/pluginfile.php/42/user/icon/boost/f2",
+    "http://courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2",
+    "https://name:secret@courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2",
+    "https://courses.uit.edu.vn/pluginfile.php/42/mod_resource/content/1/file.pdf"
+  ])("does not fetch an untrusted avatar URL: %s", async (avatar) => {
+    const api = {
+      call: vi.fn().mockResolvedValue([{ id: 7, fullname: "Student", profileimageurl: avatar }]),
+      readFile: vi.fn()
+    } as unknown as ApiClient;
+    await expect(readParticipantAvatar(1, 7, "https://courses.uit.edu.vn", api)).resolves.toBeNull();
+    expect(api.readFile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { mimeType: "text/html", data: Buffer.from("login page") },
+    { mimeType: "image/svg+xml", data: Buffer.from("<svg/>") },
+    { mimeType: "image/png", data: Buffer.alloc(2 * 1024 * 1024 + 1) }
+  ])("rejects non-raster or oversized avatar responses ($mimeType)", async (response) => {
+    const api = {
+      call: vi.fn().mockResolvedValue([{ id: 7, fullname: "Student", profileimageurl: "https://courses.uit.edu.vn/pluginfile.php/42/user/icon/boost/f2" }]),
+      readFile: vi.fn().mockResolvedValue(response)
+    } as unknown as ApiClient;
+    await expect(readParticipantAvatar(1, 7, "https://courses.uit.edu.vn", api)).resolves.toBeNull();
+  });
+
   it("reports a structured local session status", () => {
     expect(sessionStatus()).toEqual(expect.objectContaining({ authenticated: expect.any(Boolean) }));
   });
@@ -71,8 +109,7 @@ describe("desktop service", () => {
       uploadFile: vi.fn(),
       downloadFile: vi.fn()
     } as unknown as ApiClient;
-    const now = new Date().getUTCFullYear();
-    await expect(listCourses(api, 77)).resolves.toMatchObject([{ id: 42, shortname: "CS101", fullname: "Programming", semester: { id: `${now}`, source: "current" } }]);
+    await expect(listCourses(api, 77)).resolves.toMatchObject([{ id: 42, shortname: "CS101", fullname: "Programming", semester: { id: "unknown", source: "unknown" } }]);
     expect(api.call).toHaveBeenCalledWith("core_enrol_get_users_courses", { userid: 77 });
   });
 
@@ -133,14 +170,13 @@ describe("desktop service", () => {
     expect(api.call).toHaveBeenCalledTimes(3);
   });
 
-  it("files a looked-up course without time evidence under the current year", async () => {
-    const now = new Date().getUTCFullYear();
+  it("keeps a looked-up course without time evidence in Unknown semester", async () => {
     const api = { call: vi.fn(async (name: string) => {
       if (name === "core_course_get_courses_by_field") return { courses: [{ id: 807, fullname: "Khoá luận tốt nghiệp - AI505.R11", shortname: "AI505.R11", categoryid: 7, categoryname: "Khoa học Máy tính" }] };
       return [];
     }) } as unknown as ApiClient;
     const course = await lookupCourse(807, api, 77);
-    expect(course.semester).toEqual({ id: `${now}`, label: `${now}`, sortOrder: now * 10 + 9, source: "current" });
+    expect(course.semester).toEqual({ id: "unknown", label: "Unknown semester", sortOrder: 0, source: "unknown" });
     expect(course.category).toMatchObject({ id: 7 });
   });
 
@@ -220,6 +256,17 @@ describe("desktop service", () => {
     });
     await expect(listAnnouncements(42)).resolves.toMatchObject([{ id: 4, subject: "Welcome", author: "Lecturer", message: "Hello", timestamp: undefined, replies: 2, moduleId: 9, forumId: 12, files: [] }]);
     expect(call).toHaveBeenCalledWith("mod_forum_get_forum_discussions", { forumid: 12, page: 0, perpage: 100 });
+    call.mockRestore();
+  });
+
+  it("keeps announcement posting and update dates separate without inventing missing dates", async () => {
+    const call = vi.spyOn(defaultApiClient, "call").mockImplementation(async (name) => {
+      if (name === "mod_forum_get_forums_by_courses") return [{ id: 12, cmid: 9, type: "news" }];
+      return { discussions: [{ discussion: 4, created: 100, timemodified: 200 }, { discussion: 5, created: 300 }] };
+    });
+    const posts = await listAnnouncements(42);
+    expect(posts.find((post) => post.id === 4)).toMatchObject({ createdAt: 100, updatedAt: 200 });
+    expect(posts.find((post) => post.id === 5)).toMatchObject({ createdAt: 300, updatedAt: undefined });
     call.mockRestore();
   });
 

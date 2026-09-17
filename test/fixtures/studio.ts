@@ -63,6 +63,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     session?.setItem("mock.seeded", "true");
   }
   const status = () => ({ authenticated: connected.length > 0, sessions: connected });
+  let remindersEnabled = false;
   const emit = (event: any) => listeners.forEach((listener) => listener(event));
   const invoke = async (method: string, input?: any): Promise<any> => {
     calls.push({ method, input: input === undefined ? null : structuredClone(input) });
@@ -70,6 +71,23 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (failures[method]) { const message = failures[method]; delete failures[method]; throw new Error(message); }
     const save = () => { session?.setItem("mock.sessions", JSON.stringify(connected)); return status(); };
     if (method === "session.status") return status();
+    if (method === "calendar.announcements") return { items: [], errors: [] };
+    if (method === "calendar.openAnnouncement") return;
+    if (method === "calendar.settings") { if (input) remindersEnabled = input.enabled; return { enabled: remindersEnabled, supported: true, error: "" }; }
+    if (method === "calendar.list") return {
+      accounts: connected, errors: [], updatedAt: Date.now(),
+      events: connected.map((account: any, index: number) => ({
+        key: JSON.stringify([account.baseUrl, account.userId, 900]), id: 900,
+        baseUrl: account.baseUrl, userId: account.userId, courseId: 1,
+        courseName: index ? "LEGACY-CS01" : "CS01", name: index ? "Legacy quiz closes" : "Assignment deadline",
+        description: '<p>Submit the report.</p><script>window.previewExecuted=true</script>', location: "",
+        start: new Date(input.year, input.month - 1, 20, 23, 59).getTime() / 1000,
+        end: new Date(input.year, input.month - 1, 20, 23, 59).getTime() / 1000,
+        opensAt: index === 0 ? new Date(input.year, input.month - 1, 10, 8).getTime() / 1000 : undefined,
+        type: "due", deadline: true, needsAction: true,
+        url: `${account.baseUrl}/mod/assign/view.php?id=701`,
+      })),
+    };
     if (method === "session.logout") { connected = input?.baseUrl ? connected.filter((s: any) => s.baseUrl !== input.baseUrl) : []; return save(); }
     if (method === "session.ssoLogin" || method === "session.login") {
       const userId = method === "session.ssoLogin" ? 101 : Number(input.username);
@@ -128,18 +146,23 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     unhold: (method: string) => held.delete(method),
   };
   window.uit = Object.fromEntries(Object.entries({
+    calendar: ["list", "settings", "open", "announcements", "openAnnouncement"],
     session: ["status", "login", "ssoLogin", "logout"],
     courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
     codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect", "releaseLock", "lockStatus", "openDesktop", "readRollout", "writeClipboard"],
     workspace: ["create"], shell: ["open"],
   }).map(([namespace, methods]) => [namespace, Object.fromEntries(methods.map((method) => [method, (input: any) => invoke(`${namespace}.${method}`, input)]))]));
   window.uit.agent.onEvent = (listener: (event: any) => void) => { listeners.push(listener); return () => listeners.splice(listeners.indexOf(listener), 1); };
+  window.uit.calendar.onReminder = () => () => {};
+  window.uit.calendar.onNavigate = () => () => {};
 }
 
 export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>; diagnostics: void }, { rendererURL: string }>({
   rendererURL: [async ({}, use) => {
     const root = new URL("../../studio/renderer/", import.meta.url);
     const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/web-bridge.js": "web-bridge.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png", "/assets/uit-dau-dau.svg": "assets/uit-dau-dau.svg", "/assets/dau-dau-agent.png": "assets/dau-dau-agent.png", "/assets/dau-dau-onboarding.png": "assets/dau-dau-onboarding.png" };
+    assets["/calendar.js"] = "calendar.js";
+    assets["/assets/uit-dau-dau-icon.png"] = "assets/uit-dau-dau-icon.png";
     const server = createServer(async (request, response) => {
       const pathname = new URL(request.url!, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204).end(); return; }

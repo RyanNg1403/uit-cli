@@ -90,7 +90,8 @@ describe("Studio web server", () => {
     expect(traversal.status).toBe(400);
     const record = await readControlRecord(controlFile);
     expect(record?.port).toBe(server.port);
-    expect((await stat(controlFile)).mode & 0o777).toBe(0o600);
+    // Windows does not expose POSIX file permissions through stat.
+    if (process.platform !== "win32") expect((await stat(controlFile)).mode & 0o777).toBe(0o600);
   });
 
   it("rejects forged Host and browser origins", async () => {

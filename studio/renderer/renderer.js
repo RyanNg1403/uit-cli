@@ -127,7 +127,7 @@ function discardUnsent(exceptId = null) {
 }
 function siteLabel(course) { return course.siteLabel || (course.baseUrl === CURRENT_SITE ? "Current Moodle" : course.baseUrl?.endsWith("/sdh") ? "Graduate Moodle" : "Legacy Moodle"); }
 function semesterOf(course) {
-  if (!course?.semester?.id) return { id: "unknown", label: "Unknown semester", sortOrder: -1, source: "unknown" };
+  if (!course?.semester?.id || ["unknown", "current", "startdate"].includes(course.semester.source)) return { id: "unknown", label: "", sortOrder: -1, source: "unknown" };
   const rawLabel = String(course.semester.label || "");
   const cleanLabel = rawLabel.replace(/\s*\(inferred[^\)]*\)/gi, "").trim();
   const rawId = String(course.semester.id);
@@ -135,7 +135,7 @@ function semesterOf(course) {
   return {
     ...course.semester,
     id: cleanId,
-    label: cleanLabel || rawLabel,
+    label: cleanId === "unknown" ? "" : cleanLabel || rawLabel,
   };
 }
 function semesterGroups(courses) {
@@ -144,25 +144,6 @@ function semesterGroups(courses) {
     const semester = semesterOf(course);
     if (!groups.has(semester.id)) groups.set(semester.id, { ...semester, courses: [] });
     groups.get(semester.id).courses.push(course);
-  }
-  return [...groups.values()].sort((a, b) => {
-    if (a.id === "unknown") return 1;
-    if (b.id === "unknown") return -1;
-    return Number(b.sortOrder) - Number(a.sortOrder) || String(b.label).localeCompare(String(a.label));
-  });
-}
-// Display grouping: semesters from different sources (category vs inferred from
-// start date) that fall in the same calendar year merge into one card.
-function yearGroups(courses) {
-  const groups = new Map();
-  for (const course of courses) {
-    const semester = semesterOf(course);
-    const year = semester.id === "unknown" ? null : /(\d{4})/.exec(semester.label)?.[1];
-    const key = year ? `year-${year}` : semester.id;
-    if (!groups.has(key)) groups.set(key, { id: key, label: year || semester.label, sortOrder: semester.sortOrder, courses: [] });
-    const group = groups.get(key);
-    group.courses.push(course);
-    if (Number(semester.sortOrder) > Number(group.sortOrder)) group.sortOrder = semester.sortOrder;
   }
   return [...groups.values()].sort((a, b) => {
     if (a.id === "unknown") return 1;
@@ -273,7 +254,7 @@ function showView(view) {
   if (view !== "agent") discardUnsent();
   if (view !== "course") state.detailGeneration++;
   state.view = view;
-  for (const name of ["courses", "course", "agent"]) $("#view-" + name).hidden = name !== view;
+  for (const name of ["courses", "course", "agent", "calendar"]) $("#view-" + name).hidden = name !== view;
   const pageTitle = $("#page-title");
   if (view === "agent") {
     pageTitle.replaceChildren(codexLogo());
@@ -283,7 +264,7 @@ function showView(view) {
     pageTitle.setAttribute("title", "Codex home");
     pageTitle.classList.add("page-title-action");
   } else {
-    pageTitle.textContent = "Courses";
+    pageTitle.textContent = view === "calendar" ? "Calendar" : "Courses";
     pageTitle.removeAttribute("role");
     pageTitle.removeAttribute("tabindex");
     pageTitle.removeAttribute("aria-label");
@@ -295,6 +276,7 @@ function showView(view) {
     else item.removeAttribute("aria-current");
   });
   if (view === "agent") renderConversation();
+  if (view === "calendar") calendar.show();
   renderRail();
   window.uitSidebar.closeMobile();
 }
@@ -310,11 +292,11 @@ function renderRail() {
     if (live?.semester) merged.semester = live.semester;
     return merged;
   }) : state.courses;
-  const groups = agent ? yearGroups(projects) : semesterGroups(projects);
+  const groups = semesterGroups(projects);
   for (const group of groups) {
     const section = node("section", "semester-nav");
     section.dataset.semesterId = group.id;
-    section.append(node("h3", "", group.label));
+    if (group.label) section.append(node("h3", "", group.label));
     for (const course of group.courses) {
       const project = node("div", "project");
       project.dataset.courseKey = courseKey(course);
@@ -328,7 +310,7 @@ function renderRail() {
       }
       section.append(project);
     }
-    if (section.childElementCount > 1) nav.append(section);
+    if (section.childElementCount) nav.append(section);
   }
   if (agent) {
     const unbound = threads.filter((thread) => !thread.course);
@@ -578,7 +560,7 @@ async function loadCourses(refresh = false) {
     select.replaceChildren();
     const all = node("option", "", "All semesters"); all.value = "all"; select.append(all);
     for (const group of groups) {
-      const option = node("option", "", group.label);
+      const option = node("option", "", group.label || "Other courses");
       option.value = group.id;
       select.append(option);
     }
@@ -623,7 +605,7 @@ function renderCourseList() {
     list.append(notice);
   }
   for (const group of semesterGroups(courses)) {
-    if (query || state.semester === "all") list.append(node("h3", "section-label", group.label));
+    if (group.label && (query || state.semester === "all")) list.append(node("h3", "section-label", group.label));
     for (const course of group.courses) {
       const row = button("", "course-row", () => openCourse(course));
       // WebKit's default macOS keyboard traversal omits buttons without an explicit tab index.
@@ -801,6 +783,24 @@ function displayMembers(container, members, course) {
     return (a.fullname || "").localeCompare(b.fullname || "", "vi", { sensitivity: "base" });
   });
 
+  const avatars = new Map();
+  const loadAvatar = async (member, placeholder) => {
+    try {
+      if (!avatars.has(member.id)) avatars.set(member.id, window.uit.courses.avatar({ ...courseRef(course), memberId: member.id }));
+      const result = await avatars.get(member.id);
+      if (!result || !placeholder.isConnected) return;
+      const bytes = Uint8Array.from(atob(result.data), (char) => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
+      const image = new Image();
+      image.alt = "";
+      image.onload = () => { URL.revokeObjectURL(url); if (placeholder.isConnected) placeholder.replaceChildren(image); };
+      image.onerror = () => URL.revokeObjectURL(url);
+      image.src = url;
+    } catch {
+      // Keep the role icon when the avatar is unavailable or the session expires.
+    }
+  };
+
   const renderList = (filterText = "") => {
     listContainer.replaceChildren();
     const query = filterText.toLowerCase().trim();
@@ -821,7 +821,8 @@ function displayMembers(container, members, course) {
     for (const member of filtered) {
       const card = node("div", "member-card");
       const isTeacher = memberPriority(member) === 0;
-      card.append(defaultAvatar(isTeacher));
+      const avatar = defaultAvatar(isTeacher);
+      card.append(avatar);
 
       const info = node("div", "member-info");
       const nameRow = node("div", "member-name-row");
@@ -850,6 +851,7 @@ function displayMembers(container, members, course) {
 
       card.append(info);
       listContainer.append(card);
+      if (member.avatar && member.id > 0) void loadAvatar(member, avatar);
     }
   };
 
@@ -1365,9 +1367,9 @@ async function previewResource(course, resource) {
 
 function projectYear(course) {
   const semester = semesterOf(course);
-  if (semester.id === "unknown") return "Unknown year";
+  if (semester.id === "unknown") return "Other courses";
   const match = `${semester.label} ${semester.id}`.match(/(?:19|20)\d{2}(?:\s*[-\u2013\u2014]\s*(?:19|20)\d{2})?/);
-  return match ? match[0].replace(/\s*[-\u2013\u2014]\s*/g, "-") : "Unknown year";
+  return match ? match[0].replace(/\s*[-\u2013\u2014]\s*/g, "-") : "Other courses";
 }
 // Academic ranges span calendar years, so the filter offers each contained year
 // ("2025-2026" matches both 2025 and 2026) while sections keep the range label.
@@ -1376,19 +1378,19 @@ function projectYearOptions(courses) {
   let unknown = false;
   for (const course of courses) {
     const label = projectYear(course);
-    if (label === "Unknown year") { unknown = true; continue; }
+    if (label === "Other courses") { unknown = true; continue; }
     const match = label.match(/^((?:19|20)\d{2})(?:-((?:19|20)?\d{2}))?$/);
     if (!match) { years.add(label); continue; }
     const start = Number(match[1]);
     const end = match[2] ? Number(match[2].length === 2 ? match[1].slice(0, 2) + match[2] : match[2]) : start;
     for (let year = start; year <= Math.min(end, start + 20); year++) years.add(String(year));
   }
-  return [...years].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).concat(unknown ? ["Unknown year"] : []);
+  return [...years].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).concat(unknown ? ["Other courses"] : []);
 }
 function projectYearMatches(course, selected) {
   if (selected === "all") return true;
   const label = projectYear(course);
-  if (label === "Unknown year") return selected === "Unknown year";
+  if (label === "Other courses") return selected === "Other courses";
   if (label === selected) return true;
   return projectYearOptions([course]).includes(selected);
 }
@@ -1433,7 +1435,7 @@ function renderProjectOptions() {
       }
       section = yearSections.get(year);
     }
-    if (!creating || group.label !== projectYear(group.courses[0])) section.append(node("h3", "", group.label));
+    if (group.label && (!creating || group.label !== projectYear(group.courses[0]))) section.append(node("h3", "", group.label));
     for (const course of group.courses) {
       const option = button("", "project-option", () => {
         projectPickerOpener = null;
@@ -2900,6 +2902,7 @@ function handleAgentEvent(message) {
 }
 
 function applySessions(result) {
+  calendar.reset();
   state.sessions = Array.isArray(result.sessions) ? result.sessions.map(({ baseUrl, userId, authMode, label }) => ({ baseUrl, userId, authMode, label })) : [];
   state.loginFormOpen = false;
   state.listGeneration++; state.detailGeneration++;
@@ -3337,6 +3340,7 @@ $("#agent-messages").addEventListener("click", (event) => {
 window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist(); releasePreview(); });
 
 restore();
+const calendar = new window.UitCalendar({ notify: toast, navigate: () => showView("calendar") });
 showView("courses");
 window.uit.agent.onEvent(handleAgentEvent);
 (async function boot() {
