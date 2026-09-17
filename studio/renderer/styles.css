@@ -51,6 +51,7 @@
 .calendar-agenda { display: grid; gap: 10px; }
 .calendar-announcements { margin-top: 32px; padding-top: 8px; border-top: 1px solid var(--line); }
 .calendar-announcements .field { margin: 0; }
+.calendar-announcements .calendar-navigation { align-items: flex-end; }
 #calendar-announcements-more { margin-top: 12px; }
 #calendar-status { display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 4px 0 10px; padding: 6px 0; line-height: 1.4; font-weight: 600; }
 .calendar-loading #calendar-status::before { content: ""; width: 12px; height: 12px; flex-shrink: 0; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: working-spin .8s linear infinite; }
@@ -65,13 +66,14 @@
   .calendar-loading #calendar-status::before, .calendar-loading .calendar-date-surface::after, .calendar-agenda-skeleton::after { animation: none; }
 }
 .calendar-event { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: var(--surface); overflow-wrap: anywhere; }
-.calendar-event summary { cursor: pointer; }
+.calendar-event > summary, .calendar-reminder-settings > summary { cursor: pointer; list-style: none; }
+.calendar-event > summary::-webkit-details-marker, .calendar-reminder-settings > summary::-webkit-details-marker { display: none; }
+.calendar-event > summary::before, .calendar-reminder-settings > summary::before { content: "•"; display: inline-block; margin-right: 8px; color: var(--muted); font-size: 1.1em; line-height: 1; }
 .calendar-event-status { display: inline-block; margin-left: 10px; padding: 3px 7px; border-radius: 5px; font-size: 12px; }
 .calendar-event-meta { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .calendar-description { white-space: pre-wrap; line-height: 1.6; }
-.calendar-event > button { margin-top: 12px; }
+.calendar-event-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .calendar-reminder-settings { margin: 24px 0; border-top: 1px solid var(--line); padding-top: 18px; }
-.calendar-reminder-settings summary { cursor: pointer; }
 .calendar-toggle { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
 .calendar-toggle input { width: auto; }
 @media (max-width: 800px) {
