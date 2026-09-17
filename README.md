@@ -22,13 +22,13 @@ Both installation methods launch the same local web Studio with `uit-studio`.
 The npm installation requires [Node.js 24.0+](https://nodejs.org/); native
 release packages include Node.js and the SSO Chromium runtime.
 
-Open **Calendar** in Studio to browse Moodle events and assignment deadlines by month. Filter by account, course, or deadlines; select a day or expand an event to see its details and open it in Moodle. Calendar combines connected SSO and legacy accounts. Assignments with an explicit opening date and deadline appear as submission windows, continuing across weeks and months with a marked deadline. Crowded days show **+N more**. Select a bar for its dates and details. Missing opening dates remain single deadline markers; Studio does not infer dates or edit course events.
+See what's due. Find what you need. Get back to learning.
 
-Because `uit-studio` keeps the local web server detached from the terminal, run `uit-studio stop` when you want to shut it down.
+Track deadlines, announcements, and course materials in one focused workspace.
 
-**Course announcements** below the calendar lists announcement posts across all dates, newest updated first. Choose **Date posted** to sort by the original posting date. Both timestamps are shown separately; unavailable dates remain labelled and sort last. Account, course and search filters apply; month/day and deadline filters do not restrict this list. Announcements load independently from the calendar, reuse a five-minute cache, and have a separate **Refresh announcements** action. Expand a post to read it or open it in Moodle. A partial failure preserves previously loaded posts and displays a warning.
+Calendar keeps the next deadline visible. Announcements keep you in the loop. Reminders keep you ahead.
 
-Use **Refresh calendar** after a teacher changes a deadline. The visible calendar refreshes automatically every five minutes. Under **Deadline reminders**, enable reminders within 24 hours and 1 hour of deadlines Moodle marks as needing action. Studio must remain running; reminders appear in the app and, when supported and allowed by the OS, as desktop notifications. Reminder preferences and delivery history are saved locally, and changed deadlines are scheduled again. Times are displayed in your computer's time zone.
+Studio runs locally in the background. Run `uit-studio stop` whenever you want to shut it down.
 
 <details>
 <summary>macOS</summary>
@@ -97,7 +97,7 @@ The ChatGPT desktop app alone is not sufficient. Sign in to UIT Studio with UIT 
   <img src="docs/landing-page/assets/studio-courses.png" alt="UIT Studio courses workspace" width="860">
 </p>
 
-Chat with Codex using course context, then continue the same thread in Codex CLI or the ChatGPT desktop app.
+Ask with course context. Continue the same thread in Codex CLI or the ChatGPT desktop app.
 
 <p align="center">
   <img src="docs/landing-page/assets/studio-chat.png" alt="UIT Studio agent workspace" width="860" style="border-radius: 8px;">
