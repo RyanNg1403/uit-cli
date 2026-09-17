@@ -42,6 +42,11 @@ describe("mcp-server workspace gating and tools", () => {
     expect(toolNames.length).toBe(7);
   });
 
+  it("does not expose Studio approval policy in the submission tool description", () => {
+    const submission = UIT_MCP_TOOLS.find((tool) => tool.name === "uit_submit_assignment");
+    expect(submission?.description).not.toMatch(/approval|confirmation|never call/i);
+  });
+
   it("describes the exact submission target in the Studio-owned confirmation request", () => {
     const request = assignmentSubmissionElicitation({ courseId: 11782, assignmentId: 50664, filePath: "/course/assignment.txt" });
     expect(request.mode).toBe("form");
@@ -82,7 +87,19 @@ describe("mcp-server workspace gating and tools", () => {
     const elicitation = await nextMessage();
     expect(elicitation).toMatchObject({ method: "elicitation/create", params: { _meta: { uit_confirmation: "assignment_submission" } } });
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: elicitation.id, result: { action: "decline" } })}\n`);
-    await expect(nextMessage()).resolves.toMatchObject({ id: 2, result: { isError: true } });
+    await expect(nextMessage()).resolves.toMatchObject({
+      id: 2,
+      result: {
+        isError: true,
+        content: [{
+          text: JSON.stringify({
+            confirmationStatus: "rejected",
+            submissionStatus: "not_submitted",
+            message: "Assignment submission was declined by the user; no file was uploaded or submitted."
+          }, null, 2)
+        }]
+      }
+    });
     expect(executeTool).not.toHaveBeenCalled();
     input.end();
   });
@@ -116,7 +133,12 @@ describe("mcp-server workspace gating and tools", () => {
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "uit_submit_assignment", arguments: args } })}\n`);
     const elicitation = await nextMessage();
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: elicitation.id, result: { action: "accept", content: { confirmed: true } } })}\n`);
-    await expect(nextMessage()).resolves.toMatchObject({ id: 2, result: { content: [{ text: JSON.stringify({ status: "submitted" }, null, 2) }] } });
+    await expect(nextMessage()).resolves.toMatchObject({
+      id: 2,
+      result: {
+        content: [{ text: JSON.stringify({ status: "submitted", confirmationStatus: "approved", confirmationSource: "UIT Studio" }, null, 2) }]
+      }
+    });
     expect(executeTool).toHaveBeenCalledWith("uit_submit_assignment", args);
     input.end();
   });

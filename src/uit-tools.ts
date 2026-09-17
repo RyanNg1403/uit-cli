@@ -124,7 +124,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: UIT_ASSIGNMENT_SUBMISSION_TOOL,
-    description: "Upload and submit one local file to a UIT assignment. This changes upstream course data. UIT Studio always asks the student for fresh explicit confirmation immediately before this tool runs, including YOLO mode; never call it until the student has confirmed the exact assignment and file.",
+    description: "Upload and submit one local file to a UIT assignment. This changes upstream course data.",
     inputSchema: {
       type: "object",
       properties: {

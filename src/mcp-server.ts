@@ -98,6 +98,14 @@ type PendingElicitation = {
 };
 
 const SUBMISSION_CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1_000;
+const ASSIGNMENT_SUBMISSION_REJECTION_MESSAGE = "Assignment submission was declined by the user; no file was uploaded or submitted.";
+
+class AssignmentSubmissionRejectedError extends Error {
+  constructor() {
+    super(ASSIGNMENT_SUBMISSION_REJECTION_MESSAGE);
+    this.name = "AssignmentSubmissionRejectedError";
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -170,9 +178,23 @@ async function requestAssignmentSubmissionConfirmation(
   args: Record<string, unknown>
 ): Promise<void> {
   const result = await requestElicitation(send, pending, assignmentSubmissionElicitation(args));
-  if (!acceptsAssignmentSubmissionElicitation(result)) {
-    throw new Error("Assignment submission was not explicitly confirmed.");
-  }
+  if (!acceptsAssignmentSubmissionElicitation(result)) throw new AssignmentSubmissionRejectedError();
+}
+
+function markAssignmentSubmissionConfirmed(result: unknown): unknown {
+  const confirmation = {
+    confirmationStatus: "approved",
+    confirmationSource: "UIT Studio"
+  };
+  return isRecord(result) ? { ...result, ...confirmation } : { result, ...confirmation };
+}
+
+function assignmentSubmissionRejectedResult(): Record<string, string> {
+  return {
+    confirmationStatus: "rejected",
+    submissionStatus: "not_submitted",
+    message: ASSIGNMENT_SUBMISSION_REJECTION_MESSAGE
+  };
 }
 
 export async function executeMcpTool(
@@ -283,6 +305,7 @@ export function runMcpServer(options: McpServerOptions = {}): void {
           await requestAssignmentSubmissionConfirmation(send, pendingElicitations, toolArgs);
         }
         const result = await executeTool(toolName, toolArgs);
+        const output = toolName === UIT_ASSIGNMENT_SUBMISSION_TOOL ? markAssignmentSubmissionConfirmed(result) : result;
         send({
           jsonrpc: "2.0",
           id,
@@ -290,12 +313,23 @@ export function runMcpServer(options: McpServerOptions = {}): void {
             content: [
               {
                 type: "text",
-                text: typeof result === "string" ? result : JSON.stringify(result, null, 2)
+                text: typeof output === "string" ? output : JSON.stringify(output, null, 2)
               }
             ]
           }
         });
       } catch (error) {
+        if (error instanceof AssignmentSubmissionRejectedError) {
+          send({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: JSON.stringify(assignmentSubmissionRejectedResult(), null, 2) }]
+            }
+          });
+          return;
+        }
         send({
           jsonrpc: "2.0",
           id,

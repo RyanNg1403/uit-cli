@@ -2,9 +2,12 @@
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-const STORE_KEY = "uit-studio.threads.v1";
 const CURRENT_SITE = "https://courses.uit.edu.vn";
 let streamFrame = null, streamPersistTimer = null, draftPersistTimer = null;
+let calendar;
+let threadStoreWrite = Promise.resolve();
+let threadStoreLastSerialized = "";
+let threadStoreReady = false;
 const streamUpdates = new Map();
 let messageNodes = new WeakMap();
 const timelineStates = new Map();
@@ -190,63 +193,87 @@ function messageResources(resources) {
 function courseSnapshot(course) {
   return { id: course.id, baseUrl: course.baseUrl, userId: course.userId, shortname: course.shortname, fullname: course.fullname, semester: semesterOf(course), siteLabel: siteLabel(course) };
 }
+function threadStorePayload() {
+  const threads = state.threads.filter(hasPrompt).map((thread) => ({
+    id: thread.id, owner: thread.owner, course: thread.course, title: thread.title, renamed: thread.renamed, model: thread.model, effort: thread.effort,
+    draft: thread.draft, resources: thread.resources.map(safeResource),
+    messages: thread.messages.filter((message) => message.kind !== "reasoning" && message.label !== "Thought process"),
+    threadId: thread.threadId, turnId: thread.turnId, cwd: thread.cwd, started: thread.started, prompted: true, forkSource: thread.forkSource,
+    yolo: thread.yolo !== false,
+    fast: thread.fast === true,
+    archived: Boolean(thread.archived),
+    createdAt: thread.createdAt, updatedAt: thread.updatedAt,
+    interrupted: thread.busy || thread.interrupted,
+  }));
+  return { version: 1, activeId: threads.some((thread) => thread.id === state.activeId) ? state.activeId : null, projects: state.projects, threads, collapsed: [...collapsedProjects] };
+}
 function persist() {
   clearTimeout(streamPersistTimer); clearTimeout(draftPersistTimer);
   streamPersistTimer = null; draftPersistTimer = null;
-  if (state.storageUnreadable) return;
+  if (state.storageUnreadable || !threadStoreReady) return;
   try {
-    const threads = state.threads.filter(hasPrompt).map((thread) => ({
-      id: thread.id, owner: thread.owner, course: thread.course, title: thread.title, renamed: thread.renamed, model: thread.model, effort: thread.effort,
-      draft: thread.draft, resources: thread.resources.map(safeResource),
-      messages: thread.messages.filter((message) => message.kind !== "reasoning" && message.label !== "Thought process"),
-      threadId: thread.threadId, turnId: thread.turnId, cwd: thread.cwd, started: thread.started, prompted: true, forkSource: thread.forkSource,
-      yolo: thread.yolo !== false,
-      fast: thread.fast === true,
-      archived: Boolean(thread.archived),
-      createdAt: thread.createdAt, updatedAt: thread.updatedAt,
-      interrupted: thread.busy || thread.interrupted,
-    }));
-    localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, activeId: threads.some((thread) => thread.id === state.activeId) ? state.activeId : null, projects: state.projects, threads, collapsed: [...collapsedProjects] }));
-    if (state.storageError) { state.storageError = false; appError(""); }
+    const payload = threadStorePayload();
+    const serialized = JSON.stringify(payload);
+    if (serialized === threadStoreLastSerialized) return;
+    threadStoreWrite = threadStoreWrite.catch(() => undefined).then(async () => {
+      if (serialized === threadStoreLastSerialized) return;
+      await window.uit.threads.write(payload);
+      threadStoreLastSerialized = serialized;
+      if (state.storageError) { state.storageError = false; appError(""); }
+    }).catch(() => {
+      state.storageError = true;
+      appError("Thread changes could not be saved in UIT Studio storage. Keep Studio running and try again.");
+    });
   } catch {
     state.storageError = true;
-    appError("Thread changes could not be saved on this device. Keep this window open; local storage may be full or unavailable.");
+    appError("Thread changes could not be saved in UIT Studio storage.");
   }
 }
-function restore() {
+function applySavedThreadStore(saved) {
+  if (!saved || saved.version !== 1 || !Array.isArray(saved.threads)) throw new Error("Unsupported thread index");
+  if (!saved.threads.every((thread) => thread && typeof thread.id === "string" && typeof thread.title === "string" &&
+    typeof (thread.course || thread.owner)?.baseUrl === "string" && Number.isSafeInteger(Number((thread.course || thread.owner)?.userId)) && Number((thread.course || thread.owner)?.userId) > 0 &&
+    Array.isArray(thread.messages) && thread.messages.every((message) => message && typeof message.text === "string" && ["user", "assistant", "event"].includes(message.role) &&
+      (message.resources === undefined || Array.isArray(message.resources) && message.resources.every((resource) => resource && typeof resource.name === "string"))) &&
+    Array.isArray(thread.resources) && thread.resources.every((resource) => resource && typeof resource.name === "string" && ["module", "file", "assignment", "announcement"].includes(resource.kind) && Number.isSafeInteger(resource.id) && resource.id > 0))) throw new Error("Invalid saved thread");
+  state.threads = saved.threads.filter(hasPrompt).map((thread) => ({
+    ...thread,
+    archived: Boolean(thread.archived),
+    messages: thread.messages
+      .filter((message) => message.kind !== "reasoning" && message.label !== "Thought process")
+      .map((message) => message.kind === "turn-state" && message.status === "working"
+        ? { ...message, status: "stopped", label: "Interrupted", text: "This turn ended when UIT Studio closed. Send a message to continue." }
+        : message),
+    draft: String(thread.draft || ""), busy: false, pending: false, stopping: false,
+    branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(), yolo: thread.yolo !== false,
+    fast: thread.fast === true,
+  }));
+  if (saved.projects !== undefined && (!Array.isArray(saved.projects) || !saved.projects.every((project) => project && typeof project.baseUrl === "string" && Number.isSafeInteger(project.id) && project.id > 0 && Number(project.userId) > 0))) throw new Error("Invalid saved projects");
+  state.projects = (saved.projects || []).map((project) => {
+    const { archived: _archived, ...rest } = project;
+    return rest;
+  });
+  collapsedProjects.clear();
+  if (Array.isArray(saved.collapsed)) for (const key of saved.collapsed) if (typeof key === "string" && key) collapsedProjects.add(key);
+  for (const thread of state.threads) if (thread.course) addProject(thread.course);
+  state.activeId = saved.activeId;
+}
+async function restore() {
+  if (typeof window.uit?.threads?.read !== "function" || typeof window.uit?.threads?.write !== "function") {
+    state.storageUnreadable = true;
+    appError("UIT Studio thread storage is unavailable. No threads were loaded or saved.");
+    return;
+  }
   try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-    if (!saved) return;
-    if (saved.version !== 1 || !Array.isArray(saved.threads)) throw new Error("Unsupported thread index");
-    if (!saved.threads.every((thread) => thread && typeof thread.id === "string" && typeof thread.title === "string" &&
-      typeof (thread.course || thread.owner)?.baseUrl === "string" && Number.isSafeInteger(Number((thread.course || thread.owner)?.userId)) && Number((thread.course || thread.owner)?.userId) > 0 &&
-      Array.isArray(thread.messages) && thread.messages.every((message) => message && typeof message.text === "string" && ["user", "assistant", "event"].includes(message.role) &&
-        (message.resources === undefined || Array.isArray(message.resources) && message.resources.every((resource) => resource && typeof resource.name === "string"))) &&
-      Array.isArray(thread.resources) && thread.resources.every((resource) => resource && typeof resource.name === "string" && ["module", "file", "assignment", "announcement"].includes(resource.kind) && Number.isSafeInteger(resource.id) && resource.id > 0))) throw new Error("Invalid saved thread");
-    state.threads = saved.threads.filter(hasPrompt).map((thread) => ({
-      ...thread,
-      archived: Boolean(thread.archived),
-      messages: thread.messages
-        .filter((message) => message.kind !== "reasoning" && message.label !== "Thought process")
-        .map((message) => message.kind === "turn-state" && message.status === "working"
-          ? { ...message, status: "stopped", label: "Interrupted", text: "This turn ended when UIT Studio closed. Send a message to continue." }
-          : message),
-      draft: String(thread.draft || ""), busy: false, pending: false, stopping: false,
-      branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(), yolo: thread.yolo !== false,
-      fast: thread.fast === true,
-    }));
-    if (saved.projects !== undefined && (!Array.isArray(saved.projects) || !saved.projects.every((project) => project && typeof project.baseUrl === "string" && Number.isSafeInteger(project.id) && project.id > 0 && Number(project.userId) > 0))) throw new Error("Invalid saved projects");
-    state.projects = (saved.projects || []).map((project) => {
-      const { archived: _archived, ...rest } = project;
-      return rest;
-    });
-    collapsedProjects.clear();
-    if (Array.isArray(saved.collapsed)) for (const key of saved.collapsed) if (typeof key === "string" && key) collapsedProjects.add(key);
-    for (const thread of state.threads) if (thread.course) addProject(thread.course);
-    state.activeId = saved.activeId;
+    const saved = await window.uit.threads.read();
+    if (saved) {
+      applySavedThreadStore(saved);
+      threadStoreLastSerialized = JSON.stringify(threadStorePayload());
+    }
+    threadStoreReady = true;
   } catch {
     state.storageUnreadable = true;
-    appError("Saved threads could not be read. Existing storage is untouched. New changes will not be saved; keep this window open to retain them.");
+    appError("Saved threads could not be read from UIT Studio storage. No threads were loaded or saved.");
   }
 }
 
@@ -255,6 +282,8 @@ function showView(view) {
   if (view !== "course") state.detailGeneration++;
   state.view = view;
   for (const name of ["courses", "course", "agent", "calendar"]) $("#view-" + name).hidden = name !== view;
+  const threadHeader = $(".thread-header");
+  if (threadHeader) threadHeader.hidden = view !== "agent" || !activeThread();
   const pageTitle = $("#page-title");
   if (view === "agent") {
     pageTitle.replaceChildren(codexLogo());
@@ -1618,6 +1647,21 @@ function renderConversation() {
   renderChips(); renderMessages(); renderApprovals(); updateThreadStatus();
   checkThreadLock(thread);
 }
+function mountAgentHeader() {
+  const topbar = $(".topbar");
+  const threadHeader = $(".thread-header");
+  const workspace = $("#agent-workspace");
+  const heading = $(".thread-heading", threadHeader);
+  if (!topbar || !threadHeader || !workspace || !heading || topbar.contains(threadHeader)) return;
+  topbar.append(threadHeader);
+  heading.append(workspace);
+}
+function updateApprovalOverlayPosition() {
+  const conversation = $("#view-agent");
+  const composer = $(".composer");
+  if (!conversation || !composer) return;
+  conversation.style.setProperty("--composer-height", `${composer.offsetHeight}px`);
+}
 function autoResizeInput() {
   const input = $("#agent-input");
   if (!input) return;
@@ -1626,6 +1670,7 @@ function autoResizeInput() {
   const targetHeight = Math.min(Math.max(scrollHeight, 48), 220);
   input.style.height = `${targetHeight}px`;
   input.style.overflowY = scrollHeight > 220 ? "auto" : "hidden";
+  updateApprovalOverlayPosition();
 }
 function renderChips() {
   const thread = activeThread();
@@ -1947,13 +1992,20 @@ function updateJumpToLatest(thread = activeThread()) {
   const control = $("#jump-to-latest");
   const box = $("#agent-messages");
   control.hidden = !thread || timelineState(thread).following || box.scrollHeight <= box.clientHeight;
+  if (control.hidden) {
+    control.style.removeProperty("bottom");
+    return;
+  }
+  const reservedHeight = [$(".composer"), $("#agent-approvals")]
+    .reduce((height, element) => height + (element?.offsetHeight || 0), 0);
+  control.style.bottom = `${reservedHeight + 10}px`;
 }
 function isFinalAgentMessage(thread, message) {
   if (!thread || message.role !== "assistant") return true;
   const index = thread.messages.indexOf(message);
   for (let i = index + 1; i < thread.messages.length; i++) {
     const next = thread.messages[i];
-    if (next.kind === "reasoning" || next.label === "Thought process" || next.kind === "turn-state") continue;
+    if (next.kind === "reasoning" || next.label === "Thought process" || next.kind === "turn-state" || next.kind === "approval") continue;
     return next.role === "user";
   }
   return true;
@@ -1963,7 +2015,7 @@ function renderAgentTurnStatus(thread) {
   if (!target) return;
   target.replaceChildren();
   const entry = thread?.messages.find((message) => message.kind === "turn-state" && message.status === "working");
-  if (!entry || !(thread.busy || thread.pending)) {
+  if (!entry || !(thread.busy || thread.pending) || thread.approvals?.length) {
     target.hidden = true;
     target.setAttribute("aria-hidden", "true");
     return;
@@ -2000,6 +2052,23 @@ function formatToolArguments(args) {
   if (!args || (typeof args === "object" && Object.keys(args).length === 0)) return "";
   return typeof args === "string" ? args : JSON.stringify(args, null, 2);
 }
+function prettyToolValue(value) {
+  if (typeof value === "string") {
+    try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+  }
+  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+}
+function formatMcpToolResult(result) {
+  const texts = Array.isArray(result?.content)
+    ? result.content.map((content) => content?.type === "text" ? content.text : "").filter(Boolean)
+    : [];
+  if (texts.length) {
+    const text = texts.join("\n");
+    try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
+  }
+  if (result?.structuredContent != null) return prettyToolValue(result.structuredContent);
+  return prettyToolValue(result);
+}
 function formatToolOutput(item) {
   if (item.contentItems && Array.isArray(item.contentItems)) {
     const texts = item.contentItems.map((c) => c?.text || "").filter(Boolean);
@@ -2012,6 +2081,7 @@ function formatToolOutput(item) {
       }
     }
   }
+  if (item.result !== undefined) return formatMcpToolResult(item.result);
   if (item.output) {
     try {
       const parsed = JSON.parse(item.output);
@@ -2124,7 +2194,7 @@ function renderMessages(changes = null) {
   }
   if (!inner) { inner = node("div", "messages-inner"); box.append(inner); }
   for (const message of changes || thread.messages) {
-    if (message.kind === "reasoning" || message.label === "Thought process" || message.kind === "turn-state" && message.status === "working") continue;
+    if (message.kind === "reasoning" || message.label === "Thought process" || message.kind === "approval" || message.kind === "turn-state" && message.status === "working") continue;
     const kind = message.kind || (message.role === "event" ? "tool" : message.role);
     const isToolLike = kind === "tool" || kind === "file-change";
     const status = message.status || (isToolLike ? (/failed|error/i.test(message.label || "") ? "failed" : "completed") : undefined);
@@ -2611,9 +2681,33 @@ async function branchThread(targetThread) {
   } catch (error) { toast(`Could not branch this thread. ${errorText(error)} Try Branch again.`); }
   finally { source.branching = false; if (state.view === "agent") renderConversation(); }
 }
+function compactApprovalValue(value) {
+  if (typeof value === "string") {
+    const display = value.split(/[\\/]/).pop() || value;
+    return display.length > 72 ? `${display.slice(0, 69)}…` : display;
+  }
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  if (value && typeof value === "object") {
+    const serialized = JSON.stringify(value);
+    return serialized.length > 72 ? `${serialized.slice(0, 69)}…` : serialized;
+  }
+  return String(value);
+}
+function compactApprovalDetails(argumentsText) {
+  const raw = String(argumentsText || "").replace(/^Arguments:\s*/, "");
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return raw;
+    return Object.entries(parsed).map(([key, value]) => `${key}: ${compactApprovalValue(value)}`).join(" · ");
+  } catch {
+    return raw.length > 120 ? `${raw.slice(0, 117)}…` : raw;
+  }
+}
 function renderApprovals() {
   const thread = activeThread();
   const target = $("#agent-approvals"); target.replaceChildren();
+  updateApprovalOverlayPosition();
   for (const approval of thread?.approvals || []) {
     const box = node("section", "approval"); box.dataset.requestId = String(approval.requestId);
     const isMcp = approval.kind === "mcp";
@@ -2621,14 +2715,20 @@ function renderApprovals() {
     const requiresExplicitConfirmation = approval.requiresExplicitConfirmation === true
       || toolName === "uit_submit_assignment"
       || toolName.endsWith(".uit_submit_assignment");
-    box.append(node("h3", "", isMcp ? "Allow this UIT tool?" : "Allow this action?"));
     const toolLabel = `${approval.serverName || "UIT"} · ${toolName || "UIT course tool"}`;
+    const main = node("div", "approval-main");
+    const copy = node("div", "approval-copy");
+    copy.append(node("p", "approval-eyebrow", requiresExplicitConfirmation ? "Confirmation required" : isMcp ? "Allow UIT tool" : "Allow action"));
     if (isMcp) {
-      box.append(node("p", "approval-tool-label", toolLabel));
-      if (approval.description) box.append(node("p", "approval-description", approval.description));
-      if (approval.argumentsText) box.append(node("pre", "approval-arguments", approval.argumentsText));
-      box.append(node("p", "approval-help", requiresExplicitConfirmation ? "This assignment submission always requires a fresh confirmation." : "Allow once or for this Studio session."));
-    } else box.append(node("pre", "", approval.command));
+      copy.append(node("p", "approval-tool-label", toolLabel));
+      const details = compactApprovalDetails(approval.argumentsText);
+      if (details) copy.append(node("p", "approval-context", details));
+    } else {
+      const command = String(approval.command || "").replace(/\s+/g, " ").trim();
+      copy.append(node("p", "approval-tool-label", command.length > 120 ? `${command.slice(0, 117)}…` : command));
+    }
+    main.append(mascotFrame("approval-mascot", "UIT approval required"), copy);
+    box.append(main);
     const decide = async (approved, remember = false) => {
       if (approval.pending) return;
       approval.pending = true;
@@ -2636,9 +2736,7 @@ function renderApprovals() {
       try {
         await window.uit.agent.approve({ requestId: approval.requestId, approved, ...(remember ? { remember: "uit-session" } : {}) });
         thread.approvals = thread.approvals.filter((item) => item !== approval);
-        const label = !approved ? (isMcp ? "UIT tool denied" : "Action denied") : remember ? "UIT tools enabled for this session" : isMcp ? "UIT tool approved" : "Action approved";
-        const text = isMcp ? toolLabel : approval.command;
-        thread.messages.push({ role: "event", kind: "approval", status: approved ? "completed" : "stopped", label, text });
+        thread.messages = thread.messages.filter((message) => message.kind !== "approval");
         persist(); if (thread.id === state.activeId) { renderApprovals(); renderMessages(); updateThreadStatus(); }
       } catch (error) {
         approval.pending = false;
@@ -2661,6 +2759,8 @@ function renderApprovals() {
     $$("button", box).forEach((control) => { control.disabled = !!approval.pending; });
     target.append(box);
   }
+  updateApprovalOverlayPosition();
+  updateJumpToLatest(thread);
 }
 function handleAgentEvent(message) {
   if (!message || typeof message.method !== "string") return;
@@ -2852,7 +2952,7 @@ function handleAgentEvent(message) {
         entry.durationMs = item.durationMs;
         const dur = item.durationMs ? ` · ${(item.durationMs / 1000).toFixed(1)}s` : "";
         entry.label = `${toolFriendlyCompleted(entry.toolName, item.arguments, failed)}${dur}`;
-        entry.output = item.error ? String(item.error.message || item.error) : JSON.stringify(item.result, null, 2);
+        entry.output = item.error ? String(item.error.message || item.error) : formatMcpToolResult(item.result);
         entry.text = [entry.input, entry.output].filter(Boolean).join("\n");
       } else if (item.type === "fileChange") {
         const changes = item.changes || [];
@@ -3113,6 +3213,10 @@ $("#agent-messages").addEventListener("scroll", (event) => {
   timelineState(thread).following = timelineAtBottom(event.currentTarget);
   updateJumpToLatest(thread);
 }, { passive: true });
+window.addEventListener("resize", () => {
+  updateApprovalOverlayPosition();
+  updateJumpToLatest();
+});
 $("#jump-to-latest").addEventListener("click", () => {
   const thread = activeThread();
   if (!thread) return;
@@ -3381,39 +3485,42 @@ $("#agent-messages").addEventListener("click", (event) => {
 });
 window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist(); releasePreview(); });
 
-restore();
-const calendar = new window.UitCalendar({
-  notify: toast,
-  navigate: () => showView("calendar"),
-  newThread: (entry) => {
-    const course = state.courses.find((item) => item.baseUrl === entry.baseUrl && item.userId === entry.userId && item.id === entry.courseId) || {
-      id: entry.courseId, baseUrl: entry.baseUrl, userId: entry.userId, shortname: entry.courseName, fullname: entry.courseName,
-    };
-    newThread(course, { kind: "announcement", id: entry.id, name: entry.subject || "Announcement" });
-  },
-});
-showView("courses");
-window.uit.agent.onEvent(handleAgentEvent);
-(async function boot() {
-  try {
-    applySessions(await window.uit.session.status());
-    if (state.sessions.length) await loadCourses();
-  } catch (error) { renderCourseList(); appError(`Could not check account status. ${errorText(error)} Open Course accounts to reconnect.`); }
-})();
-(async function checkCodex() {
-  const agentNav = document.querySelector('.nav-item[data-view="agent"]');
-  const dot = $("#codex-dot");
-  try {
-    const status = await window.uit.codex.status();
-    codexAvailable = status?.state === "ready";
-    codexRequirement = status?.message || "Codex App Server is not ready. Check the Codex CLI installation and sign-in.";
-    dot.classList.toggle("ready", codexAvailable);
-    agentNav.title = codexAvailable ? "Codex App Server ready" : codexRequirement;
-    if (codexAvailable) ensureModels();
-  } catch {
-    codexAvailable = false;
-    codexRequirement = "Could not check Codex App Server readiness. Check the Codex CLI installation and sign-in.";
-    agentNav.title = codexRequirement;
-  }
-  if (state.view === "agent") renderConversation();
+(async function initializeStudio() {
+  await restore();
+  calendar = new window.UitCalendar({
+    notify: toast,
+    navigate: () => showView("calendar"),
+    newThread: (entry) => {
+      const course = state.courses.find((item) => item.baseUrl === entry.baseUrl && item.userId === entry.userId && item.id === entry.courseId) || {
+        id: entry.courseId, baseUrl: entry.baseUrl, userId: entry.userId, shortname: entry.courseName, fullname: entry.courseName,
+      };
+      newThread(course, { kind: "announcement", id: entry.id, name: entry.subject || "Announcement" });
+    },
+  });
+  mountAgentHeader();
+  showView("courses");
+  window.uit.agent.onEvent(handleAgentEvent);
+  (async function boot() {
+    try {
+      applySessions(await window.uit.session.status());
+      if (state.sessions.length) await loadCourses();
+    } catch (error) { renderCourseList(); appError(`Could not check account status. ${errorText(error)} Open Course accounts to reconnect.`); }
+  })();
+  (async function checkCodex() {
+    const agentNav = document.querySelector('.nav-item[data-view="agent"]');
+    const dot = $("#codex-dot");
+    try {
+      const status = await window.uit.codex.status();
+      codexAvailable = status?.state === "ready";
+      codexRequirement = status?.message || "Codex App Server is not ready. Check the Codex CLI installation and sign-in.";
+      dot.classList.toggle("ready", codexAvailable);
+      agentNav.title = codexAvailable ? "Codex App Server ready" : codexRequirement;
+      if (codexAvailable) ensureModels();
+    } catch {
+      codexAvailable = false;
+      codexRequirement = "Could not check Codex App Server readiness. Check the Codex CLI installation and sign-in.";
+      agentNav.title = codexRequirement;
+    }
+    if (state.view === "agent") renderConversation();
+  })();
 })();

@@ -48,6 +48,8 @@ function fakeCore() {
       "course:materialize": (input: any) => `/fixture/${input.filename}`,
       "course:preview": (input: any) => ({ mimeType: "text/plain", filename: input.filename, data: btoa("fixture preview") }),
       "course:open": () => undefined,
+      "threads:read": () => null,
+      "threads:write": () => ({ success: true }),
       "workspace:create": (input: any) => ({ path: `/fixture/${input.courseId}` }),
       "codex:status": () => ({ state: "ready", installed: true, message: "Codex App Server is ready" }),
       "codex:models": () => [],

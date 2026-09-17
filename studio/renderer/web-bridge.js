@@ -25,6 +25,7 @@
       preview: "course:preview",
       open: "course:open",
     },
+    threads: { read: "threads:read", write: "threads:write" },
     workspace: { create: "workspace:create" },
     codex: { status: "codex:status", models: "codex:models" },
     agent: {

@@ -1,4 +1,4 @@
-import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, STORE, key, calls, control, emit, openCourse } from "./fixtures/studio";
+import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, key, calls, control, emit, openCourse, threadStore } from "./fixtures/studio";
 import type { Page } from "playwright/test";
 
 test("Calendar shows deadlines, filters accounts, navigates months and opens safe event references", async ({ page, boot }, info) => {
@@ -333,9 +333,22 @@ test("mascot sprites animate efficiently for onboarding and active agent work", 
   await expect(page.locator("#agent-messages .working-mascot")).toHaveCount(0);
   const messagesBox = await page.locator("#agent-messages").boundingBox();
   const statusBox = await workingStatus.boundingBox();
+  const statusRowBox = await workingStatus.locator(".message-turn-state").boundingBox();
+  const composerBox = await page.locator(".composer").boundingBox();
+  const formBox = await page.locator("#agent-form").boundingBox();
   expect(messagesBox).not.toBeNull();
   expect(statusBox).not.toBeNull();
+  expect(statusRowBox).not.toBeNull();
+  expect(composerBox).not.toBeNull();
+  expect(formBox).not.toBeNull();
+  expect(await workingStatus.evaluate((element) => getComputedStyle(element).position)).toBe("static");
+  expect(await workingStatus.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
+  expect(statusRowBox!.width).toBeLessThan(messagesBox!.width);
+  expect(statusBox!.width).toBeLessThan(messagesBox!.width);
+  expect(Math.abs(statusRowBox!.x - formBox!.x)).toBeLessThanOrEqual(1);
   expect(statusBox!.y).toBeGreaterThanOrEqual(messagesBox!.y + messagesBox!.height);
+  expect(statusBox!.y + statusBox!.height).toBeLessThanOrEqual(composerBox!.y);
+  expect(composerBox!.y - (statusBox!.y + statusBox!.height)).toBeLessThanOrEqual(10);
   await emit(page, "turn/completed", { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}`, turn: { id: `turn-${input.taskId}`, status: "completed" } });
   await expect(page.locator(".working-mascot")).toHaveCount(0);
   await expect(workingStatus).toBeHidden();
@@ -442,7 +455,7 @@ test("Codex projects are explicitly selected, persist empty and new threads choo
   await expect(page.locator("#new-project")).toBeVisible();
   await expect(page.locator("#course-nav .project")).toHaveCount(0);
   await expect(page.locator("#course-nav .rail-empty")).toHaveText("No projects");
-  const saved = await page.evaluate((store) => localStorage.getItem(store), STORE);
+  const saved = await threadStore(page);
   for (const cancel of ["button", "Escape"]) {
     await page.locator("#new-project").click();
     await expect(page.getByRole("dialog", { name: "New project", exact: true })).toBeVisible();
@@ -451,13 +464,13 @@ test("Codex projects are explicitly selected, persist empty and new threads choo
     await expect(page.locator(".project-option")).toHaveCount(19);
     await expect(page.locator("#picker-new-project")).toHaveCount(0);
     await expect(page.locator(".thread-link")).toHaveCount(0);
-    expect(await page.evaluate((store) => localStorage.getItem(store), STORE)).toBe(saved);
+    expect(await threadStore(page)).toEqual(saved);
     if (cancel === "button") await page.getByRole("button", { name: "Cancel new thread" }).click();
     else await page.keyboard.press("Escape");
     await expect(page.locator("#project-picker")).toBeHidden();
     await expect(page.locator("#new-project")).toBeFocused();
     await expect(page.locator(".thread-link")).toHaveCount(0);
-    expect(await page.evaluate((store) => localStorage.getItem(store), STORE)).toBe(saved);
+    expect(await threadStore(page)).toEqual(saved);
   }
   await page.locator("#new-project").click();
   await expect(page.getByRole("dialog", { name: "New project", exact: true })).toBeVisible();
@@ -473,7 +486,7 @@ test("Codex projects are explicitly selected, persist empty and new threads choo
   await expect(page.getByLabel("Message Codex")).toBeFocused();
   await expect(page.getByLabel("Message Codex")).toHaveValue("");
   await expect(page.locator("#send-agent")).toBeDisabled();
-  const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+  const stored = await threadStore(page);
   expect(stored).toMatchObject({ version: 1, activeId: null, threads: [] });
   expect(stored.projects).toHaveLength(1);
   expect(stored.projects[0]).toMatchObject({ id: 1, baseUrl: LEGACY, userId: 202 });
@@ -500,8 +513,8 @@ test("project search, empty results and cancellation preserve the active resourc
   await page.getByRole("menuitem", { name: "New Thread" }).click();
   await expect(page.locator("#project-picker")).toBeHidden();
   await page.getByLabel("Message Codex").fill("Keep my attached lecture draft");
-  const saved = await page.evaluate((store) => localStorage.getItem(store), STORE);
-  expect(JSON.parse(saved!).threads).toEqual([]);
+  const saved = await threadStore(page);
+  expect(saved.threads).toEqual([]);
   for (const cancel of ["button", "Escape"]) {
     await page.locator("#new-project").click();
     await expect(page.locator("#project-picker")).toBeVisible();
@@ -513,7 +526,7 @@ test("project search, empty results and cancellation preserve the active resourc
       if (query === "Computer science 18") await expect(page.locator("#project-options h3")).toHaveText([semesters[2].label]);
     }
     await expect(page.locator("#project-options")).toHaveText("No available courses");
-    expect(await page.evaluate((store) => localStorage.getItem(store), STORE)).toBe(saved);
+    expect(await threadStore(page)).toEqual(saved);
     if (cancel === "button") await page.getByRole("button", { name: "Cancel new thread" }).click();
     else {
       await page.getByRole("button", { name: "Cancel new thread" }).focus();
@@ -525,7 +538,7 @@ test("project search, empty results and cancellation preserve the active resourc
     await expect(page.getByLabel("Message Codex")).toHaveValue("Keep my attached lecture draft");
     await expect(page.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(0));
     await expect(page.locator("#resource-chips")).toContainText("@lecture.txt");
-    expect(await page.evaluate((store) => localStorage.getItem(store), STORE)).toBe(saved);
+    expect(await threadStore(page)).toEqual(saved);
   }
   await page.locator("#new-project").click();
   await page.locator(".project-option").filter({ hasText: "Legacy algorithms" }).click();
@@ -536,7 +549,7 @@ test("project search, empty results and cancellation preserve the active resourc
   await page.getByRole("button", { name: "CS01", exact: true }).click();
   await expect(page.getByLabel("Message Codex")).toHaveValue("");
   await expect(page.locator("#resource-chips .resource-chip")).toHaveCount(0);
-  expect(JSON.parse((await page.evaluate((store) => localStorage.getItem(store), STORE))!).threads).toEqual([]);
+  expect((await threadStore(page)).threads).toEqual([]);
   for (const method of ["agent.start", "agent.send", "workspace.create", "courses.materialize"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
@@ -575,7 +588,7 @@ for (const destination of ["Courses", "another project", "another thread", "new 
     await page.getByLabel("Message Codex").fill("Temporary typed content must disappear");
     await expect(page.locator(".thread-link")).toHaveCount(1);
     await expect.poll(() => page.evaluate(() => window.eval("draftPersistTimer"))).toBeNull();
-    const temporary = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+    const temporary = await threadStore(page);
     expect(temporary.activeId).toBeNull();
     expect(temporary.threads).toHaveLength(1);
     expect(JSON.stringify(temporary)).not.toContain("Temporary typed content");
@@ -593,7 +606,7 @@ for (const destination of ["Courses", "another project", "another thread", "new 
     await expect(page.locator(".thread-link")).toHaveCount(1);
     await page.locator(".thread-link").click();
     await expect(page.getByLabel("Message Codex")).toHaveValue("Existing follow-up draft");
-    const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+    const stored = await threadStore(page);
     expect(stored.threads).toHaveLength(1);
     expect(stored.threads[0]).toMatchObject({ prompted: true, draft: "Existing follow-up draft" });
     expect(JSON.stringify(stored)).not.toContain("Temporary typed content");
@@ -620,7 +633,7 @@ test("restore filters old unprompted and transient inherited histories but migra
   await page.locator(".thread-link").filter({ hasText: "old-sent" }).click();
   await expect(page.locator("#agent-messages")).toContainText("Saved answer");
   await expect(page.getByLabel("Message Codex")).toHaveValue("Draft for old-sent");
-  const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+  const stored = await threadStore(page);
   expect(stored.version).toBe(1);
   expect(stored.threads.map((thread: any) => [thread.id, thread.prompted])).toEqual([["old-sent", true], ["failed-prompt", true]]);
   expect(stored.projects.map((project: any) => [project.baseUrl, project.userId, project.id])).toEqual([[CURRENT, 101, 1], [LEGACY, 202, 1]]);
@@ -647,7 +660,7 @@ test("branch history stays transient until first send, then forks once and persi
     await expect(page.locator(".thread-link")).toHaveCount(1);
     expect(await page.evaluate(() => window.eval("({ prompted: activeThread().prompted, renamed: activeThread().renamed })"))).toEqual({ prompted: false, renamed: true });
     await expect.poll(() => page.evaluate(() => window.eval("draftPersistTimer"))).toBeNull();
-    const temporary = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+    const temporary = await threadStore(page);
     expect(temporary.threads).toHaveLength(1);
     expect(JSON.stringify(temporary)).not.toContain("Branch: Source conversation");
     expect(await calls(page, "agent.fork")).toHaveLength(0);
@@ -657,7 +670,7 @@ test("branch history stays transient until first send, then forks once and persi
     await page.locator('.nav-item[data-view="agent"]').click();
     await page.locator(".thread-link").click();
     await expect(page.getByLabel("Message Codex")).toHaveValue("Source follow-up");
-    const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+    const stored = await threadStore(page);
     expect(stored.threads).toHaveLength(1);
     expect(JSON.stringify(stored)).not.toContain("Discard this branch draft");
   }
@@ -666,7 +679,7 @@ test("branch history stays transient until first send, then forks once and persi
   await page.getByLabel("Message Codex").fill("First branch prompt");
   await page.locator("#send-agent").click();
   await expect(page.locator(".thread-link")).toHaveCount(2);
-  const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+  const stored = await threadStore(page);
   expect(stored.threads[0]).toMatchObject({ prompted: true, title: "Branch: Source conversation", forkSource: `thread-${source.taskId}` });
   expect(stored.threads[0].messages.filter((message: any) => message.role === "user").map((message: any) => message.text)).toEqual(["Source conversation", "First branch prompt"]);
   expect((await calls(page, "agent.fork"))[0].input).toEqual({ threadId: `thread-${source.taskId}` });
@@ -696,7 +709,7 @@ test("failed deferred fork persists its prompt and source for retry after reload
   await expect(page.locator("#agent-messages")).toContainText("Fixture fork unavailable");
   await expect(page.locator(".thread-link")).toHaveCount(2);
   expect(await calls(page, "agent.send")).toHaveLength(0);
-  const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+  const stored = await threadStore(page);
   expect(stored.threads[0]).toMatchObject({ prompted: true, forkSource: `thread-${source.taskId}`, threadId: null, draft: "Retry branch prompt" });
   await page.reload();
   await page.locator('.nav-item[data-view="agent"]').click();
@@ -757,7 +770,7 @@ test("duplicate numeric course IDs keep portal and account references separate",
   }
   await expect(page.locator(".thread-link")).toHaveCount(0);
   await expect(page.locator("#course-nav .project")).toHaveCount(2);
-  const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+  const stored = await threadStore(page);
   expect(stored.projects.map((project: any) => [project.baseUrl, project.userId, project.id])).toEqual([[CURRENT, 101, 1], [LEGACY, 202, 1]]);
   expect(stored.threads).toEqual([]);
   expect(await calls(page, "agent.start")).toHaveLength(0);
@@ -889,7 +902,7 @@ test("tool calls keep one typed lifecycle row and collapse completed output", as
   await boot();
   await createThread(page);
   await sendAndStop(page, "Run a command");
-  const threadId = await page.evaluate(() => JSON.parse(localStorage.getItem("uit-studio.threads.v1")!).threads[0].threadId);
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
   await page.evaluate((id) => {
     window.__mock.emit({ method: "item/started", params: { threadId: id, item: { id: "call-1", type: "commandExecution", command: "ls /tmp" } } });
     window.__mock.emit({ method: "item/commandExecution/outputDelta", params: { threadId: id, itemId: "call-1", delta: "full output line 1\n" } });
@@ -905,11 +918,38 @@ test("tool calls keep one typed lifecycle row and collapse completed output", as
   await expect(tool.locator("pre")).toBeVisible();
 });
 
+test("MCP tool results render nested JSON without escape characters", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await sendAndStop(page, "Run an MCP tool");
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
+  const result = { assignmentId: 50664, submissionStatus: "submitted", confirmationStatus: "approved" };
+  await page.evaluate(({ id, result }) => {
+    window.__mock.emit({
+      method: "item/completed",
+      params: {
+        threadId: id,
+        item: {
+          id: "mcp-call-1",
+          type: "mcpToolCall",
+          server: "uit",
+          tool: "uit_submit_assignment",
+          arguments: { assignmentId: 50664 },
+          result: { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: null, _meta: null }
+        }
+      }
+    });
+  }, { id: threadId, result });
+  const output = page.locator('[data-kind="tool"]').last().locator("pre");
+  await expect(output).toContainText('"assignmentId": 50664');
+  await expect(output).not.toContainText('\\"');
+});
+
 test("codex file citations render as links that open the workspace file", async ({ page, boot }) => {
   await boot();
   await createThread(page);
   await sendAndStop(page, "Read the syllabus");
-  const threadId = await page.evaluate(() => JSON.parse(localStorage.getItem("uit-studio.threads.v1")!).threads[0].threadId);
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
   const cited = "See Nguồn: :codex-file-citation{path=\"/tmp/syllabus.pdf\" purpose=\"source\"} for details";
   await page.evaluate(({ id, text }) => {
     window.__mock.emit({ method: "item/agentMessage/delta", params: { threadId: id, itemId: "m-1", delta: "See Nguồn: :codex-file-" } });
@@ -931,7 +971,7 @@ test("markdown workspace file paths render as clickable filenames", async ({ pag
   await boot();
   await createThread(page);
   await sendAndStop(page, "Download the course file");
-  const threadId = await page.evaluate(() => JSON.parse(localStorage.getItem("uit-studio.threads.v1")!).threads[0].threadId);
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
   const path = "/Users/test/.uit/materials/3. CNTT.CNXHKH. PHÂN ĐOẠN HỌC LIỆU.pdf";
   const encodedPath = path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
   await page.evaluate(({ id, path, encodedPath }) => {
@@ -1074,7 +1114,7 @@ for (const [kind, name, id] of [["module", "Week 1 materials", 501], ["file", "l
       await expect(page.locator("#resource-chips .resource-chip")).toHaveAttribute("data-resource-kind", kind);
       await expect(page.getByLabel("Message Codex")).toHaveValue("");
       await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
-      const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+      const stored = await threadStore(page);
       expect(stored.threads).toEqual([]);
       expect(stored.projects).toHaveLength(1);
       expect(stored.projects[0]).toMatchObject({ id: 1, baseUrl: LEGACY, userId: 202 });
@@ -1144,7 +1184,7 @@ test("resource attachment resets on project change and removal persists for a se
   await expect(page.locator(".resource-chip")).toHaveCount(0);
   await expect(page.getByLabel("Message Codex")).toHaveValue("Persist attachment before removal");
   await expect(page.locator(".thread-link")).toHaveCount(1);
-  expect((await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE)).threads[0].resources).toEqual([]);
+  expect((await threadStore(page)).threads[0].resources).toEqual([]);
 });
 
 test("disconnect and reconnect isolates threads by portal AND account", async ({ page, boot }) => {
@@ -1195,10 +1235,10 @@ test("disconnect and reconnect isolates threads by portal AND account", async ({
   await expect(page.locator(".project-option")).toHaveCount(18);
   await expect(page.locator(".project-option").filter({ hasText: "LEGACY-CS01" })).toHaveCount(0);
   await expect(page.locator(".project-option").filter({ hasText: "OTHER-ACCOUNT" })).toHaveCount(0);
-  const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+  const stored = await threadStore(page);
   expect(stored.projects.map((project: any) => project.userId)).toEqual([202, 303]);
   expect(stored.threads).toHaveLength(1);
-  expect(await page.evaluate((store) => localStorage.getItem(store), STORE)).not.toContain("fake-password-only");
+  expect(JSON.stringify(await threadStore(page))).not.toContain("fake-password-only");
 });
 
 test("login form failure, retry, dual session success, password clearing and logout", async ({ page, boot }) => {
@@ -1345,16 +1385,45 @@ test("composer groups YOLO, Fast, and model controls, with UIT approvals availab
     description: "Read course modules, sections, assignments, and announcements for a UIT course.",
     argumentsText: "Arguments: {\"courseId\":592}", command: "uit · uit_course_contents"
   });
-  await expect(page.locator(".approval")).toContainText("Allow this UIT tool?");
+  await expect(page.locator(".approval")).toContainText("Allow UIT tool");
   await expect(page.locator(".approval")).toContainText("uit · uit_course_contents");
-  await expect(page.locator(".approval")).toContainText("Read course modules");
-  await expect(page.locator(".approval")).toContainText("Arguments: {\"courseId\":592}");
-  await expect(page.locator(".approval")).not.toContainText("Allow the uit MCP server");
+  await expect(page.locator(".approval")).toContainText("courseId: 592");
+  await expect(page.locator(".approval")).not.toContainText("Read course modules");
+  await expect(page.locator(".approval")).not.toContainText("Arguments:");
+  await expect(page.locator(".approval .approval-mascot")).toBeVisible();
+  await expect(page.locator("#agent-turn-status .working-mascot")).toHaveCount(0);
+  const approvalLayout = await page.locator("#agent-approvals").evaluate((container) => {
+    const card = container.querySelector(".approval");
+    if (!card) return null;
+    const containerBox = container.getBoundingClientRect();
+    const cardBox = card.getBoundingClientRect();
+    const messagesBox = document.querySelector("#agent-messages")!.getBoundingClientRect();
+    const composerBox = document.querySelector(".composer")!.getBoundingClientRect();
+    return {
+      containerPosition: getComputedStyle(container).position,
+      containerPointerEvents: getComputedStyle(container).pointerEvents,
+      containerWidth: containerBox.width,
+      cardWidth: cardBox.width,
+      containerHeight: containerBox.height,
+      cardHeight: cardBox.height,
+      messagesBottom: messagesBox.bottom,
+      composerTop: composerBox.top,
+    };
+  });
+  expect(approvalLayout).not.toBeNull();
+  expect(approvalLayout!.containerPosition).toBe("absolute");
+  expect(approvalLayout!.containerPointerEvents).toBe("none");
+  expect(approvalLayout!.containerWidth).toBeGreaterThan(approvalLayout!.cardWidth);
+  expect(approvalLayout!.containerHeight).toBeLessThanOrEqual(approvalLayout!.cardHeight + 10);
+  expect(Math.abs(approvalLayout!.messagesBottom - approvalLayout!.composerTop)).toBeLessThanOrEqual(2);
+  await expect(page.locator("#jump-to-latest")).toHaveCSS("position", "absolute");
   await expect(page.locator(".approval")).not.toContainText("Future UIT tool requests");
   await expect(page.getByRole("button", { name: "Allow once", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Always allow", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Always allow", exact: true }).click();
   await expect(page.locator(".approval")).toHaveCount(0);
+  await expect(page.locator(".message-approval")).toHaveCount(0);
+  await expect(page.locator("#agent-messages")).not.toContainText("UIT tool approved");
   expect((await calls(page, "agent.approve")).at(-1)!.input).toEqual({ requestId: "mcp-approval", approved: true, remember: "uit-session" });
   await emit(page, "turn/completed", { ...params, turn: { id: params.turnId, status: "completed" } });
   await expect(page.locator("#agent-status")).toHaveText("Ready");
@@ -1374,9 +1443,14 @@ test("assignment submission approval always requires a fresh confirmation", asyn
     description: "Upload and submit one local file to a UIT assignment.",
     argumentsText: "Arguments: {\"assignmentId\":50664,\"filePath\":\"report.pdf\"}", command: "uit · uit_submit_assignment"
   });
-  await expect(page.locator(".approval")).toContainText("fresh confirmation");
+  await expect(page.locator(".approval")).toContainText("Confirmation required");
+  await expect(page.locator(".approval")).toContainText("assignmentId: 50664");
+  await expect(page.locator(".approval")).toContainText("filePath: report.pdf");
+  await expect(page.locator(".approval .approval-mascot")).toBeVisible();
   await expect(page.getByRole("button", { name: "Always allow", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Allow once", exact: true }).click();
+  await expect(page.locator(".approval")).toHaveCount(0);
+  await expect(page.locator(".message-approval")).toHaveCount(0);
   expect((await calls(page, "agent.approve")).at(-1)!.input).toEqual({ requestId: "submission-approval", approved: true });
 });
 
@@ -1392,7 +1466,7 @@ test("failed first send persists prompted thread, restores draft and resource fo
   await expect(page.getByLabel("Message Codex")).toHaveValue("Help with assignment");
   await expect(page.locator("#resource-chips")).toContainText("@Assignment 7");
   await expect(page.locator(".thread-link")).toHaveCount(1);
-  const stored = await page.evaluate((store) => JSON.parse(localStorage.getItem(store)!), STORE);
+  const stored = await threadStore(page);
   expect(stored.threads).toHaveLength(1);
   expect(stored.threads[0]).toMatchObject({ prompted: true, draft: "Help with assignment", course: { id: 1, baseUrl: CURRENT, userId: 101 } });
   expect(stored.activeId).toBe(stored.threads[0].id);
@@ -1484,7 +1558,7 @@ test("list, detail, preview, download and open failures offer recovery", async (
 test("malformed saved index is reported without crashing the renderer", async ({ page, boot }) => {
   await boot({ storage: "{invalid-json" });
   await expect(page.locator("#app-error")).toContainText("Saved threads could not be read");
-  expect(await page.evaluate((store) => localStorage.getItem(store), STORE)).toBe("{invalid-json");
+  expect(await page.evaluate(() => window.__mock.threadStoreRaw)).toBe("{invalid-json");
   await openCourse(page);
   await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await expect(page.getByLabel("Message Codex")).toBeEnabled();
@@ -1495,14 +1569,7 @@ test("storage quota failure is visible and a later draft save recovers", async (
   await openCourse(page);
   await page.getByRole("button", { name: "New Thread", exact: true }).click();
   await sendAndStop(page, "Saved before storage fills");
-  await page.evaluate(() => {
-    const original = Storage.prototype.setItem;
-    Storage.prototype.setItem = function (key, value) {
-      if (key === "uit-studio.threads.v1" && window.__mock.storageFull) throw new DOMException("Fixture storage full", "QuotaExceededError");
-      original.call(this, key, value);
-    };
-    window.__mock.storageFull = true;
-  });
+  await page.evaluate(() => { window.__mock.storageFull = true; });
   await page.getByLabel("Message Codex").fill("Keep this draft in memory");
   await expect(page.locator("#app-error")).toContainText("Thread changes could not be saved");
   await page.evaluate(() => { window.__mock.storageFull = false; });
@@ -1558,6 +1625,8 @@ test("completed conversation persists, stream output deduplicates and offline re
   await page.locator('.nav-item[data-view="agent"]').click();
   await expect(page.locator("#agent-messages .assistant pre")).toHaveText("Final explanation");
   await expect(page.getByLabel("Message Codex")).toHaveValue("Unsent follow-up");
+  await expect(page.locator(".topbar #agent-task-title")).toBeVisible();
+  await expect(page.locator("#view-agent > .thread-header")).toHaveCount(0);
   await expect(page.locator("#agent-workspace")).toContainText("/fixture/UIT/CS01");
   await expect(page.locator("select#agent-course")).toHaveCount(0);
   for (const method of ["agent.start", "agent.send", "workspace.create"]) expect(await calls(page, method)).toHaveLength(0);

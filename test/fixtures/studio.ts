@@ -6,7 +6,6 @@ import { pdfFixture } from "./pdf";
 
 export const CURRENT = "https://courses.uit.edu.vn";
 export const LEGACY = "https://coursesold.uit.edu.vn";
-export const STORE = "uit-studio.threads.v1";
 export const semesters = [
   { id: "2026-2", label: "2026 / Semester 2", sortOrder: 20262, source: "category" },
   { id: "2026-1", label: "2026 / Semester 1", sortOrder: 20261, source: "category" },
@@ -57,12 +56,12 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
   // navigation failure. Storage access is forbidden on that origin, so keep
   // the fixture boot script diagnostic-free until the page reaches localhost.
   const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
-  const local = (() => { try { return window.localStorage; } catch { return null; } })();
   let connected = JSON.parse(session?.getItem("mock.sessions") || "null") || (seed.options.authenticated === false ? [] : seed.sessions);
   if (seed.options.storage !== undefined && !session?.getItem("mock.seeded")) {
-    local?.setItem("uit-studio.threads.v1", seed.options.storage);
+    session?.setItem("mock.thread-store", seed.options.storage);
     session?.setItem("mock.seeded", "true");
   }
+  let threadStore = session?.getItem("mock.thread-store") || null;
   const status = () => ({
     authenticated: connected.length > 0,
     sessions: connected.map((session: any) => ({
@@ -132,6 +131,11 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (method === "courses.submission") return { assignId: input.assignId, moduleId: input.moduleId, status: "Submitted for grading", grade: "9.0", files: [] };
     if (method === "courses.forum") return [];
     if (method === "courses.materialize") return `/fixture/downloads/${input.filename}`;
+    if (method === "threads.read") return threadStore === null ? null : JSON.parse(threadStore);
+    if (method === "threads.write") {
+      if ((window as any).__mock?.storageFull) throw new Error("Fixture storage full");
+      threadStore = JSON.stringify(input); session?.setItem("mock.thread-store", threadStore); return { success: true };
+    }
     if (method === "courses.open" || method === "agent.approve" || method === "agent.delete" || method === "agent.disconnect") return;
     if (method === "agent.start" || method === "agent.send") return { threadId: input.threadId || `thread-${input.taskId}`, turnId: `turn-${input.taskId}`, workspace: `/fixture/UIT/${input.shortname}` };
     if (method === "agent.fork") return { id: `branch-${input.threadId}` };
@@ -143,6 +147,8 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
   };
   window.__mock = {
     calls, emit, pending,
+    get threadStore() { return threadStore === null ? null : JSON.parse(threadStore); },
+    get threadStoreRaw() { return threadStore; },
     hold: (method: string) => held.add(method),
     fail: (method: string, message: string) => { failures[method] = message; },
     release: (method: string, index = 0) => {
@@ -156,6 +162,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     calendar: ["list", "settings", "open", "announcements", "openAnnouncement"],
     session: ["status", "login", "ssoLogin", "logout"],
     courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
+    threads: ["read", "write"],
     codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect", "releaseLock", "lockStatus", "openDesktop", "readRollout", "writeClipboard"],
     workspace: ["create"], shell: ["open"],
   }).map(([namespace, methods]) => [namespace, Object.fromEntries(methods.map((method) => [method, (input: any) => invoke(`${namespace}.${method}`, input)]))]));
@@ -231,6 +238,9 @@ export { expect };
 export const key = (index: number) => JSON.stringify([courses[index].baseUrl, String(courses[index].userId), courses[index].id]);
 export async function calls(page: Page, method: string): Promise<Call[]> {
   return page.evaluate((method) => window.__mock.calls.filter((call: Call) => call.method === method), method);
+}
+export async function threadStore(page: Page): Promise<any> {
+  return page.evaluate(() => window.__mock.threadStore);
 }
 export async function control(page: Page, action: "hold" | "unhold" | "release" | "fail", method: string, value?: string | number) {
   await page.evaluate(({ action, method, value }) => window.__mock[action](method, value), { action, method, value });
