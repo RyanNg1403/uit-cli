@@ -78,6 +78,7 @@ img, svg { display: block; max-width: 100%; }
 .container { width: min(1200px, calc(100% - 48px)); margin: 0 auto; }
 .display { letter-spacing: -0.045em; line-height: 1.04; }
 .eyebrow { display: block; color: var(--cyan); font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 .nav { position: sticky; z-index: 10; top: 0; border-bottom: 1px solid transparent; background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(16px); }
 .nav.is-scrolled { border-bottom-color: var(--border); }
@@ -198,11 +199,12 @@ section { padding: 88px 0; border-top: 1px solid var(--border); }
 .platform-sub { max-width: 100%; margin-top: 18px; color: var(--muted); font-size: clamp(16px, 1.4vw, 19px); line-height: 1.65; text-align: justify; text-justify: inter-word; text-align-last: left; }
 .platform-sub code { font-family: var(--mono); font-size: 0.9em; padding: 2px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-raised); color: var(--fg); }
 
-/* 2-column layout in Block 2: paragraph on left, floating icons on right */
-.byom-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.6fr); gap: 48px; align-items: center; margin-top: 18px; }
+/* 2-column layout in the platform blocks: copy on the left, connected services on the right */
+.byom-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(290px, 0.65fr); gap: 48px; align-items: center; margin-top: 18px; }
 .byom-copy { display: flex; flex-direction: column; gap: 18px; }
 .byom-copy .platform-sub { margin-top: 0; }
-.byom-pair { display: inline-flex; align-items: center; justify-content: flex-end; gap: 28px; margin-top: 0; padding: 24px 0; }
+.byom-pair { display: inline-flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 28px; margin-top: 0; padding: 24px 0; }
+.byom-pair--login { gap: clamp(14px, 2vw, 26px); }
 .byom-logo { display: flex; align-items: center; justify-content: center; will-change: transform; filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.5)); transition: transform 0.3s ease; }
 .byom-logo:hover { transform: scale(1.1); }
 .byom-logo--uit { animation: byom-float-uit 4.8s ease-in-out infinite; }
@@ -212,6 +214,8 @@ section { padding: 88px 0; border-top: 1px solid var(--border); }
 .byom-logo--moodle img { width: 50px; height: 50px; object-fit: contain; }
 .byom-heart { display: flex; align-items: center; justify-content: center; color: #f43f5e; animation: byom-heart-float 3.2s ease-in-out infinite; will-change: transform; }
 .byom-heart svg { width: 26px; height: 26px; }
+.mascot-float { display: grid; flex: 0 0 clamp(78px, 9vw, 112px); width: clamp(78px, 9vw, 112px); aspect-ratio: 1; place-items: center; filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.5)); animation: mascot-float-drift 5.4s ease-in-out infinite; }
+.mascot-float-frame { width: 100%; height: 100%; object-fit: contain; }
 
 @keyframes byom-float-uit {
   0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
@@ -229,6 +233,27 @@ section { padding: 88px 0; border-top: 1px solid var(--border); }
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); filter: drop-shadow(0 2px 8px rgba(244, 63, 94, 0.4)); }
   50% { transform: translate3d(0, -11px, 0) scale(1.3); filter: drop-shadow(0 8px 20px rgba(244, 63, 94, 0.75)); }
 }
+@keyframes mascot-float-drift {
+  0%, 100% { transform: translate3d(0, 2px, 0) rotate(-2deg); }
+  50% { transform: translate3d(0, -8px, 0) rotate(2deg); }
+}
+
+/* MCP tool table — the file-list treatment from the reference landing page, adapted for tools. */
+.mcp-tools { margin-top: 64px; }
+.mcp-tools-copy { max-width: 700px; }
+.mcp-tools-copy h3 { margin-top: 11px; font-size: clamp(24px, 3vw, 36px); letter-spacing: -0.04em; line-height: 1.12; }
+.mcp-tools-copy p { margin-top: 14px; color: var(--muted); font-size: 15px; line-height: 1.6; }
+.mcp-tool-table-wrap { overflow-x: auto; margin-top: 28px; border: 1px solid color-mix(in srgb, var(--border-strong) 86%, transparent); border-radius: 18px; background: linear-gradient(145deg, color-mix(in srgb, var(--surface-raised) 46%, var(--surface)), var(--surface) 55%, color-mix(in srgb, #000 16%, var(--surface))); box-shadow: 0 24px 54px -36px rgba(0, 0, 0, .95), inset 0 1px 0 rgba(255, 255, 255, .045); }
+.mcp-tool-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px; }
+.mcp-tool-table th, .mcp-tool-table td { padding: 17px 22px; text-align: left; vertical-align: middle; }
+.mcp-tool-table thead th { border-bottom: 1px solid var(--border-strong); color: var(--dim); font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.mcp-tool-table tbody tr:not(:last-child) > * { border-bottom: 1px solid var(--border); }
+.mcp-tool-table tbody th { width: 25%; font-weight: 500; }
+.mcp-tool-table tbody th code { color: var(--fg); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.mcp-tool-table tbody td:nth-child(2) { color: var(--muted); line-height: 1.55; }
+.mcp-tool-badge { display: inline-block; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--green) 52%, var(--border)); border-radius: 999px; color: var(--green); font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+.mcp-tool-badge--local { border-color: color-mix(in srgb, var(--cyan) 48%, var(--border)); color: var(--cyan); }
+.mcp-tool-badge--upstream { border-color: color-mix(in srgb, var(--orange) 52%, var(--border)); color: var(--orange); }
 
 /* VNU-HCM Logo Marquee */
 .marquee-section { position: relative; overflow: hidden; margin-top: 44px; padding: 12px 0; }
@@ -248,6 +273,7 @@ section { padding: 88px 0; border-top: 1px solid var(--border); }
 [data-theme="light"] .platform-sub code { background: var(--surface); border-color: var(--border); }
 [data-theme="light"] .marquee-logo { filter: grayscale(0.4); opacity: 0.5; }
 [data-theme="light"] .marquee-logo:hover { filter: grayscale(0); opacity: 1; }
+[data-theme="light"] .mcp-tool-table-wrap { border-color: rgba(15, 23, 42, .16); background: linear-gradient(145deg, #fff, #f8fafc 58%, #eef2f7); box-shadow: 0 22px 42px -32px rgba(15, 23, 42, .52), inset 0 1px 0 rgba(255, 255, 255, .9); }
 
 .footer { padding:32px 0; border-top:1px solid var(--border); }.footer-inner { display:flex; align-items:center; justify-content:space-between; gap:20px; }.footer-brand,.footer-links { display:flex; align-items:center; gap:10px; color:var(--dim); font-size:12px; }.footer-brand img { width:20px; height:20px; }.footer-links { flex-wrap:wrap; gap:15px; }.footer-links a:hover { color:var(--fg); }
 
@@ -270,7 +296,7 @@ section { padding: 88px 0; border-top: 1px solid var(--border); }
 .dl-copy-btn { border-color: color-mix(in srgb, var(--command-border) 90%, var(--border)); color: var(--command-muted); background: var(--command-surface); opacity: 0; pointer-events: none; }
 .dl-copy-btn:hover { border-color: var(--border-strong); color: var(--command-fg); background: var(--command-surface-raised); }
 
-@media (prefers-reduced-motion: reduce) { .hero-install-box, .hero-install-box:hover, .hero-install-box:focus-within { animation: none; transform: none; transition: none; } .preview-slider, .preview-btn { transition: none; } .marquee-track { animation: none; } .byom-logo--uit, .byom-logo--codex, .byom-logo--moodle, .byom-heart { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .hero-install-box, .hero-install-box:hover, .hero-install-box:focus-within { animation: none; transform: none; transition: none; } .preview-slider, .preview-btn { transition: none; } .marquee-track { animation: none; } .byom-logo--uit, .byom-logo--codex, .byom-logo--moodle, .byom-heart, .mascot-float { animation: none; } }
 
-@media (max-width: 820px) { .container,.nav-inner { width:min(100% - 36px,1200px); }.nav-link { display:none; }.hero { padding:58px 0 44px; }.hero-float { display:none; }.hero-title { font-size:clamp(38px,10vw,54px); }.download-grid { grid-template-columns:1fr; }.footer-inner { align-items:flex-start; flex-direction:column; }.preview-btn { padding:6px 9px; font-size:11px; }.cli-mock-body { padding:18px; font-size:9px; }.cli-table-head,.cli-out-row { grid-template-columns:38px 70px minmax(0,1fr); gap:7px; }.cli-section-layout { grid-template-columns:1fr; gap:34px; }.cli-section-terminal .hero-cli-illustration { min-height:380px; } .platform-block { padding:64px 0; }.byom-layout { grid-template-columns:1fr; gap:24px; }.byom-pair { justify-content:flex-start; }.marquee-section { margin-top:32px; }.marquee-logo { height:38px; }.marquee-fade { width:50px; }.marquee-group { gap:36px; padding:0 18px; } }
-@media (max-width: 470px) { .nav-stars span,.nav-affiliation-logo { display:none; }.nav-inner { min-height:58px; }.hero-install-box { width:100%; }.hero-install-code { font-size:11px; }.preview-switcher { width:100%; justify-content:space-between; }.preview-btn { padding:6px 7px; }.hero-screenshot-frame { border-radius:10px; }.cli-content-row,.cli-file-row { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.cli-section-terminal .cli-mock-output { margin-left:0; }.platform-heading { font-size:26px; }.platform-block { padding:48px 0; }.marquee-logo { height:32px; }.marquee-group { gap:26px; padding:0 12px; } }
+@media (max-width: 820px) { .container,.nav-inner { width:min(100% - 36px,1200px); }.nav-link { display:none; }.hero { padding:58px 0 44px; }.hero-float { display:none; }.hero-title { font-size:clamp(38px,10vw,54px); }.download-grid { grid-template-columns:1fr; }.footer-inner { align-items:flex-start; flex-direction:column; }.preview-btn { padding:6px 9px; font-size:11px; }.cli-mock-body { padding:18px; font-size:9px; }.cli-table-head,.cli-out-row { grid-template-columns:38px 70px minmax(0,1fr); gap:7px; }.cli-section-layout { grid-template-columns:1fr; gap:34px; }.cli-section-terminal .hero-cli-illustration { min-height:380px; } .platform-block { padding:64px 0; }.byom-layout { grid-template-columns:1fr; gap:24px; }.byom-pair { justify-content:flex-start; }.byom-pair--login { flex-wrap:wrap; }.mcp-tools { margin-top:46px; }.marquee-section { margin-top:32px; }.marquee-logo { height:38px; }.marquee-fade { width:50px; }.marquee-group { gap:36px; padding:0 18px; } }
+@media (max-width: 470px) { .nav-stars span,.nav-affiliation-logo { display:none; }.nav-inner { min-height:58px; }.hero-install-box { width:100%; }.hero-install-code { font-size:11px; }.preview-switcher { width:100%; justify-content:space-between; }.preview-btn { padding:6px 7px; }.hero-screenshot-frame { border-radius:10px; }.cli-content-row,.cli-file-row { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.cli-section-terminal .cli-mock-output { margin-left:0; }.platform-heading { font-size:26px; }.platform-block { padding:48px 0; }.mcp-tool-table { min-width: 680px; }.mcp-tool-table th, .mcp-tool-table td { padding:15px 16px; }.mascot-float { flex-basis:82px; width:82px; }.byom-pair--login { gap:12px; }.marquee-logo { height:32px; }.marquee-group { gap:26px; padding:0 12px; } }

@@ -157,7 +157,7 @@
             <p class="platform-sub">Connect to <code>courses.uit.edu.vn</code> and <code>coursesold.uit.edu.vn</code> simultaneously.</p>
             <p class="platform-sub">Access active coursework and past semester archives in one unified workspace without switching sessions or clearing cookies.</p>
           </div>
-          <div class="byom-pair" aria-label="UIT and Moodle work together seamlessly">
+          <div class="byom-pair byom-pair--login" aria-label="UIT and Moodle work together seamlessly">
             <div class="byom-logo byom-logo--uit" title="UIT">
               <img src="assets/uit.svg" alt="UIT emblem" width="48" height="48">
             </div>
@@ -168,6 +168,15 @@
             </div>
             <div class="byom-logo byom-logo--moodle" title="Moodle">
               <img src="assets/moodle.svg" alt="Moodle emblem" width="48" height="48">
+            </div>
+            <div
+              class="mascot-float"
+              data-floating-mascot
+              data-frames="assets/floating-0.png,assets/floating-1.png,assets/floating-2.png,assets/floating-3.png"
+              role="img"
+              aria-label="UIT mascot floating beside the connected login providers"
+            >
+              <img class="mascot-float-frame" src="assets/floating-0.png" alt="" width="112" height="112" decoding="async">
             </div>
           </div>
         </div>
@@ -197,6 +206,62 @@
                 <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.5045 4.5045 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.6667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
               </svg>
             </div>
+          </div>
+        </div>
+        <div class="mcp-tools" aria-labelledby="mcp-tools-heading">
+          <div class="mcp-tools-copy">
+            <span class="eyebrow">UIT MCP SERVER</span>
+            <h3 id="mcp-tools-heading">Course tools, ready for your agent.</h3>
+            <p>Every tool runs in your connected course workspace with the access it actually needs.</p>
+          </div>
+          <div class="mcp-tool-table-wrap">
+            <table class="mcp-tool-table">
+              <caption class="sr-only">UIT MCP tools available to Codex in a course workspace</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Tool</th>
+                  <th scope="col">What it does</th>
+                  <th scope="col">Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row"><code>uit_courses</code></th>
+                  <td>List accessible UIT courses for the authenticated student account.</td>
+                  <td><span class="mcp-tool-badge">READ</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>uit_course_contents</code></th>
+                  <td>Read course modules, sections, assignments, and announcements.</td>
+                  <td><span class="mcp-tool-badge">READ</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>uit_read_resource</code></th>
+                  <td>Read one current course resource using its authoritative course reference.</td>
+                  <td><span class="mcp-tool-badge">READ</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>uit_course_members</code></th>
+                  <td>List course instructors, teaching assistants, and enrolled students.</td>
+                  <td><span class="mcp-tool-badge">READ</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>uit_course_grades</code></th>
+                  <td>Read student grade reports, scores, maximum points, and teacher feedback.</td>
+                  <td><span class="mcp-tool-badge">READ</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>uit_download_material</code></th>
+                  <td>Download one course file into its managed local materials folder.</td>
+                  <td><span class="mcp-tool-badge mcp-tool-badge--local">LOCAL WRITE</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>uit_submit_assignment</code></th>
+                  <td>Upload and submit one local file to a UIT assignment after fresh confirmation.</td>
+                  <td><span class="mcp-tool-badge mcp-tool-badge--upstream">UPSTREAM WRITE</span></td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

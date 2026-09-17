@@ -47,6 +47,40 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  const floatingMascot = document.querySelector("[data-floating-mascot]");
+  if (floatingMascot) {
+    const frameImage = floatingMascot.querySelector(".mascot-float-frame");
+    const frames = (floatingMascot.dataset.frames || "").split(",").map((frame) => frame.trim()).filter(Boolean);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let frameIndex = 0;
+    let frameTimer;
+
+    frames.slice(1).forEach((src) => {
+      const preload = new Image();
+      preload.src = src;
+    });
+
+    const stopMascotAnimation = () => {
+      if (frameTimer !== undefined) {
+        window.clearInterval(frameTimer);
+        frameTimer = undefined;
+      }
+    };
+
+    const startMascotAnimation = () => {
+      stopMascotAnimation();
+      if (!frameImage || frames.length < 2 || reducedMotion.matches || document.hidden) return;
+      frameTimer = window.setInterval(() => {
+        frameIndex = (frameIndex + 1) % frames.length;
+        frameImage.src = frames[frameIndex];
+      }, 240);
+    };
+
+    startMascotAnimation();
+    document.addEventListener("visibilitychange", startMascotAnimation);
+    reducedMotion.addEventListener?.("change", startMascotAnimation);
+  }
+
   const cliCards = document.querySelectorAll(".cli-capability[data-cli-command]");
   const cliTerminalCommands = document.querySelectorAll(".cli-terminal-command[data-cli-command]");
   const setCliHighlight = (command, active) => {
