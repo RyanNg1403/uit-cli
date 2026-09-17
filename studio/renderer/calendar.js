@@ -190,7 +190,9 @@ window.UitCalendar = class {
       this.render();
       this.get("error").hidden = !result.errors.length;
       this.get("error").textContent = result.errors.map((error) => error.message).join(" ");
-      this.get("status").textContent = !this.accounts.length ? "Connect a course account to see your calendar." : `${result.errors.length ? "Some accounts could not be updated. " : ""}Checked ${new Date(result.updatedAt).toLocaleTimeString()} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+      const checkedAt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(result.updatedAt));
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      this.get("status").textContent = !this.accounts.length ? "Connect a course account to see your calendar." : `${result.errors.length ? "Some accounts could not be updated. " : ""}Last checked: ${checkedAt} (${timeZone})`;
     } catch (error) {
       if (generation !== this.generation) return;
       this.setLoading(false);

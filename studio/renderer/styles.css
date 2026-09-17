@@ -52,7 +52,7 @@
 .calendar-announcements { margin-top: 32px; padding-top: 8px; border-top: 1px solid var(--line); }
 .calendar-announcements .field { margin: 0; }
 #calendar-announcements-more { margin-top: 12px; }
-#calendar-status { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+#calendar-status { display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 4px 0 10px; padding: 6px 0; line-height: 1.4; }
 .calendar-loading #calendar-status::before { content: ""; width: 12px; height: 12px; flex-shrink: 0; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: working-spin .8s linear infinite; }
 .calendar-loading .calendar-date-surface { position: relative; }
 .calendar-loading .calendar-date-surface::after, .calendar-agenda-skeleton::after { content: ""; display: block; height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--line) 25%, var(--hover) 50%, var(--line) 75%); background-size: 200% 100%; animation: calendar-shimmer 1.6s ease-in-out infinite; }

@@ -6,6 +6,7 @@ test("Calendar shows deadlines, filters accounts, navigates months and opens saf
   await page.locator('[data-view="calendar"]').click();
   await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
   await expect(page.locator("#page-title")).toHaveText("Calendar");
+  await expect(page.locator("#calendar-status")).toHaveText(/Last checked: .+ \(.+\)/);
   await page.locator("#calendar-agenda summary").first().click();
   await expect(page.locator(".calendar-description").first()).toHaveText("Submit the report.");
   await page.getByRole("button", { name: "Open in Moodle", exact: true }).first().click();
