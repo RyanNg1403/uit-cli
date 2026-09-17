@@ -3,7 +3,7 @@ import { classifySessionError, type SessionHealthState } from "./session-health.
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ApiClient } from "./types.js";
 import type { SsoSessionData } from "./config.js";
 import type {
@@ -421,14 +421,6 @@ function requireWorkspacePath(value: unknown, label = "Workspace path", root = r
   return path;
 }
 
-const OPENABLE_WORKSPACE_EXTENSIONS = new Set([
-  ".pdf", ".txt", ".md", ".markdown", ".csv", ".json", ".xml",
-  ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp",
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff",
-  ".mp3", ".m4a", ".wav", ".mp4", ".mov", ".webm",
-  ".zip", ".7z", ".rar", ".tar", ".gz", ".h5p"
-]);
-
 const OPENABLE_WORKSPACE_FILE_ERROR = "Only regular, non-executable UIT workspace files can be opened.";
 
 type OpenableWorkspacePathOptions = {
@@ -443,8 +435,7 @@ export async function requireOpenableWorkspacePath(
   const root = options.root || resolve(homedir(), ".uit", "courses");
   const path = requireWorkspacePath(value, "Workspace file path", root);
   const parts = relative(root, path).split(sep);
-  if (!parts.length || parts[0] === ".." || parts.includes("..") ||
-      !OPENABLE_WORKSPACE_EXTENSIONS.has(extname(path).toLowerCase())) {
+  if (!parts.length || parts[0] === ".." || parts.includes("..")) {
     throw new Error(OPENABLE_WORKSPACE_FILE_ERROR);
   }
 
