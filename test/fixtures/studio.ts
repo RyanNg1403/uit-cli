@@ -39,7 +39,8 @@ const sessions = [
   { baseUrl: LEGACY, userId: 202, authMode: "token", label: "Legacy Moodle" },
 ];
 
-type BootOptions = { authenticated?: boolean; storage?: string; fail?: Record<string, string> };
+type SessionHealth = "connected" | "expired" | "unavailable";
+type BootOptions = { authenticated?: boolean; storage?: string; fail?: Record<string, string>; health?: Record<string, SessionHealth> };
 type Call = { method: string; input: any };
 declare global {
   interface Window { __mock: any; uit: any; previewExecuted?: boolean }
@@ -62,7 +63,13 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     local?.setItem("uit-studio.threads.v1", seed.options.storage);
     session?.setItem("mock.seeded", "true");
   }
-  const status = () => ({ authenticated: connected.length > 0, sessions: connected });
+  const status = () => ({
+    authenticated: connected.length > 0,
+    sessions: connected.map((session: any) => ({
+      ...session,
+      health: { state: seed.options.health?.[session.baseUrl] || "connected", checkedAt: Date.now() }
+    }))
+  });
   let remindersEnabled = false;
   const emit = (event: any) => listeners.forEach((listener) => listener(event));
   const invoke = async (method: string, input?: any): Promise<any> => {

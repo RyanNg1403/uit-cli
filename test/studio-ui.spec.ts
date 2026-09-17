@@ -1234,6 +1234,17 @@ test("login form failure, retry, dual session success, password clearing and log
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain("fixture-password");
 });
 
+test("Course accounts show live session health and recovery actions", async ({ page, boot }) => {
+  await boot({ health: { [CURRENT]: "expired", [LEGACY]: "unavailable" } });
+  await page.locator("#account-button").click();
+  await expect(page.locator("#sso-pill")).toHaveText("Session expired");
+  await expect(page.locator("#sso-status")).toHaveText("Account 101 · Sign in again to reconnect.");
+  await expect(page.locator("#sso-login")).toHaveText("Sign in again with UIT SSO");
+  await expect(page.locator("#legacy-pill")).toHaveText("Unavailable");
+  await expect(page.locator("#legacy-status")).toContainText("Account 202 · Check your connection and try again.");
+  await expect(page.locator("#legacy-relogin")).toHaveText("Re-login");
+});
+
 test("concurrent threads route events before start resolves and ignore duplicate/stale completions", async ({ page, boot }) => {
   await boot();
   await control(page, "hold", "agent.start");

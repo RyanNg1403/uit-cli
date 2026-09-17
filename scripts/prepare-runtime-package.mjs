@@ -25,6 +25,7 @@ const sharedModules = [
   "studio-web-launcher",
   "moodle-session-client",
   "output",
+  "session-health",
   "types",
   "uit-tools",
   "unzip"

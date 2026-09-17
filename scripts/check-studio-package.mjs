@@ -57,6 +57,7 @@ for (const required of [
   "dist/desktop-service.js",
   "dist/mcp-server.js",
   "dist/mcp-entry.js",
+  "dist/session-health.js",
   "dist/studio-core.js",
   "dist/studio-sso.js",
   "dist/studio-web-server.js",
@@ -76,6 +77,7 @@ for (const forbidden of ["dist/cli.js", "dist/sso-login.js"]) {
 // Resolve transitive service imports from the prepared runtime, where a
 // missing module can otherwise go unnoticed until native server startup.
 await import("../packages/uit-runtime/dist/desktop-service.js");
+await import("../packages/uit-runtime/dist/studio-core.js");
 
 console.log(`Verified uit-studio npm package (${studio.size} bytes).`);
 console.log(`Verified bundled-Chromium uit-runtime package (${runtime.size} bytes).`);

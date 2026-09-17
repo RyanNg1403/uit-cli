@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "./calendar.js";
+import { classifySessionError, type SessionHealthState } from "./session-health.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -53,6 +54,7 @@ type ConnectedCourse = CourseSummary & {
 };
 type MaterialVerification = { dev: number; ino: number; digest: string };
 type PortalError = { baseUrl: string; message: string };
+type AccountHealth = { state: SessionHealthState; checkedAt?: number };
 type AuthenticatedCourseSession = {
   baseUrl: string;
   userId: number;
@@ -104,6 +106,7 @@ const linkedCourses = new Map<string, CourseReference>();
 const verifiedMaterialPaths = new Map<string, MaterialVerification>();
 let linkedWrite = Promise.resolve();
 let portalErrors: PortalError[] = [];
+const accountHealth = new Map<string, AccountHealth>();
 let cachedModels: CachedModels | undefined;
 let bindingWrite = Promise.resolve();
 let idleLockTimer: NodeJS.Timeout | undefined;
@@ -296,12 +299,25 @@ function siteLabel(baseUrl: string): string {
   return "Legacy Moodle";
 }
 
+function accountHealthKey(baseUrl: string, userId: number): string {
+  return JSON.stringify([normalizedBaseUrl(baseUrl), userId]);
+}
+
+function accountHealthFor(entry: Pick<AuthenticatedCourseSession, "baseUrl" | "userId">): AccountHealth {
+  return accountHealth.get(accountHealthKey(entry.baseUrl, entry.userId)) || { state: "checking" };
+}
+
+function markAccountHealth(entry: Pick<AuthenticatedCourseSession, "baseUrl" | "userId">, state: SessionHealthState): void {
+  accountHealth.set(accountHealthKey(entry.baseUrl, entry.userId), { state, checkedAt: Date.now() });
+}
+
 function sessionStatusPayload(): JsonRecord {
   const sessions = allCourseSessions().map((entry) => ({
     baseUrl: entry.baseUrl,
     authMode: entry.authMode,
     userId: entry.userId,
-    label: siteLabel(entry.baseUrl)
+    label: siteLabel(entry.baseUrl),
+    health: accountHealthFor(entry)
   }));
   const first = sessions[0];
   return {
@@ -874,8 +890,12 @@ async function listConnectedCourses(): Promise<ConnectedCourse[]> {
         if (!courses.length) throw listError;
         linkErrors.push({ baseUrl: entry.baseUrl, message: `${siteLabel(entry.baseUrl)}: Enrolment discovery failed; showing verified linked courses only.` });
       }
+      markAccountHealth(entry, "connected");
       return courses.map((course) => ({ ...course, baseUrl: entry.baseUrl, userId: entry.userId, authMode: entry.authMode, siteLabel: siteLabel(entry.baseUrl) }));
-    } catch (error) { throw new Error(`${siteLabel(entry.baseUrl)}: ${errorMessage(error)}`, { cause: error }); }
+    } catch (error) {
+      markAccountHealth(entry, classifySessionError(error));
+      throw new Error(`${siteLabel(entry.baseUrl)}: ${errorMessage(error)}`, { cause: error });
+    }
   }));
   portalErrors = [...groups.flatMap((entry, index) => entry.status === "rejected" ? [{ baseUrl: sessions[index].baseUrl, message: errorMessage(entry.reason) }] : []), ...linkErrors];
   if (groups.every((entry) => entry.status === "rejected")) throw new Error(portalErrors.map((entry) => entry.message).join("\n"));
@@ -921,6 +941,7 @@ async function disconnectAccount(baseUrl?: string): Promise<void> {
   // The session-wide UIT approval does not survive account changes.
   allowAllUitMcpRequests = false;
   for (const account of allCourseSessions()) if (!baseUrl || account.baseUrl === baseUrl) accountGenerations.set(account.baseUrl, (accountGenerations.get(account.baseUrl) || 0) + 1);
+  for (const account of allCourseSessions()) if (!baseUrl || account.baseUrl === baseUrl) accountHealth.delete(accountHealthKey(account.baseUrl, account.userId));
   portalErrors = portalErrors.filter((entry) => baseUrl && entry.baseUrl !== baseUrl);
   for (const [threadId, binding] of threadBindings) {
     if ((!baseUrl || binding.baseUrl === baseUrl) && binding.busy && binding.turnId) {

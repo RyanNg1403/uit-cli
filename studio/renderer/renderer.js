@@ -550,6 +550,7 @@ async function loadCourses(refresh = false) {
     state.courses = courses.map((course) => ({ ...course, userId: course.userId ?? state.sessions.find((session) => session.baseUrl === course.baseUrl)?.userId })).filter(connected);
     const status = await window.uit.session.status();
     if (generation !== state.listGeneration) return;
+    applySessionHealth(status);
     renderDiscovery(status);
     if (!state.storageError && !state.storageUnreadable) appError((status.portalErrors || []).map((entry) => `${entry.message} Reconnect this portal in Course accounts.`).join("\n"));
     const groups = semesterGroups(state.courses);
@@ -571,7 +572,10 @@ async function loadCourses(refresh = false) {
   } catch (error) {
     if (generation !== state.listGeneration) return;
     renderLoadError($("#course-grid"), "Courses could not be loaded", error, () => loadCourses(true));
-    try { const status = await window.uit.session.status(); if (generation === state.listGeneration) renderDiscovery(status); } catch { /* Keep the original discovery failure visible. */ }
+    try {
+      const status = await window.uit.session.status();
+      if (generation === state.listGeneration) { applySessionHealth(status); renderDiscovery(status); }
+    } catch { /* Keep the original discovery failure visible. */ }
   } finally {
     if (generation === state.listGeneration) $("#refresh-courses").disabled = false;
   }
@@ -2901,9 +2905,19 @@ function handleAgentEvent(message) {
   }
 }
 
+function normalizeSessionHealth(health) {
+  const sessionState = ["checking", "connected", "expired", "unavailable"].includes(health?.state) ? health.state : "checking";
+  return { state: sessionState, ...(Number.isFinite(health?.checkedAt) ? { checkedAt: health.checkedAt } : {}) };
+}
+function applySessionHealth(result) {
+  if (!Array.isArray(result?.sessions)) return;
+  const latest = new Map(result.sessions.map((session) => [identity(session), normalizeSessionHealth(session.health)]));
+  state.sessions = state.sessions.map((session) => ({ ...session, health: latest.get(identity(session)) || normalizeSessionHealth(session.health) }));
+  renderSessions();
+}
 function applySessions(result) {
   calendar.reset();
-  state.sessions = Array.isArray(result.sessions) ? result.sessions.map(({ baseUrl, userId, authMode, label }) => ({ baseUrl, userId, authMode, label })) : [];
+  state.sessions = Array.isArray(result.sessions) ? result.sessions.map(({ baseUrl, userId, authMode, label, health }) => ({ baseUrl, userId, authMode, label, health: normalizeSessionHealth(health) })) : [];
   state.loginFormOpen = false;
   state.listGeneration++; state.detailGeneration++;
   state.courses = state.courses.filter(connected);
@@ -2925,6 +2939,26 @@ function renderDiscovery(status) {
   $("#discovery-report").textContent = lines.join("\n\n") || "Refresh courses to collect source counts.";
 }
 function portalKind(baseUrl) { return String(baseUrl || "").endsWith("/sdh") ? "Graduate" : "Undergraduate"; }
+function sessionHealthState(session) {
+  return normalizeSessionHealth(session?.health).state;
+}
+function sessionHealthLabel(healthState) {
+  return ({ checking: "Checking…", connected: "Connected", expired: "Session expired", unavailable: "Unavailable" })[healthState];
+}
+function sessionHealthDetail(session) {
+  const healthState = sessionHealthState(session);
+  if (healthState === "checking") return "Checking account status…";
+  if (healthState === "expired") return `Account ${session.userId} · Sign in again to reconnect.`;
+  if (healthState === "unavailable") return `Account ${session.userId} · Check your connection and try again.`;
+  return `Account ${session.userId}`;
+}
+function aggregateSessionHealth(sessions) {
+  return ["expired", "unavailable", "checking", "connected"].find((candidate) => sessions.some((session) => sessionHealthState(session) === candidate)) || "checking";
+}
+function renderHealthPill(pill, healthState) {
+  pill.className = `status-pill ${healthState}`;
+  pill.textContent = sessionHealthLabel(healthState);
+}
 function renderSessions() {
   const currentSession = state.sessions.find((session) => session.baseUrl === CURRENT_SITE);
   const ssoSection = $("#sso-section");
@@ -2936,11 +2970,11 @@ function renderSessions() {
   if (currentSession) {
     ssoSection.classList.add("session-row");
     ssoSection.dataset.baseUrl = currentSession.baseUrl;
-    ssoPill.className = "status-pill connected";
-    ssoPill.textContent = "Connected";
-    ssoStatus.textContent = `Account ${currentSession.userId}`;
-    ssoLogin.textContent = "Re-login with UIT SSO";
-    ssoLogin.className = "secondary-button";
+    const healthState = sessionHealthState(currentSession);
+    renderHealthPill(ssoPill, healthState);
+    ssoStatus.textContent = sessionHealthDetail(currentSession);
+    ssoLogin.textContent = healthState === "connected" ? "Re-login with UIT SSO" : healthState === "expired" ? "Sign in again with UIT SSO" : "Reconnect with UIT SSO";
+    ssoLogin.className = healthState === "connected" ? "secondary-button" : "primary-button";
     ssoLogin.disabled = state.authBusy;
     ssoDisconnect.hidden = false;
     ssoDisconnect.disabled = state.authBusy;
@@ -2967,9 +3001,10 @@ function renderSessions() {
   if (legacySessions.length) {
     legacySection.classList.add("session-row");
     legacySection.dataset.baseUrl = legacySessions[0].baseUrl;
-    legacyPill.className = "status-pill connected";
-    legacyPill.textContent = "Connected";
-    legacyStatus.textContent = legacySessions.map((session) => `${portalKind(session.baseUrl)} · Account ${session.userId}`).join(", ");
+    const healthState = aggregateSessionHealth(legacySessions);
+    renderHealthPill(legacyPill, healthState);
+    legacyStatus.textContent = legacySessions.map((session) => `${portalKind(session.baseUrl)} · ${sessionHealthDetail(session)}`).join(", ");
+    legacyRelogin.textContent = healthState === "expired" ? "Sign in again" : "Re-login";
     legacyRelogin.hidden = state.loginFormOpen;
     legacyRelogin.disabled = state.authBusy;
     legacyDisconnect.hidden = false;

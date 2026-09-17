@@ -69,6 +69,24 @@ async function waitForMissing(path) {
   fail(`The packaged Studio control file was not removed: ${path}`);
 }
 
+function processIsRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessExit(pid) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processIsRunning(pid)) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  }
+  fail(`The packaged Studio backend did not exit: ${pid}`);
+}
+
 async function stopServer(controlFile) {
   const control = JSON.parse(await readFile(controlFile, "utf8"));
   const response = await fetch(`http://127.0.0.1:${control.port}/api/control/stop`, {
@@ -79,6 +97,9 @@ async function stopServer(controlFile) {
     }
   });
   assert(response.ok, `Native Studio shutdown returned ${response.status}.`);
+  await response.arrayBuffer();
+  await waitForMissing(controlFile);
+  await waitForProcessExit(control.pid);
 }
 
 async function extractArchive(archive) {
@@ -190,7 +211,6 @@ async function main() {
     }
 
     await stopServer(controlFile);
-    await waitForMissing(controlFile);
     serverStarted = false;
     console.log(`Verified native Studio archive ${archive || root} (${version}).`);
   } finally {

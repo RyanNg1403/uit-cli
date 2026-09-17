@@ -1619,6 +1619,28 @@ dialog::backdrop { background: var(--backdrop); }
   border-radius: 50%;
   background: var(--muted);
 }
+.status-pill.checking {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.status-pill.expired {
+  background: color-mix(in srgb, var(--error) 12%, var(--surface));
+  color: var(--error);
+}
+.status-pill.unavailable {
+  background: color-mix(in srgb, var(--warning) 16%, var(--surface));
+  color: var(--warning);
+}
+.status-pill.checking::before,
+.status-pill.expired::before,
+.status-pill.unavailable::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
 .account-meta {
   font-size: 12px;
   color: var(--muted);
