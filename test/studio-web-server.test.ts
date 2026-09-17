@@ -89,6 +89,7 @@ describe("Studio web server", () => {
     const traversal = await rawRequest(server, "/%2e%2e/index.html", { Host: `127.0.0.1:${server.port}`, Origin: server.origin });
     expect(traversal.status).toBe(400);
     const record = await readControlRecord(controlFile);
+    expect(record?.version).toBe(2);
     expect(record?.port).toBe(server.port);
     // Windows does not expose POSIX file permissions through stat.
     if (process.platform !== "win32") expect((await stat(controlFile)).mode & 0o777).toBe(0o600);

@@ -8,10 +8,10 @@ describe("Studio thread store", () => {
   it("persists and restores the complete renderer-owned state atomically", async () => {
     const directory = await mkdtemp(join(tmpdir(), "uit-studio-thread-store-"));
     const store = {
-      version: 1,
+      version: 2,
       activeId: "thread-1",
       projects: [{ id: 42, baseUrl: "https://courses.uit.edu.vn", userId: 7 }],
-      threads: [{ id: "thread-1", threadId: "codex-thread-1", messages: [{ role: "user", text: "Hello" }] }],
+      threads: [{ id: "thread-1", title: "Thread 1", threadId: "codex-thread-1", prompted: true, resources: [], messages: [{ role: "user", text: "Hello" }] }],
       collapsed: ["https://courses.uit.edu.vn|7|42"]
     };
     try {
@@ -28,7 +28,8 @@ describe("Studio thread store", () => {
   it("rejects malformed state instead of writing it", async () => {
     const directory = await mkdtemp(join(tmpdir(), "uit-studio-thread-store-"));
     try {
-      await expect(writeStudioThreadStore(directory, { version: 1, threads: "not-an-array" })).rejects.toThrow("invalid");
+      await expect(writeStudioThreadStore(directory, { version: 2, projects: [], threads: "not-an-array", collapsed: [] })).rejects.toThrow("invalid");
+      await expect(writeStudioThreadStore(directory, { version: 1, projects: [], threads: [], collapsed: [] })).rejects.toThrow("invalid");
       await writeFile(join(directory, "threads.json"), "{invalid-json");
       await expect(readStudioThreadStore(directory)).rejects.toThrow("invalid");
     } finally {

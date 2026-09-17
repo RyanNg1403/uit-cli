@@ -230,7 +230,7 @@ test("Codex has one creation entry per action and no scattered guidance", async 
 
 test("empty Codex state centers the mascot and offers every connected course", async ({ page, boot }) => {
   await boot({
-    storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[0]], threads: [] })
+    storage: JSON.stringify({ version: 2, activeId: null, projects: [courses[0]], threads: [], collapsed: [] })
   });
   await page.locator('[data-view="agent"]').click();
 
@@ -256,9 +256,10 @@ test("empty Codex state centers the mascot and offers every connected course", a
 test("Codex icon returns to the persistent empty agent home", async ({ page, boot }) => {
   await boot({
     storage: JSON.stringify({
-      version: 1,
+      version: 2,
       activeId: "thread-1",
       projects: [courses[0]],
+      collapsed: [],
       threads: [{
         id: "thread-1", title: "Existing thread", owner: { baseUrl: CURRENT, userId: 101 }, course: courses[0],
         draft: "", resources: [], prompted: true, messages: [{ role: "assistant", text: "Existing answer" }]
@@ -381,7 +382,7 @@ test("academic-year ranges match each year offered by the project filter", async
 });
 
 test("Agent sidebar keeps semesters separate within the same year", async ({ page, boot }) => {
-  await boot({ storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[0], courses[15], courses[18]], threads: [] }) });
+  await boot({ storage: JSON.stringify({ version: 2, activeId: null, projects: [courses[0], courses[15], courses[18]], threads: [], collapsed: [] }) });
   await page.locator('[data-view="agent"]').click();
   await expect(page.locator("#course-nav .semester-nav h3")).toHaveText([semesters[0].label, semesters[1].label]);
   await expect(page.locator("#course-nav .project")).toHaveCount(3);
@@ -404,7 +405,7 @@ test("uncertain dates are omitted while explicit academic years remain visible",
 });
 
 test("a single undated project stays visible without a semester heading", async ({ page, boot }) => {
-  await boot({ storage: JSON.stringify({ version: 1, activeId: null, projects: [courses[18]], threads: [] }) });
+  await boot({ storage: JSON.stringify({ version: 2, activeId: null, projects: [courses[18]], threads: [], collapsed: [] }) });
   await page.locator('[data-view="agent"]').click();
   await expect(page.locator("#course-nav .project")).toHaveCount(1);
   await expect(page.locator("#course-nav .semester-nav h3")).toHaveCount(0);
@@ -487,7 +488,7 @@ test("Codex projects are explicitly selected, persist empty and new threads choo
   await expect(page.getByLabel("Message Codex")).toHaveValue("");
   await expect(page.locator("#send-agent")).toBeDisabled();
   const stored = await threadStore(page);
-  expect(stored).toMatchObject({ version: 1, activeId: null, threads: [] });
+  expect(stored).toMatchObject({ version: 2, activeId: null, threads: [] });
   expect(stored.projects).toHaveLength(1);
   expect(stored.projects[0]).toMatchObject({ id: 1, baseUrl: LEGACY, userId: 202 });
   await page.reload();
@@ -614,34 +615,14 @@ for (const destination of ["Courses", "another project", "another thread", "new 
   });
 }
 
-test("restore filters old unprompted and transient inherited histories but migrates sent projects", async ({ page, boot }) => {
-  const thread = (id: string, index: number, extra = {}) => ({
-    id, title: id, course: courses[index], draft: `Draft for ${id}`, resources: [], messages: [], renamed: true, ...extra,
-  });
-  await boot({ storage: JSON.stringify({ version: 1, activeId: "old-typed", threads: [
-    thread("old-typed", 1),
-    thread("old-event-only", 2, { messages: [{ role: "event", text: "Not a prompt" }] }),
-    thread("old-sent", 0, { messages: [{ role: "user", text: "Previously sent" }, { role: "assistant", text: "Saved answer" }] }),
-    thread("failed-prompt", 14, { prompted: true, messages: [{ role: "event", text: "Old failure" }] }),
-    thread("transient-branch", 3, { prompted: false, messages: [{ role: "user", text: "Inherited only" }] }),
-  ] }) });
+test("rejects the previous Studio thread store without migration", async ({ page, boot }) => {
+  await boot({ storage: JSON.stringify({ version: 1, activeId: "old-thread", projects: [courses[0]], threads: [], collapsed: [] }) });
+  await expect(page.locator("#app-error")).toContainText("Saved threads could not be read from UIT Studio storage");
   await page.locator('.nav-item[data-view="agent"]').click();
-  await expect(page.locator("#course-nav .project")).toHaveCount(2);
-  await expect(page.locator(".thread-link")).toHaveCount(2);
-  await expect(page.locator("#course-nav")).not.toContainText("old-typed");
-  await expect(page.locator("#course-nav")).not.toContainText("transient-branch");
-  await page.locator(".thread-link").filter({ hasText: "old-sent" }).click();
-  await expect(page.locator("#agent-messages")).toContainText("Saved answer");
-  await expect(page.getByLabel("Message Codex")).toHaveValue("Draft for old-sent");
-  const stored = await threadStore(page);
-  expect(stored.version).toBe(1);
-  expect(stored.threads.map((thread: any) => [thread.id, thread.prompted])).toEqual([["old-sent", true], ["failed-prompt", true]]);
-  expect(stored.projects.map((project: any) => [project.baseUrl, project.userId, project.id])).toEqual([[CURRENT, 101, 1], [LEGACY, 202, 1]]);
-  await page.reload();
-  await page.locator('.nav-item[data-view="agent"]').click();
-  await expect(page.locator(".thread-link")).toHaveCount(2);
-  await expect(page.locator("#course-nav .project")).toHaveCount(2);
-  for (const method of ["agent.start", "agent.send", "agent.fork"]) expect(await calls(page, method)).toHaveLength(0);
+  await expect(page.locator(".thread-link")).toHaveCount(0);
+  await expect(page.locator("#course-nav .project")).toHaveCount(0);
+  expect(await threadStore(page)).toMatchObject({ version: 1, activeId: "old-thread" });
+  for (const method of ["agent.start", "agent.send", "agent.fork", "threads.write"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
 test("branch history stays transient until first send, then forks once and persists", async ({ page, boot }) => {
@@ -2217,8 +2198,10 @@ test("during thread-lock, input box, rename, and delete options convert to not-a
 test("copy buttons for user and agent messages are positioned smartly and copy text with feedback", async ({ page, boot }, info) => {
   await boot({
     storage: JSON.stringify({
-      version: 1,
+      version: 2,
       activeId: "copy-test",
+      projects: [courses[0]],
+      collapsed: [],
       threads: [{
         id: "copy-test",
         title: "Copy Button Test",
@@ -2312,8 +2295,10 @@ test("copy buttons for user and agent messages are positioned smartly and copy t
 test("short user messages keep attached resources compact", async ({ page, boot }) => {
   await boot({
     storage: JSON.stringify({
-      version: 1,
+      version: 2,
       activeId: "compact-user-message",
+      projects: [courses[0]],
+      collapsed: [],
       threads: [{
         id: "compact-user-message",
         title: "Compact user message",
@@ -2361,8 +2346,10 @@ test("short user messages keep attached resources compact", async ({ page, boot 
 test("only the final assistant message in a continuous run exposes a timestamp", async ({ page, boot }) => {
   await boot({
     storage: JSON.stringify({
-      version: 1,
+      version: 2,
       activeId: "assistant-run",
+      projects: [courses[0]],
+      collapsed: [],
       threads: [{
         id: "assistant-run",
         title: "Assistant run",
@@ -2399,8 +2386,10 @@ test("only the final assistant message in a continuous run exposes a timestamp",
 test("agent messages have no redundant role labels, project Open in Courses, thin tool message and equal padding on New project", async ({ page, boot }, info) => {
   await boot({
     storage: JSON.stringify({
-      version: 1,
+      version: 2,
       activeId: "ui-refinements",
+      projects: [courses[0]],
+      collapsed: [],
       threads: [{
         id: "ui-refinements",
         title: "Course inquiry",

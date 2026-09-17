@@ -692,10 +692,10 @@ describe("deterministic materialization", () => {
     const destination = await materializeCourseFile(42, 20, "project.txt", api, { baseUrl: site, userId: 7, shortname: "SE362.Q21" });
     expect(destination).toBe(join(workspace.path, "materials", "module-20", "project.txt"));
     expect(JSON.parse(await readFile(join(state.home, ".uit", "courses", "manifest.json"), "utf8"))).toMatchObject({
-      version: 1,
+      version: 2,
       courses: [{ baseUrl: site, moodleUserId: 7, courseId: 42, studentId: "23521146", studentName: "NguyenThuanPhat", courseCode: "SE362.Q21", path: "current/23521146-NguyenThuanPhat/SE362.Q21" }]
     });
-    expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q22"));
+    expect((await courseWorkspace(42, "SE362.Q22", site, 7, api)).path).toBe(workspace.path);
   });
 
   it("does not import workspaces from the removed legacy storage layout", async () => {
@@ -723,7 +723,7 @@ describe("deterministic materialization", () => {
     expect(await readFile(join(oldMaterials, "old.txt"), "utf8")).toBe("preserve old materials");
   });
 
-  it("upgrades a fallback student directory when Moodle site info becomes available", async () => {
+  it("does not migrate a fallback student directory when Moodle site info becomes available", async () => {
     await home();
     const fallback = await courseWorkspace(42, "SE362.Q21", site, 7, client({ core_user_get_users_by_field: [] }));
     await writeFile(join(fallback.path, "artifacts", "keep.txt"), "preserved");
@@ -733,7 +733,7 @@ describe("deterministic materialization", () => {
     });
 
     const upgraded = await courseWorkspace(42, "SE362.Q21", site, 7, api);
-    expect(upgraded.path).toBe(join(state.home, ".uit", "courses", "current", "23521146-NguyenThuanPhat", "SE362.Q21"));
+    expect(upgraded.path).toBe(fallback.path);
     expect(await readFile(join(upgraded.path, "artifacts", "keep.txt"), "utf8")).toBe("preserved");
   });
 

@@ -51,7 +51,7 @@ export interface StudioWebServerOptions {
 }
 
 export interface StudioWebControlRecord {
-  version: 1;
+  version: 2;
   pid: number;
   port: number;
   nonce: string;
@@ -397,7 +397,7 @@ export function createStudioWebHost(options: {
 export async function readControlRecord(path: string): Promise<StudioWebControlRecord | undefined> {
   try {
     const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (!isRecord(parsed) || parsed.version !== 1 || typeof parsed.pid !== "number" || !Number.isSafeInteger(parsed.pid) || parsed.pid <= 0 ||
+    if (!isRecord(parsed) || parsed.version !== 2 || typeof parsed.pid !== "number" || !Number.isSafeInteger(parsed.pid) || parsed.pid <= 0 ||
         typeof parsed.port !== "number" || !Number.isSafeInteger(parsed.port) || parsed.port < 1 || parsed.port > 65_535 ||
         typeof parsed.nonce !== "string" || !/^[A-Za-z0-9_-]{32,}$/.test(parsed.nonce) ||
         typeof parsed.controlSecret !== "string" || !/^[A-Za-z0-9_-]{32,}$/.test(parsed.controlSecret)) return undefined;
@@ -446,7 +446,7 @@ export async function startStudioWebServer(options: StudioWebServerOptions = {})
   const userDataPath = resolve(options.userDataPath || defaultUserDataPath());
   const writeRecord = options.writeControlFile !== false;
   const controlRecord: StudioWebControlRecord = {
-    version: 1,
+    version: 2,
     pid: process.pid,
     port: 0,
     nonce: token(24),

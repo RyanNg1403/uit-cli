@@ -3,6 +3,7 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const CURRENT_SITE = "https://courses.uit.edu.vn";
+const THREAD_STORE_VERSION = 2;
 let streamFrame = null, streamPersistTimer = null, draftPersistTimer = null;
 let calendar;
 let threadStoreWrite = Promise.resolve();
@@ -109,7 +110,7 @@ function courseRef(course) { return { courseId: course.id, baseUrl: course.baseU
 function connected(ref) { return !!ref && state.sessions.some((session) => identity(session) === identity(ref)); }
 function activeThread() { return state.threads.find((thread) => thread.id === state.activeId && visibleThread(thread)); }
 function visibleThread(thread) { return connected(thread?.course || thread?.owner); }
-function hasPrompt(thread) { return thread.prompted ?? thread.messages.some((message) => message.role === "user"); }
+function hasPrompt(thread) { return thread.prompted === true; }
 function addProject(course) {
   if (!state.projects.some((project) => courseKey(project) === courseKey(course))) state.projects.push(courseSnapshot(course));
 }
@@ -205,7 +206,7 @@ function threadStorePayload() {
     createdAt: thread.createdAt, updatedAt: thread.updatedAt,
     interrupted: thread.busy || thread.interrupted,
   }));
-  return { version: 1, activeId: threads.some((thread) => thread.id === state.activeId) ? state.activeId : null, projects: state.projects, threads, collapsed: [...collapsedProjects] };
+  return { version: THREAD_STORE_VERSION, activeId: threads.some((thread) => thread.id === state.activeId) ? state.activeId : null, projects: state.projects, threads, collapsed: [...collapsedProjects] };
 }
 function persist() {
   clearTimeout(streamPersistTimer); clearTimeout(draftPersistTimer);
@@ -230,13 +231,15 @@ function persist() {
   }
 }
 function applySavedThreadStore(saved) {
-  if (!saved || saved.version !== 1 || !Array.isArray(saved.threads)) throw new Error("Unsupported thread index");
-  if (!saved.threads.every((thread) => thread && typeof thread.id === "string" && typeof thread.title === "string" &&
+  if (!saved || saved.version !== THREAD_STORE_VERSION || !Array.isArray(saved.projects) || !Array.isArray(saved.threads) ||
+      !Array.isArray(saved.collapsed) || !saved.collapsed.every((key) => typeof key === "string")) throw new Error("Unsupported thread index");
+  if (!saved.projects.every((project) => project && typeof project.baseUrl === "string" && Number.isSafeInteger(project.id) && project.id > 0 && Number(project.userId) > 0)) throw new Error("Invalid saved projects");
+  if (!saved.threads.every((thread) => thread && typeof thread.id === "string" && typeof thread.title === "string" && thread.prompted === true &&
     typeof (thread.course || thread.owner)?.baseUrl === "string" && Number.isSafeInteger(Number((thread.course || thread.owner)?.userId)) && Number((thread.course || thread.owner)?.userId) > 0 &&
     Array.isArray(thread.messages) && thread.messages.every((message) => message && typeof message.text === "string" && ["user", "assistant", "event"].includes(message.role) &&
       (message.resources === undefined || Array.isArray(message.resources) && message.resources.every((resource) => resource && typeof resource.name === "string"))) &&
     Array.isArray(thread.resources) && thread.resources.every((resource) => resource && typeof resource.name === "string" && ["module", "file", "assignment", "announcement"].includes(resource.kind) && Number.isSafeInteger(resource.id) && resource.id > 0))) throw new Error("Invalid saved thread");
-  state.threads = saved.threads.filter(hasPrompt).map((thread) => ({
+  state.threads = saved.threads.map((thread) => ({
     ...thread,
     archived: Boolean(thread.archived),
     messages: thread.messages
@@ -248,14 +251,12 @@ function applySavedThreadStore(saved) {
     branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(), yolo: thread.yolo !== false,
     fast: thread.fast === true,
   }));
-  if (saved.projects !== undefined && (!Array.isArray(saved.projects) || !saved.projects.every((project) => project && typeof project.baseUrl === "string" && Number.isSafeInteger(project.id) && project.id > 0 && Number(project.userId) > 0))) throw new Error("Invalid saved projects");
-  state.projects = (saved.projects || []).map((project) => {
+  state.projects = saved.projects.map((project) => {
     const { archived: _archived, ...rest } = project;
     return rest;
   });
   collapsedProjects.clear();
-  if (Array.isArray(saved.collapsed)) for (const key of saved.collapsed) if (typeof key === "string" && key) collapsedProjects.add(key);
-  for (const thread of state.threads) if (thread.course) addProject(thread.course);
+  for (const key of saved.collapsed) if (key) collapsedProjects.add(key);
   state.activeId = saved.activeId;
 }
 async function restore() {

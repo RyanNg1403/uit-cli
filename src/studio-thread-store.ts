@@ -1,12 +1,12 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const STUDIO_THREAD_STORE_VERSION = 1;
+export const STUDIO_THREAD_STORE_VERSION = 2;
 const THREAD_STORE_FILE = "threads.json";
 const MAX_THREAD_STORE_BYTES = 20 * 1024 * 1024;
 
 export type StudioThreadStore = {
-  version: 1;
+  version: 2;
   activeId: string | null;
   projects: unknown[];
   threads: unknown[];
@@ -17,23 +17,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isPersistedThread(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.id === "string" && value.id.length > 0 &&
+    typeof value.title === "string" &&
+    value.prompted === true &&
+    Array.isArray(value.messages) &&
+    Array.isArray(value.resources);
+}
+
 function validateThreadStore(value: unknown): StudioThreadStore {
-  if (!isRecord(value) || value.version !== STUDIO_THREAD_STORE_VERSION || !Array.isArray(value.threads)) {
+  if (!isRecord(value) || value.version !== STUDIO_THREAD_STORE_VERSION ||
+      !Array.isArray(value.projects) || !Array.isArray(value.threads) ||
+      !value.threads.every(isPersistedThread) ||
+      !Array.isArray(value.collapsed) || !value.collapsed.every((entry) => typeof entry === "string")) {
     throw new Error("Saved Studio threads are invalid.");
   }
-  if (value.activeId !== null && value.activeId !== undefined && typeof value.activeId !== "string") {
+  if (value.activeId !== null && typeof value.activeId !== "string") {
     throw new Error("Saved Studio threads are invalid.");
   }
-  if (value.projects !== undefined && !Array.isArray(value.projects)) throw new Error("Saved Studio threads are invalid.");
-  if (value.collapsed !== undefined && (!Array.isArray(value.collapsed) || !value.collapsed.every((entry) => typeof entry === "string"))) {
-    throw new Error("Saved Studio threads are invalid.");
-  }
+  const activeId = value.activeId as string | null;
   return {
-    version: 1,
-    activeId: value.activeId === undefined ? null : value.activeId,
-    projects: value.projects || [],
+    version: 2,
+    activeId,
+    projects: value.projects,
     threads: value.threads,
-    collapsed: value.collapsed || []
+    collapsed: value.collapsed
   };
 }
 

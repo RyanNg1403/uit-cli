@@ -112,6 +112,7 @@ const accountHealth = new Map<string, AccountHealth>();
 let cachedModels: CachedModels | undefined;
 let idleLockTimer: NodeJS.Timeout | undefined;
 const SESSIONS_FILE = join(homedir(), ".uit", "sessions.json");
+const LINKED_COURSES_STORE_VERSION = 2;
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
 
@@ -149,7 +150,7 @@ async function loadService() {
   await restorePersistedThreadBindings();
   try {
     const saved = JSON.parse(await readFile(join(host.userDataPath, "linked-courses.json"), "utf8"));
-    if (saved.version === 1 && Array.isArray(saved.courses)) for (const reference of saved.courses) {
+    if (saved.version === LINKED_COURSES_STORE_VERSION && Array.isArray(saved.courses)) for (const reference of saved.courses) {
       const valid = courseReference(reference);
       if (valid.baseUrl && valid.userId) linkedCourses.set(JSON.stringify([valid.baseUrl, valid.userId, valid.courseId]), valid);
     }
@@ -498,7 +499,6 @@ async function readPersistedSessions(): Promise<JsonRecord> {
   try {
     const raw = JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
     if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
-    if (Array.isArray(raw)) return { legacy: raw };
     return {};
   } catch {
     return {};
@@ -980,7 +980,7 @@ async function linkCourse(rawInput: unknown): Promise<ConnectedCourse> {
     const records = new Map(linkedCourses); records.set(key, reference);
     const path = join(host.userDataPath, "linked-courses.json");
     await mkdir(host.userDataPath, { recursive: true });
-    await writeFile(`${path}.part`, JSON.stringify({ version: 1, courses: [...records.values()] }), { mode: 0o600 });
+    await writeFile(`${path}.part`, JSON.stringify({ version: LINKED_COURSES_STORE_VERSION, courses: [...records.values()] }), { mode: 0o600 });
     await rename(`${path}.part`, path);
     linkedCourses.set(key, reference);
   });
