@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const themeToggle = document.getElementById("theme-toggle");
   const themeMeta = document.querySelector('meta[name="theme-color"]');
-  const themeColors = { dark: "#030a15", light: "#eaf6ff" };
+  const themeColors = { dark: "#01060e", light: "#eaf6ff" };
   const savedTheme = localStorage.getItem("uit-theme")
     || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
   const applyTheme = (theme) => {
