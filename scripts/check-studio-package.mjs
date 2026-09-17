@@ -53,12 +53,14 @@ if (runtimeUnexpected.length > 0) {
   throw new Error(`uit-runtime package contains unexpected files: ${runtimeUnexpected.join(", ")}`);
 }
 for (const required of [
+  "dist/assignment-submission.js",
   "dist/calendar.js",
   "dist/desktop-service.js",
   "dist/mcp-server.js",
   "dist/mcp-entry.js",
   "dist/session-health.js",
   "dist/studio-core.js",
+  "dist/studio-thread-store.js",
   "dist/studio-sso.js",
   "dist/studio-web-server.js",
   "dist/studio-web-launcher.js",

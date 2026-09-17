@@ -5,6 +5,7 @@ import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
+import { submitAssignmentFile } from "./assignment-submission.js";
 import { activateSession as selectActiveSession, get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
 import { CodexClient } from "./codex-client.js";
@@ -499,6 +500,21 @@ export async function listAssignments(courseId: number, api: ApiClient = default
       unavailable: unavailableFrom({ ...(id === undefined ? { instance: "Assignment instance unavailable. Open the assignment on the course site for its full details." } : {}), ...assignment.unavailable })
     };
   }).sort((a: AssignmentSummary, b: AssignmentSummary) => (a.dueDate || Number.POSITIVE_INFINITY) - (b.dueDate || Number.POSITIVE_INFINITY));
+}
+
+/** Verify the assignment belongs to the selected course before mutating Moodle. */
+export async function submitAssignment(
+  courseId: number,
+  assignId: number,
+  filepath: string,
+  api: ApiClient = defaultApiClient
+) {
+  if (!Number.isSafeInteger(courseId) || courseId <= 0) throw new Error("Course ID must be a positive integer.");
+  if (!Number.isSafeInteger(assignId) || assignId <= 0) throw new Error("Assignment ID must be a positive integer.");
+  const assignment = (await listAssignments(courseId, api)).find((item) => item.id === assignId);
+  if (!assignment) throw new Error("The assignment was not found in the selected course.");
+  if (assignment.unavailable?.instance) throw new Error(assignment.unavailable.instance);
+  return submitAssignmentFile(assignId, filepath, api);
 }
 
 export interface AssignmentSubmission {
@@ -1005,12 +1021,12 @@ interface CourseManifestEntry {
 }
 
 interface CourseManifest {
-  version: 1;
+  version: 2;
   courses: CourseManifestEntry[];
   materializedFiles: Record<string, MaterializedFileRecord>;
 }
 
-const COURSE_MANIFEST_VERSION = 1 as const;
+const COURSE_MANIFEST_VERSION = 2 as const;
 const MANIFEST_LOCK_STALE_MS = 60_000;
 const MANIFEST_LOCK_ATTEMPTS = 100;
 const coursesDirectory = () => resolve(homedir(), ".uit", "courses");
@@ -1242,25 +1258,6 @@ function workspaceEntryPath(baseUrl: string, account: { studentId: string; stude
   return join(portalFolder(baseUrl), studentFolder(account), courseCode).split(sep).join("/");
 }
 
-async function moveWorkspace(from: string, to: string): Promise<void> {
-  if (samePath(from, to)) return;
-  try {
-    const source = await lstat(from);
-    if (source.isSymbolicLink() || !source.isDirectory()) throw new Error("UIT workspace is unsafe to move.");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  try {
-    await lstat(to);
-    throw new Error("Cannot migrate UIT course storage because the destination folder already exists.");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await mkdir(dirname(to), { recursive: true });
-  await rename(from, to);
-}
-
 async function resolveWorkspace(courseId: number, shortname: string, baseUrl: string, userId: number, api: ApiClient): Promise<{ path: string; created: boolean }> {
   if (!Number.isSafeInteger(courseId) || courseId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) throw new Error("A valid course and account identity is required for the workspace.");
   const canonical = canonicalBaseUrl(baseUrl);
@@ -1272,16 +1269,9 @@ async function resolveWorkspace(courseId: number, shortname: string, baseUrl: st
     const key = courseKey(canonical, userId, courseId);
     const existingIndex = manifest.courses.findIndex((entry) => courseKey(entry.baseUrl, entry.moodleUserId, entry.courseId) === key);
     const existing = existingIndex >= 0 ? manifest.courses[existingIndex] : undefined;
-    let relativePath = existing?.path || desiredRelativePath;
-    let root = resolve(coursesDirectory(), relativePath);
+    const relativePath = existing?.path || desiredRelativePath;
+    const root = resolve(coursesDirectory(), relativePath);
     if (relative(coursesDirectory(), root).startsWith("..")) throw new Error("Invalid UIT course manifest path.");
-    if (existing && relativePath !== desiredRelativePath) {
-      const renamedRoot = resolve(coursesDirectory(), desiredRelativePath);
-      if (relative(coursesDirectory(), renamedRoot).startsWith("..")) throw new Error("Invalid UIT course manifest path.");
-      await moveWorkspace(root, renamedRoot);
-      root = renamedRoot;
-      relativePath = desiredRelativePath;
-    }
     let created = false;
     try { await stat(root); }
     catch (error) {

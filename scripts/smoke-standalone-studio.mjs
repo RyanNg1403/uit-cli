@@ -87,17 +87,10 @@ async function waitForProcessExit(pid) {
   fail(`The packaged Studio backend did not exit: ${pid}`);
 }
 
-async function stopServer(controlFile) {
+async function stopServer(root, env, controlFile) {
   const control = JSON.parse(await readFile(controlFile, "utf8"));
-  const response = await fetch(`http://127.0.0.1:${control.port}/api/control/stop`, {
-    method: "POST",
-    headers: {
-      Host: `127.0.0.1:${control.port}`,
-      "X-Studio-Control-Secret": control.controlSecret
-    }
-  });
-  assert(response.ok, `Native Studio shutdown returned ${response.status}.`);
-  await response.arrayBuffer();
+  const result = await runLauncher(root, ["stop"], env);
+  assert(result.code === 0 && result.stdout === "UIT Studio stopped.\n", `Native Studio stop failed: ${result.stderr}`);
   await waitForMissing(controlFile);
   await waitForProcessExit(control.pid);
 }
@@ -152,7 +145,7 @@ async function main() {
     assert(versionResult.stdout === `${version}\n`, "Native Studio --version produced unexpected output.");
 
     const helpResult = await runLauncher(root, ["--help"], env);
-    assert(helpResult.code === 0 && helpResult.stdout.includes("Usage: uit-studio [options]"), "Native Studio --help failed.");
+    assert(helpResult.code === 0 && helpResult.stdout.includes("Usage: uit-studio [command]") && helpResult.stdout.includes("stop"), "Native Studio --help failed.");
 
     const runtimeRoot = join(root, "app", "node_modules", "uit-runtime");
     let launchUrl;
@@ -210,11 +203,11 @@ async function main() {
       await browser.close();
     }
 
-    await stopServer(controlFile);
+    await stopServer(root, env, controlFile);
     serverStarted = false;
     console.log(`Verified native Studio archive ${archive || root} (${version}).`);
   } finally {
-    if (serverStarted) await stopServer(controlFile).catch(() => undefined);
+    if (serverStarted) await stopServer(root, env, controlFile).catch(() => undefined);
     await rm(profile, { recursive: true, force: true });
     if (extracted) await rm(extracted.extraction, { recursive: true, force: true });
     for (const key of Object.keys(process.env)) if (!(key in originalEnvironment)) delete process.env[key];

@@ -32,7 +32,6 @@
       <a href="index.html" class="nav-brand" aria-label="UIT STUDIO Home">
         <img src="assets/icon.svg" alt="UIT Đậu Đậu" class="nav-brand-img">
         <span class="nav-brand-name">UIT STUDIO</span>
-        <img src="assets/vnu-hcm-logo.svg" alt="Vietnam National University, Ho Chi Minh City" class="nav-affiliation-logo">
       </a>
 
       <div class="nav-right">
@@ -154,17 +153,24 @@
         <h2 class="platform-heading">Both Logins in one app</h2>
         <div class="byom-layout">
           <div class="byom-copy">
-            <p class="platform-sub">Connect to <code>courses.uit.edu.vn</code> and <code>coursesold.uit.edu.vn</code> simultaneously.</p>
+            <p class="platform-sub">Connect both UIT course accounts simultaneously.</p>
             <p class="platform-sub">Access active coursework and past semester archives in one unified workspace without switching sessions or clearing cookies.</p>
           </div>
-          <div class="byom-pair" aria-label="UIT and Moodle work together seamlessly">
+          <div class="byom-pair byom-pair--login" aria-label="UIT and Moodle work together seamlessly">
             <div class="byom-logo byom-logo--uit" title="UIT">
               <img src="assets/uit.svg" alt="UIT emblem" width="48" height="48">
             </div>
-            <div class="byom-heart" aria-hidden="true" title="Works together perfectly">
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-              </svg>
+            <div
+              class="mascot-float"
+              data-floating-mascot
+              data-frames="assets/floating-0.png,assets/floating-1.png,assets/floating-2.png,assets/floating-3.png"
+              role="img"
+              aria-label="UIT mascot floating between the connected login providers"
+            >
+              <img class="mascot-float-frame is-active" src="assets/floating-0.png" alt="" width="112" height="112" decoding="async">
+              <img class="mascot-float-frame" src="assets/floating-1.png" alt="" width="112" height="112" decoding="async" hidden>
+              <img class="mascot-float-frame" src="assets/floating-2.png" alt="" width="112" height="112" decoding="async" hidden>
+              <img class="mascot-float-frame" src="assets/floating-3.png" alt="" width="112" height="112" decoding="async" hidden>
             </div>
             <div class="byom-logo byom-logo--moodle" title="Moodle">
               <img src="assets/moodle.svg" alt="Moodle emblem" width="48" height="48">
@@ -177,7 +183,7 @@
     <!-- Block 2: Bring your own subscription -->
     <div class="platform-block">
       <div class="container">
-        <h2 class="platform-heading">Bring your own subscription.</h2>
+        <h2 class="platform-heading">Bring your own subscription</h2>
         <div class="byom-layout">
           <div class="byom-copy">
             <p class="platform-sub">UIT Studio never proxies traffic or resells tokens.</p>
@@ -199,13 +205,71 @@
             </div>
           </div>
         </div>
+        <div class="mcp-tools" aria-labelledby="mcp-tools-heading">
+          <div class="mcp-tools-copy">
+            <span class="eyebrow">UIT MCP SERVER</span>
+            <h3 id="mcp-tools-heading">Course tools, ready for your agent</h3>
+            <p>Every tool runs in your connected course workspace with the access it actually needs.</p>
+          </div>
+          <div class="mcp-tool-workbench">
+            <div class="mcp-tool-table-wrap">
+              <div class="mcp-tool-windowbar" aria-hidden="true">
+                <div class="mcp-tool-window-dots">
+                  <span class="cmd-dot cmd-dot-red"></span>
+                  <span class="cmd-dot cmd-dot-yellow"></span>
+                  <span class="cmd-dot cmd-dot-green"></span>
+                </div>
+              </div>
+              <div class="mcp-tool-table" role="table" aria-label="UIT MCP tools available to Codex in a course workspace">
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_courses">
+                <code class="mcp-tool-name" role="rowheader">uit_courses</code>
+                <span class="mcp-tool-description" role="cell">List your accessible courses.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_course_contents">
+                <code class="mcp-tool-name" role="rowheader">uit_course_contents</code>
+                <span class="mcp-tool-description" role="cell">Read modules, assignments, and announcements.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_read_resource">
+                <code class="mcp-tool-name" role="rowheader">uit_read_resource</code>
+                <span class="mcp-tool-description" role="cell">Read one course resource.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_course_members">
+                <code class="mcp-tool-name" role="rowheader">uit_course_members</code>
+                <span class="mcp-tool-description" role="cell">List instructors and students.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_course_grades">
+                <code class="mcp-tool-name" role="rowheader">uit_course_grades</code>
+                <span class="mcp-tool-description" role="cell">Read grades and feedback.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_download_material">
+                <code class="mcp-tool-name" role="rowheader">uit_download_material</code>
+                <span class="mcp-tool-description" role="cell">Download a course file.</span>
+              </div>
+              <div class="mcp-tool-row" role="button" tabindex="0" aria-expanded="false" aria-controls="mcp-tool-inspector" data-mcp-tool="uit_submit_assignment">
+                <code class="mcp-tool-name" role="rowheader">uit_submit_assignment</code>
+                <span class="mcp-tool-description" role="cell">Submit a file to an assignment.</span>
+              </div>
+              </div>
+            </div>
+            <div class="mcp-tool-inspector" id="mcp-tool-inspector" hidden>
+              <div class="mcp-inspector-content">
+                <button class="mcp-inspector-close" type="button" aria-label="Close tool parameters">×</button>
+                <div class="mcp-inspector-head">
+                  <h4 id="mcp-inspector-title"></h4>
+                </div>
+                <div class="mcp-inspector-divider" aria-hidden="true"></div>
+                <div class="mcp-parameter-grid" id="mcp-parameter-grid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Block 3: Full VNU-HCM support coming soon -->
     <div class="platform-block platform-block--marquee">
       <div class="container">
-        <h2 class="platform-heading">Full VNU-HCM support coming soon.</h2>
+        <h2 class="platform-heading">Full VNU-HCM support coming soon <img class="platform-heading-logo" src="assets/vnu-hcm-logo.svg" alt="VNU-HCM"></h2>
         <p class="platform-sub">Expanding beyond UIT to bring the same keyboard-driven workspace to every member university across Vietnam National University Ho Chi Minh City.</p>
       </div>
 
@@ -244,7 +308,7 @@
       <div class="cli-section-layout">
         <div class="cli-section-copy">
           <span class="eyebrow">UIT CLI</span>
-          <h2>Coursework from the command line.</h2>
+          <h2>Coursework from the command line</h2>
           <p>Find courses, track deadlines, and download materials from your terminal.</p>
 
           <div class="cli-capabilities">
@@ -283,7 +347,6 @@
             <div class="cli-mock-body">
               <div class="cli-terminal-command" id="cli-terminal-courses" data-cli-command="courses">
                 <div class="cli-mock-line cli-command-line">
-                  <span class="cli-mock-prompt">➜  <span class="cli-mock-dir">~</span></span>
                   <span class="cli-mock-cmd">uit courses</span>
                 </div>
                 <div class="cli-mock-output">
@@ -294,7 +357,6 @@
               </div>
               <div class="cli-terminal-command" id="cli-terminal-contents" data-cli-command="contents">
                 <div class="cli-mock-line cli-command-line cli-gap">
-                  <span class="cli-mock-prompt">➜  <span class="cli-mock-dir">~</span></span>
                   <span class="cli-mock-cmd">uit contents 19589</span>
                 </div>
                 <div class="cli-mock-output">
@@ -305,7 +367,6 @@
               </div>
               <div class="cli-terminal-command" id="cli-terminal-deadlines" data-cli-command="deadlines">
                 <div class="cli-mock-line cli-command-line cli-gap">
-                  <span class="cli-mock-prompt">➜  <span class="cli-mock-dir">~</span></span>
                   <span class="cli-mock-cmd">uit deadlines</span>
                 </div>
                 <div class="cli-mock-output">
@@ -315,7 +376,6 @@
               </div>
               <div class="cli-terminal-command" id="cli-terminal-download" data-cli-command="download">
                 <div class="cli-mock-line cli-command-line cli-gap">
-                  <span class="cli-mock-prompt">➜  <span class="cli-mock-dir">~</span></span>
                   <span class="cli-mock-cmd">uit download 19589</span>
                   <span class="cli-mock-cursor" aria-hidden="true"></span>
                 </div>
@@ -337,7 +397,7 @@
     <div class="container">
       <div class="section-head">
         <span class="eyebrow">Installation</span>
-        <h2>Your workspace, on every platform.</h2>
+        <h2>Your workspace, on every platform</h2>
         <p>Install globally via npm, or grab standalone pre-compiled installers for macOS, Linux, and Windows.</p>
       </div>
 
@@ -358,7 +418,6 @@
             <button class="os-tab" type="button" role="tab" aria-selected="false" data-os-target="mac-cli">CLI</button>
           </div>
           <div class="os-panel dl-card-action" data-os-panel="mac-cli" hidden>
-            <p class="os-panel-copy">Install the standalone CLI or use npm.</p>
             <div class="install-methods">
               <div class="install-choice">
               <div class="install-choice-label"><span>Standalone CLI</span><span>curl</span></div>
@@ -377,17 +436,16 @@
             </div>
           </div>
           <div class="os-panel dl-card-action" data-os-panel="mac-studio">
-            <p class="os-panel-copy">Install the native web Studio or use npm.</p>
             <div class="install-methods">
               <div class="install-choice">
-              <div class="install-choice-label"><span>Native Studio</span><span>curl</span></div>
+              <div class="install-choice-label"><span>Native</span><span>curl</span></div>
               <div class="dl-snippet">
                 <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio</code>
                 <button class="dl-copy-btn" type="button" onclick="copyCommand('curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio', this)" aria-label="Copy macOS Studio installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
               </div>
             </div>
             <div class="install-choice">
-              <div class="install-choice-label"><span>Studio package</span><span>npm</span></div>
+              <div class="install-choice-label"><span>NPM</span><span>npm</span></div>
               <div class="dl-snippet">
                 <code>npm install -g uit-studio</code>
                 <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy macOS Studio npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
@@ -413,7 +471,6 @@
             <button class="os-tab" type="button" role="tab" aria-selected="false" data-os-target="linux-cli">CLI</button>
           </div>
           <div class="os-panel dl-card-action" data-os-panel="linux-cli" hidden>
-            <p class="os-panel-copy">Install the standalone CLI or use npm.</p>
             <div class="install-methods">
               <div class="install-choice">
               <div class="install-choice-label"><span>Standalone CLI</span><span>curl</span></div>
@@ -432,17 +489,16 @@
             </div>
           </div>
           <div class="os-panel dl-card-action" data-os-panel="linux-studio">
-            <p class="os-panel-copy">Install the native web Studio or use npm.</p>
             <div class="install-methods">
               <div class="install-choice">
-              <div class="install-choice-label"><span>Native web Studio</span><span>curl</span></div>
+              <div class="install-choice-label"><span>Native</span><span>curl</span></div>
               <div class="dl-snippet">
                 <code>curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio</code>
                 <button class="dl-copy-btn" type="button" onclick="copyCommand('curl -fsSL https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.sh | sh -s -- --studio', this)" aria-label="Copy Linux Studio installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
               </div>
             </div>
             <div class="install-choice">
-              <div class="install-choice-label"><span>Studio package</span><span>npm</span></div>
+              <div class="install-choice-label"><span>NPM</span><span>npm</span></div>
               <div class="dl-snippet">
                 <code>npm install -g uit-studio</code>
                 <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy Linux Studio npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
@@ -468,7 +524,6 @@
             <button class="os-tab" type="button" role="tab" aria-selected="false" data-os-target="windows-cli">CLI</button>
           </div>
           <div class="os-panel dl-card-action" data-os-panel="windows-cli" hidden>
-            <p class="os-panel-copy">Install the CLI from npm in PowerShell.</p>
             <div class="install-choice">
               <div class="install-choice-label"><span>CLI package</span><span>npm</span></div>
               <div class="dl-snippet">
@@ -478,18 +533,34 @@
             </div>
           </div>
           <div class="os-panel dl-card-action" data-os-panel="windows-studio">
-            <p class="os-panel-copy">Install the native web Studio from PowerShell.</p>
-            <div class="install-choice">
-              <div class="install-choice-label"><span>Native web Studio</span><span>PowerShell</span></div>
-              <div class="dl-snippet dl-snippet--multiline">
-                <code style="white-space:pre-wrap">$installer = Join-Path $env:TEMP &quot;uit-studio-install.ps1&quot;
-Invoke-WebRequest https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.ps1 -OutFile $installer
-powershell -ExecutionPolicy Bypass -File $installer -Studio</code>
-                <button class="dl-copy-btn" type="button" onclick="copyCommand(this.previousElementSibling.textContent, this)" aria-label="Copy Windows Studio PowerShell command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-              </div>
+            <div class="install-methods windows-studio-methods">
+                  <div class="install-choice">
+                    <div class="install-choice-label"><span>Native</span><span>PowerShell</span></div>
+                    <div class="windows-command-list">
+                      <div class="dl-snippet">
+                        <code>$installer = Join-Path $env:TEMP &quot;uit-studio-install.ps1&quot;</code>
+                        <button class="dl-copy-btn" type="button" onclick="copyCommand(this.previousElementSibling.textContent, this)" aria-label="Copy Windows Studio temporary installer command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                      </div>
+                      <div class="dl-snippet">
+                        <code>Invoke-WebRequest https://raw.githubusercontent.com/RyanNg1403/uit-cli/main/scripts/install.ps1 -OutFile $installer</code>
+                        <button class="dl-copy-btn" type="button" onclick="copyCommand(this.previousElementSibling.textContent, this)" aria-label="Copy Windows Studio download command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                      </div>
+                      <div class="dl-snippet">
+                        <code>powershell -ExecutionPolicy Bypass -File $installer -Studio</code>
+                        <button class="dl-copy-btn" type="button" onclick="copyCommand(this.previousElementSibling.textContent, this)" aria-label="Copy Windows Studio launch command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="install-choice">
+                    <div class="install-choice-label"><span>NPM</span><span>npm</span></div>
+                    <div class="dl-snippet">
+                      <code>npm install -g uit-studio</code>
+                      <button class="dl-copy-btn" type="button" onclick="copyCommand('npm install -g uit-studio', this)" aria-label="Copy Windows Studio npm command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                    </div>
+                  </div>
+                </div>
             </div>
           </div>
-        </div>
       </div>
     </div>
   </section>

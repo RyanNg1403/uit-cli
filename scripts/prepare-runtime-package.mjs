@@ -10,6 +10,7 @@ const sourceStudio = join(repositoryRoot, "studio-build");
 const targetStudio = join(packageRoot, "studio-build");
 
 const sharedModules = [
+  "assignment-submission",
   "ajax-helpers",
   "api",
   "calendar",
@@ -20,6 +21,7 @@ const sharedModules = [
   "mcp-server",
   "mcp-entry",
   "studio-core",
+  "studio-thread-store",
   "studio-sso",
   "studio-web-server",
   "studio-web-launcher",
