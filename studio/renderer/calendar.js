@@ -1,8 +1,9 @@
 "use strict";
 
 window.UitCalendar = class {
-  constructor({ notify, navigate }) {
+  constructor({ notify, navigate, newThread }) {
     this.root = document.querySelector("#view-calendar");
+    this.newThread = newThread;
     this.date = new Date();
     this.date.setDate(1);
     this.events = [];
@@ -124,14 +125,21 @@ window.UitCalendar = class {
       summary.append(this.element("span", `Posted: ${date(entry.createdAt)} · Updated: ${date(entry.updatedAt)}`, "calendar-event-meta"));
       card.append(summary);
       if (entry.message) card.append(this.element("p", entry.message, "calendar-description"));
-      const open = this.element("button", "Open announcement in Moodle", "secondary-button");
+      const actions = this.element("div", undefined, "calendar-event-actions");
+      const open = this.element("button", "Open in Moodle", "secondary-button");
       open.onclick = async () => {
         open.disabled = true;
         try { await window.uit.calendar.openAnnouncement({ key: entry.key }); }
         catch (error) { this.get("announcements-error").hidden = false; this.get("announcements-error").textContent = error.message; }
         finally { open.disabled = false; }
       };
-      card.append(open);
+      actions.append(open);
+      if (this.newThread) {
+        const thread = this.element("button", "New Thread", "primary-button");
+        thread.onclick = () => this.newThread(entry);
+        actions.append(thread);
+      }
+      card.append(actions);
       list.append(card);
     }
   }
@@ -190,7 +198,9 @@ window.UitCalendar = class {
       this.render();
       this.get("error").hidden = !result.errors.length;
       this.get("error").textContent = result.errors.map((error) => error.message).join(" ");
-      this.get("status").textContent = !this.accounts.length ? "Connect a course account to see your calendar." : `${result.errors.length ? "Some accounts could not be updated. " : ""}Checked ${new Date(result.updatedAt).toLocaleTimeString()} · ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+      const checkedAt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(result.updatedAt));
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      this.get("status").textContent = !this.accounts.length ? "Connect a course account to see your calendar." : `${result.errors.length ? "Some accounts could not be updated. " : ""}Last checked: ${checkedAt} (${timeZone})`;
     } catch (error) {
       if (generation !== this.generation) return;
       this.setLoading(false);

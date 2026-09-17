@@ -3340,7 +3340,16 @@ $("#agent-messages").addEventListener("click", (event) => {
 window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist(); releasePreview(); });
 
 restore();
-const calendar = new window.UitCalendar({ notify: toast, navigate: () => showView("calendar") });
+const calendar = new window.UitCalendar({
+  notify: toast,
+  navigate: () => showView("calendar"),
+  newThread: (entry) => {
+    const course = state.courses.find((item) => item.baseUrl === entry.baseUrl && item.userId === entry.userId && item.id === entry.courseId) || {
+      id: entry.courseId, baseUrl: entry.baseUrl, userId: entry.userId, shortname: entry.courseName, fullname: entry.courseName,
+    };
+    newThread(course, { kind: "announcement", id: entry.id, name: entry.subject || "Announcement" });
+  },
+});
 showView("courses");
 window.uit.agent.onEvent(handleAgentEvent);
 (async function boot() {

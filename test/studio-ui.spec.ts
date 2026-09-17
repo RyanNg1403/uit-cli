@@ -6,6 +6,9 @@ test("Calendar shows deadlines, filters accounts, navigates months and opens saf
   await page.locator('[data-view="calendar"]').click();
   await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
   await expect(page.locator("#page-title")).toHaveText("Calendar");
+  await expect(page.locator("#calendar-status")).toHaveText(/Last checked: .+ \(.+\)/);
+  expect(await page.locator("#calendar-status").evaluate((element) => Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600);
+  expect(await page.locator(".calendar-reminder-settings > summary").evaluate((element) => getComputedStyle(element, "::before").content)).toContain("•");
   await page.locator("#calendar-agenda summary").first().click();
   await expect(page.locator(".calendar-description").first()).toHaveText("Submit the report.");
   await page.getByRole("button", { name: "Open in Moodle", exact: true }).first().click();
@@ -90,20 +93,22 @@ test("Calendar announcements sort by update or posting date and use account filt
   await boot();
   await page.evaluate(() => {
     window.uit.calendar.announcements = async () => ({ errors: [], items: [
-      { key: "a", baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Older post, recently updated", author: "Lecturer", message: "<script>unsafe</script>", createdAt: 100, updatedAt: 400 },
-      { key: "b", baseUrl: "https://coursesold.uit.edu.vn", userId: 202, courseId: 1, courseName: "LEGACY-CS01", subject: "Newer post", author: "Lecturer", message: "Notice", createdAt: 300, updatedAt: 350 },
-      { key: "c", baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Unknown dates", author: "", message: "" },
+      { key: "a", id: 801, baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Older post, recently updated", author: "Lecturer", message: "<script>unsafe</script>", createdAt: 100, updatedAt: 400 },
+      { key: "b", id: 802, baseUrl: "https://coursesold.uit.edu.vn", userId: 202, courseId: 1, courseName: "LEGACY-CS01", subject: "Newer post", author: "Lecturer", message: "Notice", createdAt: 300, updatedAt: 350 },
+      { key: "c", id: 803, baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Unknown dates", author: "", message: "" },
     ] });
   });
   await page.locator('[data-view="calendar"]').click();
   const posts = page.locator("#calendar-announcements-list details");
   await expect(posts).toHaveCount(3);
+  await expect(page.locator(".calendar-announcements .calendar-navigation")).toHaveCSS("align-items", "flex-end");
+  expect(await posts.first().locator("summary").evaluate((element) => getComputedStyle(element, "::before").content)).toContain("•");
   await expect(posts.first()).toContainText("Older post, recently updated");
   await expect(posts.last()).toContainText("Posted: Unavailable · Updated: Unavailable");
   await page.locator("#calendar-announcements-sort").selectOption("createdAt");
   await expect(posts.first()).toContainText("Newer post");
   await posts.first().locator("summary").click();
-  await posts.first().getByRole("button", { name: "Open announcement in Moodle" }).click();
+  await posts.first().getByRole("button", { name: "Open in Moodle", exact: true }).click();
   expect((await calls(page, "calendar.openAnnouncement"))[0].input).toEqual({ key: "b" });
   await page.locator("#calendar-account").selectOption(JSON.stringify([CURRENT, 101]));
   await expect(posts).toHaveCount(2);
@@ -112,6 +117,25 @@ test("Calendar announcements sort by update or posting date and use account filt
   await page.screenshot({ path: info.outputPath("calendar-announcements.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("Calendar announcements start a course-scoped thread", async ({ page, boot }) => {
+  await boot();
+  await page.evaluate(() => {
+    window.uit.calendar.announcements = async () => ({ errors: [], items: [
+      { key: "announcement-thread", id: 804, baseUrl: "https://courses.uit.edu.vn", userId: 101, courseId: 1, courseName: "CS01", subject: "Course update", author: "Lecturer", message: "Notice", createdAt: 100, updatedAt: 100 },
+    ] });
+  });
+  await page.locator('[data-view="calendar"]').click();
+  const post = page.locator("#calendar-announcements-list details").first();
+  await expect(page.locator("#calendar-announcements-list details")).toHaveCount(1);
+  await post.locator("summary").click();
+  await expect(post.getByRole("button", { name: "Open in Moodle", exact: true })).toBeVisible();
+  await expect(post.getByRole("button", { name: "New Thread", exact: true })).toBeVisible();
+  await post.getByRole("button", { name: "New Thread", exact: true }).click();
+  await expect(page.locator("#view-agent")).toBeVisible();
+  await expect(page.getByLabel("Thread course")).toHaveAttribute("data-course-key", key(0));
+  await expect(page.locator("#resource-chips")).toContainText("@Course update");
 });
 
 test("Calendar reveals announcements five at a time below deadline reminders", async ({ page, boot }) => {
