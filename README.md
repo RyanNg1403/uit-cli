@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="UIT STUDIO" width="460">
+  <img src="docs/landing-page/assets/logo.svg" alt="UIT STUDIO" width="460">
 </p>
 
 <h1 align="center">UIT STUDIO</h1>
@@ -92,13 +92,13 @@ codex --login
 The ChatGPT desktop app alone is not sufficient. Sign in to UIT Studio with UIT SSO or a legacy Moodle account.
 
 <p align="center">
-  <img src="docs/assets/studio-courses.png" alt="UIT Studio courses workspace" width="860">
+  <img src="docs/landing-page/assets/studio-courses.png" alt="UIT Studio courses workspace" width="860">
 </p>
 
 Chat with Codex using course context, then continue the same thread in Codex CLI or the ChatGPT desktop app.
 
 <p align="center">
-  <img src="docs/assets/studio-chat.png" alt="UIT Studio agent workspace" width="860" style="border-radius: 8px;">
+  <img src="docs/landing-page/assets/studio-chat.png" alt="UIT Studio agent workspace" width="860" style="border-radius: 8px;">
 </p>
 
 ---
@@ -160,7 +160,7 @@ uit login
 Use `uit login --legacy` for the legacy Moodle portal. An SSO session from UIT Studio is shared with the CLI.
 
 <p align="center">
-  <img src="assets/demo.gif" alt="UIT CLI Demo" width="860">
+  <img src="docs/landing-page/assets/demo.gif" alt="UIT CLI Demo" width="860">
 </p>
 
 ---

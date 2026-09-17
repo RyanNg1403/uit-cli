@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Moodle API">
+  <!-- Based on Moodle's authorised primary icon treatment:
+       Moodle orange circle, white lowercase m, dark mortarboard. -->
+  <circle cx="50" cy="50" r="48" fill="#F98012"/>
+  <g transform="translate(8.5 24) scale(1.085)">
+    <!-- lowercase m -->
+    <path fill="#FFFFFF" d="M61.4 49.2V26.4c0-4.8-2-7.2-5.9-7.2s-5.9 2.4-5.9 7.2v22.8H37.9V26.4c0-4.8-1.9-7.2-5.8-7.2s-5.9 2.4-5.9 7.2v22.8H14.6V25.1c0-5 1.7-8.7 5.2-11.3 3-2.3 7.2-3.4 12.3-3.4 5.3 0 9.1 1.3 11.6 4 2.1-2.7 6-4 11.7-4 5.2 0 9.3 1.1 12.3 3.4 3.5 2.6 5.2 6.3 5.2 11.3v24.2H61.4z"/>
+    <!-- mortarboard -->
+    <path fill="#545454" d="M15.7 16.2l-1.2 6c11 3.7 21.4.1 26.9-9.5-8.1-5.6-15.6.1-25.7 3.5z"/>
+    <path fill="#282828" d="M15.7 14.7c-.4 2.3-.7 4.5-1.1 6.8 10.5 3.6 20.8.5 26.3-8.9-7-8.1-14.8-1.4-25.2 2.1z"/>
+    <path fill="#282828" d="M28.2 17.4c-4.8-1-10 1.5-13.6 4.1C12.3 4.7 22.7 5.1 36.3 9.3c-.9 4.1-2.4 9.6-5 12.9-.1-2.2-1.1-3.7-3.1-4.8z"/>
+    <path fill="#282828" d="M.2 14.7C17.8 4.1 27.7 2.1 48.2 0 24.4 18.8 23.8 14.7.2 14.7z"/>
+    <path d="M48.2.1L29.3 13.8" stroke="#282828" stroke-width=".6" fill="none"/>
+    <path d="M.2 14.7l29.1-.9" stroke="#545454" stroke-width=".5" fill="none"/>
+    <!-- tassel -->
+    <path d="M23.9 7.6c-5 1.4-21.4 5-21.6 7.1-.5 3.9-.1 10.1-.1 10.1" stroke="#282828" stroke-width=".9" fill="none" stroke-linecap="round"/>
+    <path fill="#282828" d="M3.7 39.7c-1.8-4.5-4-9.5-1.4-15.7C4 29.8 3.7 34.2 3.7 39.7z"/>
+    <ellipse fill="#545454" transform="rotate(-19.61 23.206 7.295)" cx="23.206" cy="7.295" rx=".8" ry=".4"/>
+  </g>
+</svg>
