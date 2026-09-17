@@ -21,6 +21,7 @@ const sharedModules = [
   "mcp-server",
   "mcp-entry",
   "studio-core",
+  "studio-thread-store",
   "studio-sso",
   "studio-web-server",
   "studio-web-launcher",

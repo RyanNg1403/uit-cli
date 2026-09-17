@@ -60,6 +60,7 @@ for (const required of [
   "dist/mcp-entry.js",
   "dist/session-health.js",
   "dist/studio-core.js",
+  "dist/studio-thread-store.js",
   "dist/studio-sso.js",
   "dist/studio-web-server.js",
   "dist/studio-web-launcher.js",
