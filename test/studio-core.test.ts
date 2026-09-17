@@ -64,6 +64,18 @@ describe("Studio workspace attachments", () => {
     }
   });
 
+  it("opens non-material files regardless of extension", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "uit-studio-open-")));
+    const path = join(root, "SS010.O23", "submission.generated");
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, "generated submission");
+      await expect(requireOpenableWorkspacePath(path, { root })).resolves.toBe(path);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not open executable workspace files", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "uit-studio-open-")));
     const path = join(root, "SS010.O23", "run.txt");
