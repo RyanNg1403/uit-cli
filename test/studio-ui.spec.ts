@@ -1369,7 +1369,7 @@ test("assignment submission approval always requires a fresh confirmation", asyn
   const input = (await calls(page, "agent.start")).at(-1)!.input;
   const params = { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}` };
   await emit(page, "agent/approval", {
-    ...params, requestId: "submission-approval", kind: "mcp", serverName: "uit", toolName: "uit_submit_assignment",
+    ...params, requestId: "submission-approval", kind: "mcp", serverName: "uit", toolName: "uit.uit_submit_assignment",
     requiresExplicitConfirmation: true,
     description: "Upload and submit one local file to a UIT assignment.",
     argumentsText: "Arguments: {\"assignmentId\":50664,\"filePath\":\"report.pdf\"}", command: "uit · uit_submit_assignment"

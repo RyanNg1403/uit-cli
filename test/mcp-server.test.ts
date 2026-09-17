@@ -2,10 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { PassThrough } from "node:stream";
 import {
   executeMcpTool,
+  acceptsAssignmentSubmissionElicitation,
+  assignmentSubmissionElicitation,
   installMcpServer,
   isInsideUitWorkspace,
+  runMcpServer,
   upsertMcpConfig,
   writeFileAtomically,
   UIT_MCP_TOOLS,
@@ -36,6 +40,85 @@ describe("mcp-server workspace gating and tools", () => {
     expect(toolNames).toContain("uit_download_material");
     expect(toolNames).toContain("uit_submit_assignment");
     expect(toolNames.length).toBe(7);
+  });
+
+  it("describes the exact submission target in the Studio-owned confirmation request", () => {
+    const request = assignmentSubmissionElicitation({ courseId: 11782, assignmentId: 50664, filePath: "/course/assignment.txt" });
+    expect(request.mode).toBe("form");
+    expect(request.message).toContain("50664");
+    expect(request.message).toContain("/course/assignment.txt");
+    expect(request._meta).toMatchObject({ uit_confirmation: "assignment_submission", tool_name: "uit_submit_assignment" });
+    expect(acceptsAssignmentSubmissionElicitation({ action: "accept", content: { confirmed: true } })).toBe(true);
+    expect(acceptsAssignmentSubmissionElicitation({ action: "accept", content: { confirmed: false } })).toBe(false);
+    expect(acceptsAssignmentSubmissionElicitation({ action: "decline" })).toBe(false);
+  });
+
+  it("blocks the submission executor until the Studio response is accepted", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const executeTool = vi.fn().mockResolvedValue({ status: "submitted" });
+    const messages: Array<Record<string, any>> = [];
+    let buffered = "";
+    let wake: (() => void) | undefined;
+    output.on("data", (chunk) => {
+      buffered += String(chunk);
+      while (buffered.includes("\n")) {
+        const end = buffered.indexOf("\n");
+        messages.push(JSON.parse(buffered.slice(0, end)));
+        buffered = buffered.slice(end + 1);
+        wake?.();
+        wake = undefined;
+      }
+    });
+    const nextMessage = async (): Promise<Record<string, any>> => {
+      while (messages.length === 0) await new Promise<void>((resolveNext) => { wake = resolveNext; });
+      return messages.shift()!;
+    };
+
+    runMcpServer({ input, output, executeTool });
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })}\n`);
+    await expect(nextMessage()).resolves.toMatchObject({ id: 1, result: { serverInfo: { name: "uit-mcp" } } });
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "uit_submit_assignment", arguments: { courseId: 11782, assignmentId: 50664, filePath: "/course/test.txt" } } })}\n`);
+    const elicitation = await nextMessage();
+    expect(elicitation).toMatchObject({ method: "elicitation/create", params: { _meta: { uit_confirmation: "assignment_submission" } } });
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: elicitation.id, result: { action: "decline" } })}\n`);
+    await expect(nextMessage()).resolves.toMatchObject({ id: 2, result: { isError: true } });
+    expect(executeTool).not.toHaveBeenCalled();
+    input.end();
+  });
+
+  it("passes an assignment submission to the executor only after acceptance", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const executeTool = vi.fn().mockResolvedValue({ status: "submitted" });
+    const messages: Array<Record<string, any>> = [];
+    let buffered = "";
+    let wake: (() => void) | undefined;
+    output.on("data", (chunk) => {
+      buffered += String(chunk);
+      while (buffered.includes("\n")) {
+        const end = buffered.indexOf("\n");
+        messages.push(JSON.parse(buffered.slice(0, end)));
+        buffered = buffered.slice(end + 1);
+        wake?.();
+        wake = undefined;
+      }
+    });
+    const nextMessage = async (): Promise<Record<string, any>> => {
+      while (messages.length === 0) await new Promise<void>((resolveNext) => { wake = resolveNext; });
+      return messages.shift()!;
+    };
+
+    runMcpServer({ input, output, executeTool });
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })}\n`);
+    await nextMessage();
+    const args = { courseId: 11782, assignmentId: 50664, filePath: "/course/test.txt" };
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "uit_submit_assignment", arguments: args } })}\n`);
+    const elicitation = await nextMessage();
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: elicitation.id, result: { action: "accept", content: { confirmed: true } } })}\n`);
+    await expect(nextMessage()).resolves.toMatchObject({ id: 2, result: { content: [{ text: JSON.stringify({ status: "submitted" }, null, 2) }] } });
+    expect(executeTool).toHaveBeenCalledWith("uit_submit_assignment", args);
+    input.end();
   });
 
   it("resolves downloads by module ID and filename instead of a model-supplied URL", () => {

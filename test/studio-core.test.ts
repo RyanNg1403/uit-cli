@@ -19,6 +19,14 @@ function approval(toolName: string) {
 describe("Studio MCP approval policy", () => {
   it("requires a fresh approval for assignment submission", () => {
     expect(requiresExplicitUitMcpApproval(approval("uit_submit_assignment"))).toBe(true);
+    expect(requiresExplicitUitMcpApproval(approval("uit.uit_submit_assignment"))).toBe(true);
+  });
+
+  it("recognizes the Studio-owned assignment elicitation", () => {
+    const request = approval("uit_submit_assignment");
+    request.params._meta = { uit_confirmation: "assignment_submission", tool_name: "uit_submit_assignment" };
+    request.params.requestedSchema = { type: "object", properties: { confirmed: { type: "boolean" } } };
+    expect(requiresExplicitUitMcpApproval(request)).toBe(true);
   });
 
   it("does not mark read-only UIT tools as mandatory confirmation", () => {

@@ -218,8 +218,20 @@ function isUitMcpToolApproval(request: AgentRequest): boolean {
   return properties === undefined || (isRecord(properties) && Object.keys(properties).length === 0);
 }
 
+function isAssignmentSubmissionElicitation(request: AgentRequest): boolean {
+  if (request.method !== "mcpServer/elicitation/request") return false;
+  const params = request.params || {};
+  const meta = isRecord(params._meta) ? params._meta : undefined;
+  const schema = isRecord(params.requestedSchema) ? params.requestedSchema : undefined;
+  return params.mode === "form" && meta?.uit_confirmation === "assignment_submission" && schema?.type === "object";
+}
+
 function mcpApprovalResult(approved: boolean): JsonRecord {
   return { action: approved ? "accept" : "decline", content: approved ? {} : null, _meta: null };
+}
+
+function assignmentSubmissionElicitationResult(approved: boolean): JsonRecord {
+  return { action: approved ? "accept" : "decline", content: approved ? { confirmed: true } : null, _meta: null };
 }
 
 function mcpApprovalDetails(request: AgentRequest): { serverName: string; toolName: string; description: string; argumentsText: string } {
@@ -234,12 +246,16 @@ function mcpApprovalDetails(request: AgentRequest): { serverName: string; toolNa
 }
 
 export function requiresExplicitUitMcpApproval(request: AgentRequest): boolean {
-  return isUitMcpToolApproval(request) && mcpApprovalDetails(request).toolName === UIT_ASSIGNMENT_SUBMISSION_TOOL;
+  if (isAssignmentSubmissionElicitation(request)) return true;
+  if (!isUitMcpToolApproval(request)) return false;
+  const toolName = mcpApprovalDetails(request).toolName;
+  return toolName === UIT_ASSIGNMENT_SUBMISSION_TOOL || toolName.endsWith(`.${UIT_ASSIGNMENT_SUBMISSION_TOOL}`);
 }
 
 function respondToRequestError(request: CodexServerRequest, error: unknown): void {
   try {
-    if (request.method === "mcpServer/elicitation/request") codex.respond(request.id, mcpApprovalResult(false));
+    if (isAssignmentSubmissionElicitation(request as AgentRequest)) codex.respond(request.id, assignmentSubmissionElicitationResult(false));
+    else if (isUitMcpToolApproval(request as AgentRequest)) codex.respond(request.id, mcpApprovalResult(false));
     else codex.respond(request.id, { success: false, contentItems: [{ type: "inputText", text: errorMessage(error) }] });
   } catch { /* Connection already closed or the request was answered. */ }
 }
@@ -732,7 +748,9 @@ async function verifiedCourse(rawInput: unknown): Promise<CourseReference & { se
 async function handleAgentRequest(request: AgentRequest): Promise<void> {
   const binding = threadBindings.get(request.params.threadId);
   if (!binding) throw new Error("No verified course is bound to this thread.");
-  if (isUitMcpToolApproval(request)) {
+  const isAssignmentConfirmation = isAssignmentSubmissionElicitation(request);
+  const isMcpApproval = isUitMcpToolApproval(request);
+  if (isAssignmentConfirmation || isMcpApproval) {
     const details = mcpApprovalDetails(request);
     const requiresExplicitConfirmation = requiresExplicitUitMcpApproval(request);
     if (!requiresExplicitConfirmation && (binding.yolo !== false || allowAllUitMcpRequests)) {
@@ -1280,13 +1298,16 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const request = approvals.get(input.requestId);
       if (!request || typeof input.approved !== "boolean") throw new Error("This approval is no longer available.");
       if (input.remember !== undefined && input.remember !== "uit-session") throw new Error("Unknown approval persistence option.");
+      const isAssignmentConfirmation = isAssignmentSubmissionElicitation(request);
       const isMcpApproval = isUitMcpToolApproval(request);
       const requiresExplicitConfirmation = requiresExplicitUitMcpApproval(request);
-      if (input.remember === "uit-session" && (!input.approved || !isMcpApproval)) throw new Error("Only an approved UIT tool request can be remembered for this session.");
+      if (input.remember === "uit-session" && (!input.approved || (!isMcpApproval && !isAssignmentConfirmation))) throw new Error("Only an approved UIT tool request can be remembered for this session.");
       if (input.remember === "uit-session" && requiresExplicitConfirmation) throw new Error("Assignment submissions always require fresh explicit confirmation and cannot be remembered.");
-      codex.respond(request.id, isMcpApproval
-        ? mcpApprovalResult(input.approved)
-        : { decision: input.approved ? "accept" : "decline" });
+      codex.respond(request.id, isAssignmentConfirmation
+        ? assignmentSubmissionElicitationResult(input.approved)
+        : isMcpApproval
+          ? mcpApprovalResult(input.approved)
+          : { decision: input.approved ? "accept" : "decline" });
       if (input.remember === "uit-session") allowAllUitMcpRequests = true;
       approvals.delete(request.id);
     },

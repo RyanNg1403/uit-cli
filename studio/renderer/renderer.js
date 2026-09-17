@@ -2617,9 +2617,12 @@ function renderApprovals() {
   for (const approval of thread?.approvals || []) {
     const box = node("section", "approval"); box.dataset.requestId = String(approval.requestId);
     const isMcp = approval.kind === "mcp";
-    const requiresExplicitConfirmation = approval.requiresExplicitConfirmation === true || approval.toolName === "uit_submit_assignment";
+    const toolName = approval.toolName || "";
+    const requiresExplicitConfirmation = approval.requiresExplicitConfirmation === true
+      || toolName === "uit_submit_assignment"
+      || toolName.endsWith(".uit_submit_assignment");
     box.append(node("h3", "", isMcp ? "Allow this UIT tool?" : "Allow this action?"));
-    const toolLabel = `${approval.serverName || "UIT"} · ${approval.toolName || "UIT course tool"}`;
+    const toolLabel = `${approval.serverName || "UIT"} · ${toolName || "UIT course tool"}`;
     if (isMcp) {
       box.append(node("p", "approval-tool-label", toolLabel));
       if (approval.description) box.append(node("p", "approval-description", approval.description));
