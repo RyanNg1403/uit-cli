@@ -7,6 +7,7 @@ test("Calendar shows deadlines, filters accounts, navigates months and opens saf
   await expect(page.locator("#calendar-agenda .calendar-event")).toHaveCount(2);
   await expect(page.locator("#page-title")).toHaveText("Calendar");
   await expect(page.locator("#calendar-status")).toHaveText(/Last checked: .+ \(.+\)/);
+  expect(await page.locator("#calendar-status").evaluate((element) => Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600);
   await page.locator("#calendar-agenda summary").first().click();
   await expect(page.locator(".calendar-description").first()).toHaveText("Submit the report.");
   await page.getByRole("button", { name: "Open in Moodle", exact: true }).first().click();
