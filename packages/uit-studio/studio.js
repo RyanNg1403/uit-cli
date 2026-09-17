@@ -3,6 +3,7 @@
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const packageMetadata = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 const version = packageMetadata.version;
@@ -32,7 +33,7 @@ const require = createRequire(import.meta.url);
 const packageRoot = dirname(require.resolve("uit-runtime/package.json"));
 
 try {
-  const launcher = await import(join(packageRoot, "dist", "studio-web-launcher.js"));
+  const launcher = await import(pathToFileURL(join(packageRoot, "dist", "studio-web-launcher.js")).href);
   if (launcherArgs.length === 1 && launcherArgs[0] === "stop") {
     const stopped = await launcher.stopStudioWebServer();
     console.log(stopped ? "UIT Studio stopped." : "UIT Studio is not running.");
