@@ -63,6 +63,7 @@ function fakeCore() {
       "agent:disconnect": () => undefined,
       "thread:release-lock": () => ({ success: true }),
       "thread:lock-status": () => ({ locked: false }),
+      "thread:reconcile": () => ({ missingThreadIds: [] }),
       "thread:open-desktop": () => ({ success: true }),
       "thread:read-rollout": () => ({ mtime: 0, messages: [] }),
       "clipboard:write": () => ({ success: true }),

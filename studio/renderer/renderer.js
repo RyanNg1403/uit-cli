@@ -15,6 +15,7 @@ const timelineStates = new Map();
 let composerComposing = false;
 let codexAvailable = null;
 let codexRequirement = "Checking Codex App Server readiness...";
+let threadReconciliation = null;
 const state = {
   sessions: [], courses: [], projects: [], threads: [], activeId: null, view: "courses",
   semester: null, archived: false, selectedCourse: null, listGeneration: 0,
@@ -225,6 +226,7 @@ function threadStorePayload() {
     threadId: thread.threadId, turnId: thread.turnId, cwd: thread.cwd, started: thread.started, prompted: true, forkSource: thread.forkSource,
     yolo: thread.yolo !== false,
     fast: thread.fast === true,
+    handedOff: thread.handedOff === true,
     archived: Boolean(thread.archived),
     createdAt: thread.createdAt, updatedAt: thread.updatedAt,
     interrupted: thread.busy || thread.interrupted,
@@ -432,6 +434,38 @@ function removeLocalThread(thread) {
   state.threads = state.threads.filter((item) => item !== thread);
   if (state.activeId === thread.id) state.activeId = null;
 }
+
+function removeCodexThreads(threadIds) {
+  const missing = new Set(threadIds);
+  const removed = state.threads.filter((thread) => thread.threadId && missing.has(thread.threadId));
+  if (!removed.length) return false;
+  for (const thread of removed) {
+    removeLocalThread(thread);
+    timelineStates.delete(thread.id);
+  }
+  persist();
+  renderRail();
+  if (state.view === "agent") renderConversation();
+  return true;
+}
+
+async function reconcileCodexThreads() {
+  if (codexAvailable !== true) return;
+  if (threadReconciliation) return threadReconciliation;
+  const threadIds = [...new Set(state.threads.map((thread) => thread.threadId).filter(Boolean))];
+  if (!threadIds.length) return;
+  const reconciliation = (async () => {
+    const result = await window.uit.agent.reconcile(threadIds);
+    if (!result || !Array.isArray(result.missingThreadIds) || !result.missingThreadIds.every((id) => threadIds.includes(id))) {
+      throw new Error("Codex returned an invalid thread reconciliation result.");
+    }
+    removeCodexThreads(result.missingThreadIds);
+  })().finally(() => {
+    if (threadReconciliation === reconciliation) threadReconciliation = null;
+  });
+  threadReconciliation = reconciliation;
+  return reconciliation;
+}
 async function deleteThread(thread) {
   if (!thread || thread.stopping || thread.deleting) return;
   if (thread.locked) {
@@ -451,13 +485,6 @@ async function deleteThread(thread) {
     persist(); renderRail(); renderConversation();
     toast("Thread permanently deleted.");
   } catch (error) {
-    // If the native thread was already gone or not found, remove it locally idempotently.
-    if (/no rollout|not found|unknown|no such|already deleted|does not exist/i.test(errorText(error))) {
-      removeLocalThread(thread);
-      persist(); renderRail(); renderConversation();
-      toast("Thread permanently deleted.");
-      return;
-    }
     if (state.threads.includes(thread)) thread.deleting = false;
     renderRail();
     toast(`Could not delete this thread. ${errorText(error)} Try again.`);
@@ -1573,6 +1600,11 @@ function applyThreadLockDisplay(thread = activeThread()) {
 async function checkThreadLock(thread = activeThread()) {
   if (!thread?.threadId || codexAvailable !== true) {
     if (thread) thread.locked = false;
+    applyThreadLockDisplay(thread);
+    return;
+  }
+  if (thread.handedOff === true) {
+    thread.locked = true;
     applyThreadLockDisplay(thread);
     return;
   }
@@ -2801,11 +2833,7 @@ function handleAgentEvent(message) {
     return;
   }
   if (message.method === "thread/deleted" && threadId) {
-    const removed = state.threads.filter((thread) => thread.threadId === threadId);
-    if (!removed.length) return;
-    for (const thread of removed) { removeLocalThread(thread); timelineStates.delete(thread.id); }
-    persist(); renderRail();
-    if (state.view === "agent") renderConversation();
+    removeCodexThreads([threadId]);
     return;
   }
   if (message.method === "thread/name/updated" && threadId) {
@@ -3419,19 +3447,25 @@ $("#resume-codex-app")?.addEventListener("click", async () => {
     toast("No active Codex thread workspace to open.");
     return;
   }
+  const wasHandedOff = thread.handedOff === true;
   try {
-    await window.uit.agent.openDesktop({
-      threadId: thread.threadId,
-      cwd: thread.cwd,
-      title: thread.title || ""
-    });
+    thread.handedOff = true;
+    thread.locked = true;
+    persist();
+    applyThreadLockDisplay(thread);
+    await window.uit.agent.openDesktop({ threadId: thread.threadId });
     toast("Opening thread in ChatGPT Desktop (Lock released)...");
-    await checkThreadLock(thread);
   } catch (err) {
+    thread.handedOff = wasHandedOff;
+    thread.locked = wasHandedOff;
+    persist();
+    applyThreadLockDisplay(thread);
     toast(`Could not open Desktop App. ${errorText(err)}`);
   }
 });
 window.addEventListener("focus", async () => {
+  try { await reconcileCodexThreads(); }
+  catch (error) { console.error("Thread reconciliation error:", error); }
   const thread = activeThread();
   if (thread && state.view === "agent") {
     await checkThreadLock(thread);
@@ -3602,7 +3636,11 @@ window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist();
       codexRequirement = status?.message || "Codex App Server is not ready. Check the Codex CLI installation and sign-in.";
       dot.classList.toggle("ready", codexAvailable);
       agentNav.title = codexAvailable ? "Codex App Server ready" : codexRequirement;
-      if (codexAvailable) ensureModels();
+      if (codexAvailable) {
+        try { await reconcileCodexThreads(); }
+        catch (error) { console.error("Thread reconciliation error:", error); }
+        ensureModels();
+      }
     } catch {
       codexAvailable = false;
       codexRequirement = "Could not check Codex App Server readiness. Check the Codex CLI installation and sign-in.";

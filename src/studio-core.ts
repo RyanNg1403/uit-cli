@@ -6,8 +6,9 @@ import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ApiClient } from "./types.js";
 import type { SsoSessionData } from "./config.js";
-import type {
-  CodexClient,
+import {
+  isCodexThreadNotFoundError,
+  type CodexClient,
   CodexMessage,
   CodexModelOption,
   CodexRequestId,
@@ -43,7 +44,7 @@ export interface StudioHost {
   openPath(path: string): Promise<string>;
   openExternal(url: string): Promise<void>;
   writeClipboard(text: string): void;
-  openCodexDesktop(cwd: string, threadId: string): Promise<void>;
+  openCodexDesktop(threadId: string): Promise<void>;
 }
 
 type CourseReference = { courseId: number; baseUrl?: string; userId?: number };
@@ -77,6 +78,8 @@ type ThreadBinding = CourseReference & {
   fast?: boolean;
   busy: boolean;
   locked?: boolean;
+  handedOff?: boolean;
+  handoffPending?: boolean;
   completedTurns?: Set<string>;
 };
 type AgentRequest = CodexServerRequest & { params: JsonRecord };
@@ -91,6 +94,10 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object" && "message" in error) return String((error as { message: unknown }).message);
   return String(error);
+}
+
+function isActiveThreadWriterError(error: unknown): boolean {
+  return /active writer/i.test(errorMessage(error));
 }
 
 let host!: StudioHost;
@@ -160,7 +167,7 @@ async function loadService() {
     const notificationThreadId = params.threadId || params.thread?.id;
     const binding = threadBindings.get(notificationThreadId);
     if (message.method === "thread/status/changed" && notificationThreadId && isThreadStatus(params.status) && binding) {
-      binding.locked = !binding.busy && params.status.type === "active";
+      binding.locked = binding.handedOff === true || (!binding.busy && params.status.type === "active");
     }
     if (message.method === "thread/deleted" && notificationThreadId) {
       threadBindings.delete(notificationThreadId);
@@ -218,7 +225,8 @@ async function restorePersistedThreadBindings(): Promise<void> {
       yolo: rawThread.yolo !== false,
       fast: rawThread.fast === true,
       busy: false,
-      locked: false
+      locked: rawThread.handedOff === true,
+      handedOff: rawThread.handedOff === true
     });
   }
 }
@@ -872,6 +880,8 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     const yolo = requestedYolo === undefined ? binding.yolo !== false : requestedYolo;
     const fast = requestedFast === undefined ? binding.fast === true : requestedFast;
     if (binding.busy) throw new Error("This thread already has an active turn.");
+    if (binding.handoffPending) throw new Error("This thread is being handed off to ChatGPT Desktop.");
+    if (binding.handedOff) throw new Error("This thread was handed off to ChatGPT Desktop and is read-only in Studio.");
     const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
     if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
     if (resumed.status.type === "active") {
@@ -890,7 +900,8 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     // Keep MCP approval requests enabled so YOLO can auto-accept them in the
     // host. Codex's `never` policy rejects MCP calls before the host can
     // respond, which makes the UIT tools unusable.
-    started = await codex.startThread(requireWorkspacePath(workspace.path), { ...(model !== undefined ? { model } : {}), approvalPolicy: "on-request" });
+    const workspacePath = requireWorkspacePath(workspace.path);
+    started = await codex.startThread(workspacePath, { ...(model !== undefined ? { model } : {}), approvalPolicy: "on-request" });
     threadId = started.thread.id;
     const fast = requestedFast === true;
     binding = { courseId, baseUrl: account.baseUrl, userId: account.userId, shortname: course.shortname, workspace: workspace.path, yolo, fast, busy: true };
@@ -1279,7 +1290,7 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const input = requireObject(rawInput, "Agent input");
       const id = requireString(input.threadId, "Thread ID");
       const binding = threadBindings.get(id);
-      if (!binding || binding.busy) throw new Error("Only an idle course thread can be branched.");
+      if (!binding || binding.busy || binding.handoffPending || binding.handedOff) throw new Error("Only a Studio-owned idle course thread can be branched.");
       courseSession(binding);
       const thread = await codex.forkThread(id);
       threadBindings.set(thread.id, { ...binding, parentThreadId: id, taskId: undefined, turnId: undefined, busy: false });
@@ -1290,6 +1301,8 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const id = requireString(input.threadId, "Thread ID");
       const binding = threadBindings.get(id);
       if (!binding) throw new Error("Unknown course thread.");
+      if (binding.handoffPending) throw new Error("This thread is being handed off to ChatGPT Desktop.");
+      if (binding.handedOff) throw new Error("This thread was handed off to ChatGPT Desktop and cannot be deleted from Studio.");
       if (binding.busy) throw new Error("Stop the active turn before deleting this thread.");
       if ([...threadBindings].some(([threadId, child]) => child.busy && threadDescendsFrom(threadId, id))) {
         throw new Error("Stop active turns in this thread's branches before deleting it.");
@@ -1306,6 +1319,8 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       if (!name) throw new Error("Thread name cannot be empty.");
       const binding = threadBindings.get(id);
       if (!binding) throw new Error("Unknown course thread.");
+      if (binding.handoffPending) throw new Error("This thread is being handed off to ChatGPT Desktop.");
+      if (binding.handedOff) throw new Error("This thread was handed off to ChatGPT Desktop and cannot be renamed from Studio.");
       await codex.setThreadName(id, name);
       return { success: true };
     },
@@ -1339,6 +1354,28 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       approvals.delete(request.id);
     },
     "agent:disconnect": () => { cachedModels = undefined; allowAllUitMcpRequests = false; return codex.disconnect(); },
+    "thread:reconcile": async (rawInput) => {
+      const input = requireObject(rawInput, "Thread reconciliation input");
+      if (!Array.isArray(input.threadIds) || !input.threadIds.every((id: unknown) => typeof id === "string" && id.trim() !== "")) {
+        throw new Error("Thread reconciliation requires non-empty thread IDs.");
+      }
+      const threadIds = [...new Set(input.threadIds as string[])];
+      const missingThreadIds: string[] = [];
+      for (const threadId of threadIds) {
+        try {
+          const thread = await codex.readThread(threadId);
+          if (thread.id !== threadId) throw new Error("Codex returned a different thread during reconciliation.");
+        } catch (error) {
+          if (!isCodexThreadNotFoundError(error, "thread/read", threadId)) throw error;
+          missingThreadIds.push(threadId);
+        }
+      }
+      for (const threadId of missingThreadIds) {
+        threadBindings.delete(threadId);
+        for (const [requestId, request] of approvals) if (request.params.threadId === threadId) approvals.delete(requestId);
+      }
+      return { missingThreadIds };
+    },
     "thread:release-lock": async (rawInput) => {
       const input = requireObject(rawInput, "Lock input");
       requireString(input.threadId, "Thread ID");
@@ -1355,24 +1392,66 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const threadId = requireString(input.threadId, "Thread ID");
       const binding = threadBindings.get(threadId);
       if (binding?.busy) return { locked: false };
-      const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
-      if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
-      const locked = resumed.status.type === "active";
-      if (binding) binding.locked = locked;
-      return { locked };
+      if (binding?.handoffPending) return { locked: true };
+      if (binding?.handedOff) return { locked: true };
+      try {
+        const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
+        if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
+        const locked = resumed.status.type === "active";
+        if (binding) binding.locked = locked;
+        return { locked };
+      } catch (error) {
+        // A Desktop/CLI handoff can win the writer race between the renderer
+        // releasing Studio and its next lock-status check. Treat that exact
+        // app-server response as read-only state instead of clearing the lock
+        // or surfacing a misleading renderer error.
+        if (!isActiveThreadWriterError(error)) throw error;
+        if (binding) binding.locked = true;
+        await codex.disconnectAndWait().catch(() => undefined);
+        return { locked: true };
+      }
     },
     "thread:open-desktop": async (rawInput) => {
       const input = requireObject(rawInput, "Open desktop input");
-      const cwd = requireWorkspacePath(input.cwd, "Workspace path");
       const threadId = requireString(input.threadId, "Thread ID");
+      const binding = threadBindings.get(threadId);
+      if (!binding) throw new Error("Unknown course thread.");
+      if (binding.busy) throw new Error("Wait for the active turn to finish before opening this thread in ChatGPT Desktop.");
+      if (binding.handoffPending) throw new Error("This thread is already being opened in ChatGPT Desktop.");
+      binding.handoffPending = true;
       if (idleLockTimer) {
         clearTimeout(idleLockTimer);
         idleLockTimer = undefined;
       }
       cachedModels = undefined;
-      await Promise.resolve(codex.disconnect()).catch(() => undefined);
-      await host.openCodexDesktop(cwd, threadId);
-      return { success: true };
+      try {
+        const wasHandedOff = binding.handedOff === true;
+        if (!wasHandedOff) {
+          const thread = await codex.readThread(threadId);
+          if (thread.id !== threadId) throw new Error("Codex returned a different thread during Desktop handoff.");
+          binding.handedOff = true;
+          binding.locked = true;
+          try {
+            await codex.disconnectAndWait();
+          } catch (error) {
+            binding.handedOff = false;
+            binding.locked = false;
+            throw error;
+          }
+        }
+        try {
+          await host.openCodexDesktop(threadId);
+        } catch (error) {
+          if (!wasHandedOff) {
+            binding.handedOff = false;
+            binding.locked = false;
+          }
+          throw error;
+        }
+        return { success: true };
+      } finally {
+        binding.handoffPending = false;
+      }
     },
     "clipboard:write": async (rawInput) => {
       const input = requireObject(rawInput, "Clipboard input");

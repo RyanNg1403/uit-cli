@@ -142,6 +142,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (method === "agent.stop") { emit({ method: "turn/completed", params: { threadId: input.threadId, turn: { id: input.turnId, status: "interrupted" } } }); return; }
     if (method === "agent.releaseLock" || method === "agent.openDesktop" || method === "agent.writeClipboard") return { success: true };
     if (method === "agent.lockStatus") return { locked: false };
+    if (method === "agent.reconcile") return { missingThreadIds: [] };
     if (method === "agent.readRollout") return { mtime: 0, messages: [] };
     throw new Error(`Unexpected bridge call: ${method}`);
   };
@@ -163,7 +164,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     session: ["status", "login", "ssoLogin", "logout"],
     courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
     threads: ["read", "write"],
-    codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect", "releaseLock", "lockStatus", "openDesktop", "readRollout", "writeClipboard"],
+    codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect", "releaseLock", "lockStatus", "reconcile", "openDesktop", "readRollout", "writeClipboard"],
     workspace: ["create"], shell: ["open"],
   }).map(([namespace, methods]) => [namespace, Object.fromEntries(methods.map((method) => [method, (input: any) => invoke(`${namespace}.${method}`, input)]))]));
   window.uit.agent.onEvent = (listener: (event: any) => void) => { listeners.push(listener); return () => listeners.splice(listeners.indexOf(listener), 1); };

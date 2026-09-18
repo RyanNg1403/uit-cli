@@ -124,6 +124,7 @@
   });
   bridge.agent.releaseLock = (threadId) => rpc("thread:release-lock", { threadId });
   bridge.agent.lockStatus = (threadId) => rpc("thread:lock-status", { threadId });
+  bridge.agent.reconcile = (threadIds) => rpc("thread:reconcile", { threadIds });
   bridge.agent.writeClipboard = async (text) => {
     try {
       if (navigator.clipboard && window.isSecureContext !== false) {

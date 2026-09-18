@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { type ChildProcessWithoutNullStreams, type spawn } from "node:child_process";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CodexClient, type CodexDynamicToolSpec, type CodexMessage } from "../src/codex-client.js";
+import { CodexClient, isCodexThreadNotFoundError, type CodexDynamicToolSpec, type CodexMessage } from "../src/codex-client.js";
 
 const clients: CodexClient[] = [];
 afterEach(async () => {
@@ -80,6 +80,31 @@ describe("CodexClient", () => {
     clients.push(client);
     await expect(client.connect()).rejects.toThrow("denied");
     await client.disconnect();
+  });
+
+  it("reads an exact thread and identifies only the current thread/read missing response", async () => {
+    const server = mockServer((message) => {
+      if (message.method === "initialize") server.send({ id: message.id, result: {} });
+      if (message.method === "thread/read" && message.params?.threadId === "present") {
+        server.send({ id: message.id, result: { thread: { id: "present", name: "Present thread" } } });
+      }
+      if (message.method === "thread/read" && message.params?.threadId === "missing") {
+        server.send({ id: message.id, error: { code: -32600, message: "thread not loaded: missing" } });
+      }
+    });
+
+    await expect(server.client.readThread("present")).resolves.toMatchObject({ id: "present", name: "Present thread" });
+    let error: unknown;
+    try {
+      await server.client.readThread("missing");
+    } catch (caught) {
+      error = caught;
+    }
+    expect(isCodexThreadNotFoundError(error, "thread/read", "missing")).toBe(true);
+    expect(isCodexThreadNotFoundError(error, "thread/read", "another-thread")).toBe(false);
+    expect(isCodexThreadNotFoundError(new Error("thread not loaded: missing"), "thread/read", "missing")).toBe(false);
+    expect(server.messages.at(-2)).toMatchObject({ method: "thread/read", params: { threadId: "present", includeTurns: false } });
+    expect(server.messages.at(-1)).toMatchObject({ method: "thread/read", params: { threadId: "missing", includeTurns: false } });
   });
 
   it("shares one initialization across simultaneous connect, thread, and send calls", async () => {
@@ -217,6 +242,26 @@ describe("CodexClient", () => {
     expect(exited).toHaveBeenCalledExactlyOnceWith({ code: 17, signal: null });
     expect(server.client.isConnected).toBe(false);
     expect(server.child.kill).toHaveBeenCalledOnce();
+  });
+
+  it("can wait for the app-server process to exit before handing off a thread", async () => {
+    const server = mockServer((message) => {
+      if (message.method === "initialize") server.send({ id: message.id, result: {} });
+    });
+    await server.client.connect();
+    let disconnected = false;
+    const disconnect = server.client.disconnectAndWait().then(() => { disconnected = true; });
+    const reconnect = server.client.connect();
+    await Promise.resolve();
+    expect(server.child.kill).toHaveBeenCalledOnce();
+    expect(server.spawnProcess).toHaveBeenCalledOnce();
+    expect(disconnected).toBe(false);
+
+    server.child.emit("close", 0, null);
+    await disconnect;
+    await reconnect;
+    expect(disconnected).toBe(true);
+    expect(server.spawnProcess).toHaveBeenCalledTimes(2);
   });
 
   it.each([0, 1, "1", "approval-id"])("routes server request ID %s independently from pending responses", async (id) => {

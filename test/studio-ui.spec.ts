@@ -1149,6 +1149,25 @@ test("sent project threads persist follow-up drafts, rename, delete and switch i
   expect(await calls(page, "agent.start")).toHaveLength(0);
 });
 
+test("removes a Codex thread deleted externally when Studio regains focus", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Delete this thread in ChatGPT");
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
+
+  await page.evaluate((deletedThreadId) => {
+    window.uit.agent.reconcile = async (threadIds) => ({
+      missingThreadIds: threadIds.includes(deletedThreadId) ? [deletedThreadId] : []
+    });
+    window.dispatchEvent(new Event("focus"));
+  }, threadId);
+
+  await expect(page.locator(".thread-link")).toHaveCount(0);
+  await expect(page.locator(".thread-header")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads)).toEqual([]);
+});
+
 test("resource attachment resets on project change and removal persists for a sent thread", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
@@ -2205,6 +2224,31 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   // Press Escape to close
   await page.keyboard.press("Escape");
   await expect(resumeMenu).toBeHidden();
+});
+
+test("keeps a thread read-only after handing it to the Desktop App", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Test Desktop handoff");
+
+  const lockChecksBeforeHandoff = (await calls(page, "agent.lockStatus")).length;
+  await page.locator("#thread-resume-btn").click();
+  await page.locator("#resume-codex-app").click();
+
+  await expect.poll(async () => (await calls(page, "agent.openDesktop")).length).toBe(1);
+  await expect(page.locator("#thread-lock-badge")).toBeVisible();
+  await expect(page.locator("#agent-input")).toBeDisabled();
+  expect(await calls(page, "agent.lockStatus")).toHaveLength(lockChecksBeforeHandoff);
+
+  await control(page, "fail", "agent.openDesktop", "Desktop launch failed");
+  await page.locator("#thread-resume-btn").click();
+  await page.locator("#resume-codex-app").click();
+  await expect.poll(async () => (await calls(page, "agent.openDesktop")).length).toBe(2);
+  await expect(page.locator("#toast")).toContainText("Could not open Desktop App. Desktop launch failed");
+  await expect(page.locator("#thread-lock-badge")).toBeVisible();
+  await expect(page.locator("#agent-input")).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.handedOff)).toBe(true);
 });
 
 test("during thread-lock, input box, rename, and delete options convert to not-allowed cursor and are disabled", async ({ page, boot }) => {
