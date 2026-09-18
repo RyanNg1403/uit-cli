@@ -741,8 +741,9 @@ async function clearSsoSession({ clearStorage = false }: { clearStorage?: boolea
 async function startSsoLogin(rawBaseUrl: unknown, forceReauthentication = false): Promise<DesktopSession> {
   const baseUrl = normalizeSiteUrl(rawBaseUrl);
   if (ssoSession && !forceReauthentication) return Promise.resolve({ authenticated: true, authMode: "sso", baseUrl: ssoSession.baseUrl, userId: ssoSession.userId });
-  if (forceReauthentication && ssoSession) await clearSsoSession({ clearStorage: true });
   if (webSsoLoginPromise) return webSsoLoginPromise;
+  // Keep the existing session and its persisted account record until the new
+  // browser login succeeds; cancellation must leave the reconnect state visible.
   const loginId = Symbol("web-sso-login");
   const promise = new Promise<DesktopSession>((resolve, reject) => {
     void (async () => {

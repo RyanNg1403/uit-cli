@@ -6,8 +6,8 @@ import { courses, fileTypes } from "./fixtures/studio";
 import { startStudioWebServer, type StudioWebServer } from "../src/studio-web-server.js";
 
 const currentSessions = [
-  { baseUrl: "https://courses.uit.edu.vn", userId: 101, authMode: "sso", label: "Current Moodle" },
-  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "token", label: "Legacy Moodle" }
+  { baseUrl: "https://courses.uit.edu.vn", userId: 101, authMode: "sso", label: "Current Moodle", health: { state: "connected", checkedAt: Date.now() } },
+  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "token", label: "Legacy Moodle", health: { state: "connected", checkedAt: Date.now() } }
 ];
 
 function fakeCore() {
@@ -90,7 +90,7 @@ test("opens the current Studio renderer through the authenticated web bridge", a
     const eventStream = page.waitForResponse((response) => response.url().endsWith("/api/events") && response.request().method() === "GET");
     await page.goto(server.launchUrl());
     expect((await eventStream).status()).toBe(200);
-    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "assets/uit-dau-dau-icon.png");
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "assets/uit-dau-dau.svg");
     await expect(page.locator("#account-label")).toHaveText("Course accounts (2)");
     await expect(page.locator(".course-row")).toHaveCount(19);
 

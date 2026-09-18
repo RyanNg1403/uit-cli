@@ -68,7 +68,7 @@ for (const required of [
   "studio-build/renderer/index.html",
   "studio-build/renderer/renderer.js",
   "studio-build/renderer/calendar.js",
-  "studio-build/renderer/assets/uit-dau-dau-icon.png"
+  "studio-build/renderer/assets/uit-dau-dau.svg"
 ]) {
   if (!runtimeFiles.includes(required)) throw new Error(`uit-runtime package is missing ${required}`);
 }
