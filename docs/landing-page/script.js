@@ -177,10 +177,94 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   let activeMcpToolRow;
+  const mcpConnector = document.querySelector(".mcp-tool-connector");
+  const mcpConnectorGlow = mcpConnector?.querySelector(".mcp-tool-connector-glow");
+  const mcpConnectorLine = mcpConnector?.querySelector(".mcp-tool-connector-line");
+  const mcpConnectorSource = mcpConnector?.querySelector(".mcp-tool-connector-source");
+  const mcpConnectorTarget = mcpConnector?.querySelector(".mcp-tool-connector-target");
+  const syncMcpConnector = () => {
+    if (mcpWorkbench?.classList.contains("is-inspector-opening")) return;
+    if (!mcpConnector || !mcpWorkbench || !mcpInspector || !activeMcpToolRow || mcpInspector.hidden) {
+      mcpConnector?.setAttribute("hidden", "");
+      return;
+    }
+
+    const workbenchRect = mcpWorkbench.getBoundingClientRect();
+    const rowRect = activeMcpToolRow.getBoundingClientRect();
+    const inspectorRect = mcpInspector.getBoundingClientRect();
+    if (!workbenchRect.width || !workbenchRect.height || !rowRect.width || !inspectorRect.width) {
+      mcpConnector.setAttribute("hidden", "");
+      return;
+    }
+
+    const relative = (value, offset) => value - offset;
+    let startX;
+    let startY;
+    let endX;
+    let endY;
+    let path;
+    if (inspectorRect.left >= rowRect.right) {
+      startX = relative(rowRect.right, workbenchRect.left) + 3;
+      startY = relative(rowRect.top + rowRect.height / 2, workbenchRect.top);
+      endX = relative(inspectorRect.left, workbenchRect.left) - 3;
+      endY = relative(inspectorRect.top, workbenchRect.top) + Math.min(48, inspectorRect.height / 2);
+      const curve = Math.max(22, (endX - startX) * .42);
+      path = `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`;
+    } else {
+      startX = relative(rowRect.left + rowRect.width / 2, workbenchRect.left);
+      startY = relative(rowRect.bottom, workbenchRect.top) + 3;
+      endX = relative(inspectorRect.left + Math.min(46, inspectorRect.width / 2), workbenchRect.left);
+      endY = relative(inspectorRect.top, workbenchRect.top) - 3;
+      const curve = Math.max(18, (endY - startY) * .36);
+      path = `M ${startX} ${startY} C ${startX} ${startY + curve}, ${endX} ${endY - curve}, ${endX} ${endY}`;
+    }
+
+    const width = Math.ceil(workbenchRect.width);
+    const height = Math.ceil(workbenchRect.height);
+    mcpConnector.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    [mcpConnectorGlow, mcpConnectorLine].forEach((connectorPath) => connectorPath?.setAttribute("d", path));
+    mcpConnectorSource?.setAttribute("cx", String(startX));
+    mcpConnectorSource?.setAttribute("cy", String(startY));
+    mcpConnectorTarget?.setAttribute("cx", String(endX));
+    mcpConnectorTarget?.setAttribute("cy", String(endY));
+    mcpConnector.removeAttribute("hidden");
+  };
+
+  window.addEventListener("resize", syncMcpConnector, { passive: true });
+  if (mcpWorkbench && "ResizeObserver" in window) new ResizeObserver(syncMcpConnector).observe(mcpWorkbench);
+
+  const animateMcpInspectorFromRow = () => {
+    if (!mcpWorkbench || !mcpInspector || !activeMcpToolRow) return;
+
+    mcpWorkbench.classList.remove("is-inspector-opening");
+    syncMcpConnector();
+    const rowRect = activeMcpToolRow.getBoundingClientRect();
+    const inspectorRect = mcpInspector.getBoundingClientRect();
+    const opensToRight = inspectorRect.left >= rowRect.right;
+    const rowAnchorX = opensToRight ? rowRect.right : rowRect.left + rowRect.width / 2;
+    const rowAnchorY = opensToRight ? rowRect.top + rowRect.height / 2 : rowRect.bottom;
+    const inspectorAnchorX = inspectorRect.left;
+    const inspectorAnchorY = inspectorRect.top + inspectorRect.height / 2;
+
+    mcpWorkbench.style.setProperty("--mcp-inspector-from-x", `${rowAnchorX - inspectorAnchorX}px`);
+    mcpWorkbench.style.setProperty("--mcp-inspector-from-y", `${rowAnchorY - inspectorAnchorY}px`);
+    void mcpInspector.offsetWidth;
+    mcpWorkbench.classList.add("is-inspector-opening");
+  };
+
+  mcpInspector?.addEventListener("animationend", (event) => {
+    if (event.animationName !== "mcp-inspector-arrive") return;
+    mcpWorkbench?.classList.remove("is-inspector-opening");
+    syncMcpConnector();
+  });
+
   const closeMcpInspector = () => {
     if (!mcpInspector) return;
     mcpInspector.hidden = true;
-    mcpWorkbench?.classList.remove("is-inspector-open");
+    mcpWorkbench?.classList.remove("is-inspector-open", "is-inspector-opening");
+    mcpWorkbench?.style.removeProperty("--mcp-inspector-from-x");
+    mcpWorkbench?.style.removeProperty("--mcp-inspector-from-y");
+    syncMcpConnector();
     mcpToolRows.forEach((row) => {
       row.classList.remove("is-selected");
       row.setAttribute("aria-expanded", "false");
@@ -210,6 +294,8 @@ document.addEventListener("DOMContentLoaded", () => {
       mcpParameterGrid.append(noParameters);
       mcpWorkbench?.classList.add("is-inspector-open");
       mcpInspector.hidden = false;
+      syncMcpConnector();
+      animateMcpInspectorFromRow();
       return;
     }
 
@@ -233,6 +319,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     mcpWorkbench?.classList.add("is-inspector-open");
     mcpInspector.hidden = false;
+    syncMcpConnector();
+    animateMcpInspectorFromRow();
   };
 
   mcpToolRows.forEach((row) => {
