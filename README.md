@@ -16,19 +16,16 @@
 
 ## UIT Studio
 
-Your course space. Built to focus.
+<p align="center">
+  <img src="docs/assets/uit-studio-panda.png" alt="UIT Studio panda mascot" width="180">
+</p>
 
-Both installation methods launch the same local web Studio with `uit-studio`.
-The npm installation requires [Node.js 24.0+](https://nodejs.org/); native
-release packages include Node.js and the SSO Chromium runtime.
-
-See what's due. Find what you need. Get back to learning.
-
-Track deadlines, announcements, and course materials in one focused workspace.
-
-Calendar keeps the next deadline visible. Announcements keep you in the loop. Reminders keep you ahead.
-
-Studio runs locally in the background. Run `uit-studio stop` whenever you want to shut it down.
+- **Your course space. Built to focus.**
+- Both installation methods launch the same local web Studio with `uit-studio`. The npm installation requires [Node.js 24.0+](https://nodejs.org/); native release packages include Node.js and the SSO Chromium runtime.
+- **See what's due. Find what you need. Get back to learning.**
+- Track deadlines, announcements, and course materials in one focused workspace.
+- Calendar keeps the next deadline visible. Announcements keep you in the loop. Reminders keep you ahead.
+- Studio runs locally in the background. Run `uit-studio stop` whenever you want to shut it down.
 
 <details>
 <summary>macOS</summary>

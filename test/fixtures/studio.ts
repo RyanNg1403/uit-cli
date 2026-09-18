@@ -142,6 +142,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (method === "agent.stop") { emit({ method: "turn/completed", params: { threadId: input.threadId, turn: { id: input.turnId, status: "interrupted" } } }); return; }
     if (method === "agent.releaseLock" || method === "agent.openDesktop" || method === "agent.writeClipboard") return { success: true };
     if (method === "agent.lockStatus") return { locked: false };
+    if (method === "agent.reconcile") return { missingThreadIds: [] };
     if (method === "agent.readRollout") return { mtime: 0, messages: [] };
     throw new Error(`Unexpected bridge call: ${method}`);
   };
@@ -163,7 +164,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     session: ["status", "login", "ssoLogin", "logout"],
     courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
     threads: ["read", "write"],
-    codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect", "releaseLock", "lockStatus", "openDesktop", "readRollout", "writeClipboard"],
+    codex: ["status", "models"], agent: ["start", "send", "fork", "delete", "stop", "approve", "disconnect", "releaseLock", "lockStatus", "reconcile", "openDesktop", "readRollout", "writeClipboard"],
     workspace: ["create"], shell: ["open"],
   }).map(([namespace, methods]) => [namespace, Object.fromEntries(methods.map((method) => [method, (input: any) => invoke(`${namespace}.${method}`, input)]))]));
   window.uit.agent.onEvent = (listener: (event: any) => void) => { listeners.push(listener); return () => listeners.splice(listeners.indexOf(listener), 1); };
@@ -176,7 +177,6 @@ export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>
     const root = new URL("../../studio/renderer/", import.meta.url);
     const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/web-bridge.js": "web-bridge.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png", "/assets/uit-dau-dau.svg": "assets/uit-dau-dau.svg", "/assets/dau-dau-agent.png": "assets/dau-dau-agent.png", "/assets/dau-dau-onboarding.png": "assets/dau-dau-onboarding.png" };
     assets["/calendar.js"] = "calendar.js";
-    assets["/assets/uit-dau-dau-icon.png"] = "assets/uit-dau-dau-icon.png";
     const server = createServer(async (request, response) => {
       const pathname = new URL(request.url!, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204).end(); return; }
@@ -229,8 +229,10 @@ export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>
         }
       }
       if (lastError) throw lastError;
-      await expect(page.locator("#account-label")).toHaveText(options.authenticated === false ? "Connect accounts" : "Course accounts (2)");
-      if (options.authenticated !== false && !options.fail?.["courses.list"]) await expect(page.locator(".course-row")).toHaveCount(19);
+      const connectedCount = sessions.filter((session) => (options.health?.[session.baseUrl] || "connected") === "connected").length;
+      await expect(page.locator("#account-label")).toHaveText(options.authenticated === false ? "Connect accounts" : `Course accounts (${connectedCount})`);
+      const expectedCourseCount = courses.filter((course) => (options.health?.[course.baseUrl] || "connected") === "connected").length;
+      if (options.authenticated !== false && !options.fail?.["courses.list"]) await expect(page.locator(".course-row")).toHaveCount(expectedCourseCount);
     });
   },
 });

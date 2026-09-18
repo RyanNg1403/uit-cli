@@ -15,6 +15,7 @@ const timelineStates = new Map();
 let composerComposing = false;
 let codexAvailable = null;
 let codexRequirement = "Checking Codex App Server readiness...";
+let threadReconciliation = null;
 const state = {
   sessions: [], courses: [], projects: [], threads: [], activeId: null, view: "courses",
   semester: null, archived: false, selectedCourse: null, listGeneration: 0,
@@ -107,7 +108,9 @@ function uid() { return crypto.randomUUID(); }
 function identity(ref) { return JSON.stringify([ref.baseUrl, String(ref.userId)]); }
 function courseKey(course) { return JSON.stringify([course.baseUrl, String(course.userId), Number(course.id)]); }
 function courseRef(course) { return { courseId: course.id, baseUrl: course.baseUrl, userId: course.userId }; }
-function connected(ref) { return !!ref && state.sessions.some((session) => identity(session) === identity(ref)); }
+function connected(ref) {
+  return !!ref && state.sessions.some((session) => identity(session) === identity(ref) && !["expired", "unavailable"].includes(sessionHealthState(session)));
+}
 function activeThread() { return state.threads.find((thread) => thread.id === state.activeId && visibleThread(thread)); }
 function visibleThread(thread) { return connected(thread?.course || thread?.owner); }
 function hasPrompt(thread) { return thread.prompted === true; }
@@ -161,7 +164,28 @@ function toast(message) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => { $("#toast").hidden = true; }, 6000);
 }
-function appError(message) { $("#app-error").textContent = message; $("#app-error").hidden = !message; }
+function appError(message, action) {
+  const banner = $("#app-error");
+  const actions = Array.isArray(action?.actions) ? action.actions : action ? [action] : [];
+  banner.replaceChildren();
+  banner.hidden = !message;
+  banner.dataset.accountNotice = actions.some((entry) => entry.kind === "account") ? "true" : "false";
+  if (!message) return;
+  banner.append(node("span", "error-banner-message", message));
+  for (const entry of actions) {
+    const actionButton = button(entry.label, "error-banner-action", async () => {
+      actionButton.disabled = true;
+      try { await entry.run(); }
+      catch (error) { appError(errorText(error)); }
+      finally { if (actionButton.isConnected) actionButton.disabled = false; }
+    });
+    banner.append(actionButton);
+  }
+  const close = button("×", "error-banner-close", () => appError(""));
+  close.setAttribute("aria-label", actions.some((entry) => entry.kind === "account") ? "Dismiss account warning" : "Dismiss error");
+  close.title = "Dismiss";
+  banner.append(close);
+}
 
 // Persist only renderer-owned state, never session objects or bridge credentials.
 function safeResource(resource) {
@@ -202,6 +226,7 @@ function threadStorePayload() {
     threadId: thread.threadId, turnId: thread.turnId, cwd: thread.cwd, started: thread.started, prompted: true, forkSource: thread.forkSource,
     yolo: thread.yolo !== false,
     fast: thread.fast === true,
+    handedOff: thread.handedOff === true,
     archived: Boolean(thread.archived),
     createdAt: thread.createdAt, updatedAt: thread.updatedAt,
     interrupted: thread.busy || thread.interrupted,
@@ -409,6 +434,38 @@ function removeLocalThread(thread) {
   state.threads = state.threads.filter((item) => item !== thread);
   if (state.activeId === thread.id) state.activeId = null;
 }
+
+function removeCodexThreads(threadIds) {
+  const missing = new Set(threadIds);
+  const removed = state.threads.filter((thread) => thread.threadId && missing.has(thread.threadId));
+  if (!removed.length) return false;
+  for (const thread of removed) {
+    removeLocalThread(thread);
+    timelineStates.delete(thread.id);
+  }
+  persist();
+  renderRail();
+  if (state.view === "agent") renderConversation();
+  return true;
+}
+
+async function reconcileCodexThreads() {
+  if (codexAvailable !== true) return;
+  if (threadReconciliation) return threadReconciliation;
+  const threadIds = [...new Set(state.threads.map((thread) => thread.threadId).filter(Boolean))];
+  if (!threadIds.length) return;
+  const reconciliation = (async () => {
+    const result = await window.uit.agent.reconcile(threadIds);
+    if (!result || !Array.isArray(result.missingThreadIds) || !result.missingThreadIds.every((id) => threadIds.includes(id))) {
+      throw new Error("Codex returned an invalid thread reconciliation result.");
+    }
+    removeCodexThreads(result.missingThreadIds);
+  })().finally(() => {
+    if (threadReconciliation === reconciliation) threadReconciliation = null;
+  });
+  threadReconciliation = reconciliation;
+  return reconciliation;
+}
 async function deleteThread(thread) {
   if (!thread || thread.stopping || thread.deleting) return;
   if (thread.locked) {
@@ -428,13 +485,6 @@ async function deleteThread(thread) {
     persist(); renderRail(); renderConversation();
     toast("Thread permanently deleted.");
   } catch (error) {
-    // If the native thread was already gone or not found, remove it locally idempotently.
-    if (/no rollout|not found|unknown|no such|already deleted|does not exist/i.test(errorText(error))) {
-      removeLocalThread(thread);
-      persist(); renderRail(); renderConversation();
-      toast("Thread permanently deleted.");
-      return;
-    }
     if (state.threads.includes(thread)) thread.deleting = false;
     renderRail();
     toast(`Could not delete this thread. ${errorText(error)} Try again.`);
@@ -582,7 +632,7 @@ async function loadCourses(refresh = false) {
     if (generation !== state.listGeneration) return;
     applySessionHealth(status);
     renderDiscovery(status);
-    if (!state.storageError && !state.storageUnreadable) appError((status.portalErrors || []).map((entry) => `${entry.message} Reconnect this portal in Course accounts.`).join("\n"));
+    if (!state.storageError && !state.storageUnreadable) renderPortalNotice(status);
     const groups = semesterGroups(state.courses);
     // Missing Moodle dates must not hide courses behind an inferred legacy year.
     // Keep an explicit filter on refresh; new accounts and invalid filters show all.
@@ -601,11 +651,14 @@ async function loadCourses(refresh = false) {
     if (state.view === "agent") renderConversation();
   } catch (error) {
     if (generation !== state.listGeneration) return;
-    renderLoadError($("#course-grid"), "Courses could not be loaded", error, () => loadCourses(true));
+    let status = null;
     try {
-      const status = await window.uit.session.status();
-      if (generation === state.listGeneration) { applySessionHealth(status); renderDiscovery(status); }
+      status = await window.uit.session.status();
+      if (generation === state.listGeneration) { applySessionHealth(status, false); renderDiscovery(status); renderPortalNotice(status); }
     } catch { /* Keep the original discovery failure visible. */ }
+    if (generation !== state.listGeneration) return;
+    if (portalNotice(status || {})) renderCourseList();
+    else renderLoadError($("#course-grid"), "Courses could not be loaded", error, () => loadCourses(true));
   } finally {
     if (generation === state.listGeneration) $("#refresh-courses").disabled = false;
   }
@@ -1550,6 +1603,11 @@ async function checkThreadLock(thread = activeThread()) {
     applyThreadLockDisplay(thread);
     return;
   }
+  if (thread.handedOff === true) {
+    thread.locked = true;
+    applyThreadLockDisplay(thread);
+    return;
+  }
   const currentId = thread.id;
   try {
     const result = await window.uit.agent.lockStatus(thread.threadId);
@@ -2022,9 +2080,7 @@ function renderAgentTurnStatus(thread) {
     return;
   }
   const status = node("div", "message-turn-state is-working");
-  const copy = node("div", "turn-state-copy");
-  copy.append(node("strong", "turn-state-label", "Codex is working"));
-  status.append(mascotFrame("working-mascot", "Codex is working"), mascotFrame("agent-working-spinner"), copy);
+  status.append(mascotFrame("working-mascot", "Codex is working"), mascotFrame("agent-working-spinner"));
   target.append(status);
   target.hidden = false;
   target.setAttribute("aria-hidden", "false");
@@ -2777,11 +2833,7 @@ function handleAgentEvent(message) {
     return;
   }
   if (message.method === "thread/deleted" && threadId) {
-    const removed = state.threads.filter((thread) => thread.threadId === threadId);
-    if (!removed.length) return;
-    for (const thread of removed) { removeLocalThread(thread); timelineStates.delete(thread.id); }
-    persist(); renderRail();
-    if (state.view === "agent") renderConversation();
+    removeCodexThreads([threadId]);
     return;
   }
   if (message.method === "thread/name/updated" && threadId) {
@@ -3017,11 +3069,17 @@ function normalizeSessionHealth(health) {
   const sessionState = ["checking", "connected", "expired", "unavailable"].includes(health?.state) ? health.state : "checking";
   return { state: sessionState, ...(Number.isFinite(health?.checkedAt) ? { checkedAt: health.checkedAt } : {}) };
 }
-function applySessionHealth(result) {
+function applySessionHealth(result, renderCourses = true) {
   if (!Array.isArray(result?.sessions)) return;
   const latest = new Map(result.sessions.map((session) => [identity(session), normalizeSessionHealth(session.health)]));
   state.sessions = state.sessions.map((session) => ({ ...session, health: latest.get(identity(session)) || normalizeSessionHealth(session.health) }));
-  renderSessions();
+  state.courses = state.courses.filter(connected);
+  if (state.selectedCourse && !connected(state.selectedCourse)) { state.selectedCourse = null; showView("courses"); }
+  if (!activeThread()) state.activeId = null;
+  renderAccountLabel();
+  renderSessions(); renderRail();
+  if (renderCourses) renderCourseList();
+  if (state.view === "agent") renderConversation();
 }
 function applySessions(result) {
   calendar.reset();
@@ -3034,7 +3092,8 @@ function applySessions(result) {
   if (state.menuResource && !connected(state.menuResource.course)) { $("#resource-menu").close(); state.menuResource = null; }
   if ($("#rename-dialog").open && !state.threads.some((thread) => thread.id === $("#rename-dialog").dataset.taskId && visibleThread(thread))) $("#rename-dialog").close();
   if (state.selectedCourse && !connected(state.selectedCourse)) { state.selectedCourse = null; showView("courses"); }
-  $("#account-label").textContent = state.sessions.length ? `Course accounts (${state.sessions.length})` : "Connect accounts";
+  if (!state.sessions.length && $("#app-error").dataset.accountNotice === "true") appError("");
+  renderAccountLabel();
   if ($("#project-picker").open) renderProjectOptions();
   renderSessions(); renderRail(); renderCourseList();
   if (state.view === "agent") renderConversation();
@@ -3050,6 +3109,16 @@ function portalKind(baseUrl) { return String(baseUrl || "").endsWith("/sdh") ? "
 function sessionHealthState(session) {
   return normalizeSessionHealth(session?.health).state;
 }
+function renderAccountLabel() {
+  const label = $("#account-label");
+  if (!state.sessions.length) {
+    label.textContent = "Connect accounts";
+    return;
+  }
+  const checking = state.sessions.some((session) => sessionHealthState(session) === "checking");
+  const connectedCount = state.sessions.filter((session) => sessionHealthState(session) === "connected").length;
+  label.textContent = checking ? "Course accounts" : `Course accounts (${connectedCount})`;
+}
 function sessionHealthLabel(healthState) {
   return ({ checking: "Checking…", connected: "Connected", expired: "Session expired", unavailable: "Unavailable" })[healthState];
 }
@@ -3062,6 +3131,50 @@ function sessionHealthDetail(session) {
 }
 function aggregateSessionHealth(sessions) {
   return ["expired", "unavailable", "checking", "connected"].find((candidate) => sessions.some((session) => sessionHealthState(session) === candidate)) || "checking";
+}
+function sessionDisplayName(session) {
+  if (!session) return "UIT course account";
+  return session.baseUrl === CURRENT_SITE || session.authMode === "sso" ? "UIT SSO" : portalKind(session.baseUrl) === "Graduate" ? "Graduate Moodle" : "Student ID";
+}
+function sessionForPortalError(entry) {
+  return state.sessions.find((session) => String(session.baseUrl).replace(/\/+$/, "") === String(entry?.baseUrl || "").replace(/\/+$/, ""));
+}
+function portalNotice(status) {
+  const errors = Array.isArray(status?.portalErrors) ? status.portalErrors : [];
+  const issues = new Map();
+  for (const entry of errors) {
+    const session = sessionForPortalError(entry);
+    if (session) issues.set(identity(session), { session, entry });
+  }
+  for (const session of state.sessions) {
+    if (["expired", "unavailable"].includes(sessionHealthState(session)) && !issues.has(identity(session))) issues.set(identity(session), { session });
+  }
+  if (!issues.size) return null;
+  const messages = [];
+  const actions = [];
+  const actionLabels = new Set();
+  for (const { session, entry } of issues.values()) {
+    const healthState = sessionHealthState(session);
+    const name = sessionDisplayName(session);
+    messages.push(healthState === "expired"
+      ? `${name} session expired. Sign in again to reconnect.`
+      : healthState === "unavailable"
+        ? `${name} could not be reached. Reconnect the account to restore course access.`
+        : `${name} course data could not be loaded. Check Course accounts.`);
+    const action = session && ["expired", "unavailable"].includes(healthState) && (session.authMode === "sso" || session.baseUrl === CURRENT_SITE)
+      ? { kind: "account", label: "Sign in again with UIT SSO", run: async () => { await authAction(() => window.uit.session.ssoLogin({ baseUrl: session.baseUrl }), "UIT SSO connected."); } }
+      : session && ["expired", "unavailable"].includes(healthState)
+        ? { kind: "account", label: "Sign in again with UIT Legacy", run: () => openLogin({ legacy: true }) }
+        : { kind: "account", label: "Open Course accounts", run: openLogin };
+    if (!actionLabels.has(action.label)) { actionLabels.add(action.label); actions.push(action); }
+  }
+  return { message: messages.join("\n"), actions };
+}
+function renderPortalNotice(status) {
+  if (state.storageError || state.storageUnreadable) return;
+  const notice = portalNotice(status);
+  if (notice) appError(notice.message, { actions: notice.actions });
+  else if ($("#app-error").dataset.accountNotice === "true") appError("");
 }
 function renderHealthPill(pill, healthState) {
   pill.className = `status-pill ${healthState}`;
@@ -3112,7 +3225,7 @@ function renderSessions() {
     const healthState = aggregateSessionHealth(legacySessions);
     renderHealthPill(legacyPill, healthState);
     legacyStatus.textContent = legacySessions.map((session) => `${portalKind(session.baseUrl)} · ${sessionHealthDetail(session)}`).join(", ");
-    legacyRelogin.textContent = healthState === "expired" ? "Sign in again" : "Re-login";
+    legacyRelogin.textContent = healthState === "expired" ? "Sign in again with UIT Legacy" : "Re-login";
     legacyRelogin.hidden = state.loginFormOpen;
     legacyRelogin.disabled = state.authBusy;
     legacyDisconnect.hidden = false;
@@ -3132,11 +3245,12 @@ function renderSessions() {
   $("#logout-button").disabled = state.authBusy || !state.sessions.length;
   $$("input, select, button", loginForm).forEach((control) => { control.disabled = state.authBusy; });
 }
-function openLogin() {
-  state.loginFormOpen = false;
+function openLogin(options = {}) {
+  state.loginFormOpen = options?.legacy === true;
   $("#login-error").textContent = ""; $("#login-status").textContent = "";
   renderSessions();
   if (!$("#login-modal").open) $("#login-modal").showModal();
+  if (state.loginFormOpen) $("#login-form input[name='username']").focus();
   window.uit.session.status().then(renderDiscovery).catch(() => { $("#discovery-report").textContent = "Could not read discovery diagnostics."; });
 }
 async function authAction(action, success) {
@@ -3333,19 +3447,25 @@ $("#resume-codex-app")?.addEventListener("click", async () => {
     toast("No active Codex thread workspace to open.");
     return;
   }
+  const wasHandedOff = thread.handedOff === true;
   try {
-    await window.uit.agent.openDesktop({
-      threadId: thread.threadId,
-      cwd: thread.cwd,
-      title: thread.title || ""
-    });
+    thread.handedOff = true;
+    thread.locked = true;
+    persist();
+    applyThreadLockDisplay(thread);
+    await window.uit.agent.openDesktop({ threadId: thread.threadId });
     toast("Opening thread in ChatGPT Desktop (Lock released)...");
-    await checkThreadLock(thread);
   } catch (err) {
+    thread.handedOff = wasHandedOff;
+    thread.locked = wasHandedOff;
+    persist();
+    applyThreadLockDisplay(thread);
     toast(`Could not open Desktop App. ${errorText(err)}`);
   }
 });
 window.addEventListener("focus", async () => {
+  try { await reconcileCodexThreads(); }
+  catch (error) { console.error("Thread reconciliation error:", error); }
   const thread = activeThread();
   if (thread && state.view === "agent") {
     await checkThreadLock(thread);
@@ -3461,7 +3581,7 @@ $("#sso-disconnect").addEventListener("click", () => {
   const currentSession = state.sessions.find((s) => s.baseUrl === CURRENT_SITE);
   if (currentSession) authAction(() => window.uit.session.logout({ baseUrl: currentSession.baseUrl }), "UIT SSO disconnected.");
 });
-$("#legacy-relogin").addEventListener("click", () => { state.loginFormOpen = true; renderSessions(); $("#login-form input[name='username']").focus(); });
+$("#legacy-relogin").addEventListener("click", () => openLogin({ legacy: true }));
 $("#legacy-disconnect").addEventListener("click", () => {
   const legacy = state.sessions.find((s) => s.baseUrl !== CURRENT_SITE);
   if (legacy) authAction(() => window.uit.session.logout({ baseUrl: legacy.baseUrl }), "Student ID disconnected.");
@@ -3516,7 +3636,11 @@ window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist();
       codexRequirement = status?.message || "Codex App Server is not ready. Check the Codex CLI installation and sign-in.";
       dot.classList.toggle("ready", codexAvailable);
       agentNav.title = codexAvailable ? "Codex App Server ready" : codexRequirement;
-      if (codexAvailable) ensureModels();
+      if (codexAvailable) {
+        try { await reconcileCodexThreads(); }
+        catch (error) { console.error("Thread reconciliation error:", error); }
+        ensureModels();
+      }
     } catch {
       codexAvailable = false;
       codexRequirement = "Could not check Codex App Server readiness. Check the Codex CLI installation and sign-in.";

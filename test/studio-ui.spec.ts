@@ -305,7 +305,7 @@ test("mascot sprites animate efficiently for onboarding and active agent work", 
   await expect(page.locator("#page-title .codex-page-icon")).toHaveCount(1);
   const workingStatus = page.locator("#agent-turn-status");
   await expect(workingStatus).toBeVisible();
-  await expect(workingStatus).toContainText("Codex is working");
+  await expect(workingStatus.locator(".turn-state-copy")).toHaveCount(0);
   const workingMascot = workingStatus.locator(".message-turn-state.is-working .working-mascot");
   await expect(workingMascot).toBeVisible();
   const workingSpinner = workingStatus.locator(".agent-working-spinner");
@@ -323,10 +323,7 @@ test("mascot sprites animate efficiently for onboarding and active agent work", 
   });
   expect(spinnerStyle).toEqual({ width: "14px", height: "14px", animationName: "working-spin", animationDuration: "0.8s" });
   const spinnerBox = await workingSpinner.boundingBox();
-  const copyBox = await workingStatus.locator(".turn-state-copy").boundingBox();
   expect(spinnerBox).not.toBeNull();
-  expect(copyBox).not.toBeNull();
-  expect(spinnerBox!.x + spinnerBox!.width).toBeLessThanOrEqual(copyBox!.x);
 
   const input = (await calls(page, "agent.start"))[0].input;
   const activeParams = { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}` };
@@ -334,19 +331,28 @@ test("mascot sprites animate efficiently for onboarding and active agent work", 
   await expect(page.locator("#agent-messages .working-mascot")).toHaveCount(0);
   const messagesBox = await page.locator("#agent-messages").boundingBox();
   const statusBox = await workingStatus.boundingBox();
-  const statusRowBox = await workingStatus.locator(".message-turn-state").boundingBox();
+  const statusRow = workingStatus.locator(".message-turn-state");
+  await expect(statusRow).toHaveCount(1);
+  const statusStyle = await statusRow.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      borderWidths: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+      boxShadow: style.boxShadow
+    };
+  });
   const composerBox = await page.locator(".composer").boundingBox();
   const formBox = await page.locator("#agent-form").boundingBox();
   expect(messagesBox).not.toBeNull();
   expect(statusBox).not.toBeNull();
-  expect(statusRowBox).not.toBeNull();
   expect(composerBox).not.toBeNull();
   expect(formBox).not.toBeNull();
+  expect(statusStyle.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  expect(statusStyle.borderWidths).toEqual(["0px", "0px", "0px", "0px"]);
+  expect(statusStyle.boxShadow).toBe("none");
   expect(await workingStatus.evaluate((element) => getComputedStyle(element).position)).toBe("static");
   expect(await workingStatus.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
-  expect(statusRowBox!.width).toBeLessThan(messagesBox!.width);
   expect(statusBox!.width).toBeLessThan(messagesBox!.width);
-  expect(Math.abs(statusRowBox!.x - formBox!.x)).toBeLessThanOrEqual(1);
   expect(statusBox!.y).toBeGreaterThanOrEqual(messagesBox!.y + messagesBox!.height);
   expect(statusBox!.y + statusBox!.height).toBeLessThanOrEqual(composerBox!.y);
   expect(composerBox!.y - (statusBox!.y + statusBox!.height)).toBeLessThanOrEqual(10);
@@ -1143,6 +1149,25 @@ test("sent project threads persist follow-up drafts, rename, delete and switch i
   expect(await calls(page, "agent.start")).toHaveLength(0);
 });
 
+test("removes a Codex thread deleted externally when Studio regains focus", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Delete this thread in ChatGPT");
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
+
+  await page.evaluate((deletedThreadId) => {
+    window.uit.agent.reconcile = async (threadIds) => ({
+      missingThreadIds: threadIds.includes(deletedThreadId) ? [deletedThreadId] : []
+    });
+    window.dispatchEvent(new Event("focus"));
+  }, threadId);
+
+  await expect(page.locator(".thread-link")).toHaveCount(0);
+  await expect(page.locator(".thread-header")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads)).toEqual([]);
+});
+
 test("resource attachment resets on project change and removal persists for a sent thread", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
@@ -1264,6 +1289,41 @@ test("Course accounts show live session health and recovery actions", async ({ p
   await expect(page.locator("#legacy-pill")).toHaveText("Unavailable");
   await expect(page.locator("#legacy-status")).toContainText("Account 202 · Check your connection and try again.");
   await expect(page.locator("#legacy-relogin")).toHaveText("Re-login");
+});
+
+test("expired accounts are excluded from the count and expose inline SSO recovery", async ({ page, boot }) => {
+  await boot({ health: { [CURRENT]: "expired" } });
+  await expect(page.locator("#account-label")).toHaveText("Course accounts (1)");
+  await expect(page.locator("#app-error")).toContainText("UIT SSO session expired. Sign in again to reconnect.");
+  await expect(page.getByRole("button", { name: "Sign in again with UIT SSO", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign in again with UIT SSO", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "session.ssoLogin")).length).toBe(1);
+  expect((await calls(page, "session.ssoLogin"))[0].input).toEqual({ baseUrl: CURRENT });
+  await page.getByRole("button", { name: "Dismiss account warning", exact: true }).click();
+  await expect(page.locator("#app-error")).toBeHidden();
+});
+
+test("account load failures use the shared warning UI and fresh users see onboarding", async ({ page, boot }) => {
+  await boot({
+    health: { [CURRENT]: "expired", [LEGACY]: "expired" },
+    fail: { "courses.list": "Moodle: Dịch vụ web không tồn tại. Legacy Moodle: Token không hợp lệ" }
+  });
+  await expect(page.locator("#app-error")).toContainText("UIT SSO session expired. Sign in again to reconnect.");
+  await expect(page.locator("#app-error")).toContainText("Student ID session expired. Sign in again to reconnect.");
+  await expect(page.getByRole("button", { name: "Sign in again with UIT SSO", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in again with UIT Legacy", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign in again with UIT Legacy", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();
+  await expect(page.locator("#login-form")).toBeVisible();
+  await expect(page.getByLabel("Student ID", { exact: true })).toBeFocused();
+  await expect(page.locator("#course-grid [role=alert]")).toHaveCount(0);
+  await expect(page.locator("#course-grid")).not.toContainText("Dịch vụ web không tồn tại");
+});
+
+test("fresh users see onboarding without account failure warnings", async ({ page, boot }) => {
+  await boot({ authenticated: false });
+  await expect(page.locator("#app-error")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Connect UIT account", exact: true })).toBeVisible();
 });
 
 test("concurrent threads route events before start resolves and ignore duplicate/stale completions", async ({ page, boot }) => {
@@ -2164,6 +2224,31 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   // Press Escape to close
   await page.keyboard.press("Escape");
   await expect(resumeMenu).toBeHidden();
+});
+
+test("keeps a thread read-only after handing it to the Desktop App", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Test Desktop handoff");
+
+  const lockChecksBeforeHandoff = (await calls(page, "agent.lockStatus")).length;
+  await page.locator("#thread-resume-btn").click();
+  await page.locator("#resume-codex-app").click();
+
+  await expect.poll(async () => (await calls(page, "agent.openDesktop")).length).toBe(1);
+  await expect(page.locator("#thread-lock-badge")).toBeVisible();
+  await expect(page.locator("#agent-input")).toBeDisabled();
+  expect(await calls(page, "agent.lockStatus")).toHaveLength(lockChecksBeforeHandoff);
+
+  await control(page, "fail", "agent.openDesktop", "Desktop launch failed");
+  await page.locator("#thread-resume-btn").click();
+  await page.locator("#resume-codex-app").click();
+  await expect.poll(async () => (await calls(page, "agent.openDesktop")).length).toBe(2);
+  await expect(page.locator("#toast")).toContainText("Could not open Desktop App. Desktop launch failed");
+  await expect(page.locator("#thread-lock-badge")).toBeVisible();
+  await expect(page.locator("#agent-input")).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.handedOff)).toBe(true);
 });
 
 test("during thread-lock, input box, rename, and delete options convert to not-allowed cursor and are disabled", async ({ page, boot }) => {
