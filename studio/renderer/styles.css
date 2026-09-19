@@ -1385,11 +1385,9 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 }
 .context-pill svg { width: 12px; height: 12px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .context-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-entry { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+.composer-entry { position: relative; min-width: 0; }
 #agent-input {
   display: block;
-  flex: 1 1 auto;
-  min-width: 0;
   border: 0 !important;
   outline: none !important;
   box-shadow: none !important;
@@ -1398,13 +1396,24 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   max-width: 100%;
   box-sizing: border-box;
   resize: none;
-  min-height: 32px;
-  max-height: 108px;
-  padding: 5px 2px 6px;
+  min-height: 40px;
+  max-height: 132px;
+  padding: 9px 390px 9px 40px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   overflow-y: hidden;
+  scrollbar-color: var(--muted) transparent;
+  scrollbar-width: thin;
+}
+.composer-entry.multiline #agent-input { padding: 10px 10px 48px; }
+#agent-input::-webkit-scrollbar { width: 6px; }
+#agent-input::-webkit-scrollbar-track { background: transparent; }
+#agent-input::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--muted);
+  background-clip: content-box;
 }
 #agent-input:focus,
 #agent-input:focus-visible {
@@ -1438,6 +1447,10 @@ textarea:disabled {
 .mention-item[aria-selected="true"] { background: var(--selected); }
 .composer-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .composer-entry > .icon-button {
+  position: absolute;
+  left: 0;
+  bottom: 6px;
+  z-index: 1;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1459,6 +1472,7 @@ textarea:disabled {
 }
 .composer-options,
 .composer-submit { display: flex; align-items: center; gap: 6px; }
+.composer-actions { position: absolute; right: 0; bottom: 4px; z-index: 1; }
 .composer-options { min-width: 0; }
 .composer-submit { margin-left: 2px; }
 .composer-pill {
@@ -1887,8 +1901,11 @@ dialog::backdrop { background: var(--backdrop); }
   .citation-link { max-width: 100%; overflow-wrap: anywhere; }
   .thread-empty { padding-block: 20px; }
   .composer { padding: 0 14px calc(12px + env(safe-area-inset-bottom)); }
-  .composer-entry { display: grid; grid-template-columns: auto minmax(0, 1fr); }
-  .composer-actions { grid-column: 1 / -1; flex-wrap: wrap; justify-content: flex-end; }
+  .composer-entry { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
+  #agent-input { grid-column: 2; padding: 5px 2px 6px; }
+  .composer-entry.multiline #agent-input { padding: 10px 8px; }
+  .composer-entry > .icon-button { position: static; align-self: end; margin-bottom: 6px; }
+  .composer-actions { position: static; grid-column: 1 / -1; flex-wrap: wrap; justify-content: flex-end; }
   .composer-options { flex: 1 1 auto; justify-content: flex-end; }
   .composer-pill { min-width: 0; max-width: min(46vw, 210px); overflow: hidden; text-overflow: ellipsis; }
   .send-button { width: 42px; height: 42px; }

@@ -852,25 +852,29 @@ test("composer starts compact, grows to its cap, then scrolls vertically", async
   await createThread(page);
   const input = page.getByLabel("Message Codex");
   const actions = page.locator(".composer-actions");
-  await expect(input).toHaveCSS("height", "32px");
-  await expect(input).toHaveCSS("max-height", "108px");
+  await expect(input).toHaveCSS("height", "40px");
+  await expect(input).toHaveCSS("max-height", "132px");
   await expect(input).toHaveCSS("overflow-y", "hidden");
   const compactInput = await input.boundingBox();
   const compactActions = await actions.boundingBox();
   expect(compactInput).not.toBeNull();
   expect(compactActions).not.toBeNull();
-  expect(Math.abs(compactInput!.y + compactInput!.height - compactActions!.y - compactActions!.height)).toBeLessThanOrEqual(2);
+  expect(Math.abs(compactInput!.y + compactInput!.height - compactActions!.y - compactActions!.height)).toBeLessThanOrEqual(4);
+  const compactEntry = await page.locator(".composer-entry").boundingBox();
+  expect(compactEntry).not.toBeNull();
+  expect(Math.abs(compactInput!.x + compactInput!.width - compactEntry!.x - compactEntry!.width)).toBeLessThanOrEqual(1);
 
   await input.fill("First line\nSecond line\nThird line");
   const grownHeight = await input.evaluate((element) => element.getBoundingClientRect().height);
   expect(grownHeight).toBeGreaterThan(compactInput!.height);
-  expect(grownHeight).toBeLessThan(108);
+  expect(grownHeight).toBeLessThan(132);
 
   await input.fill(Array.from({ length: 20 }, (_, index) => `Line ${index + 1}`).join("\n"));
-  await expect(input).toHaveCSS("height", "108px");
+  await expect(input).toHaveCSS("height", "132px");
   await expect(input).toHaveCSS("overflow-y", "auto");
+  await expect(input).toHaveCSS("scrollbar-width", "thin");
   await input.fill("");
-  await expect(input).toHaveCSS("height", "32px");
+  await expect(input).toHaveCSS("height", "40px");
   await expect(input).toHaveCSS("overflow-y", "hidden");
 });
 

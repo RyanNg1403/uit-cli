@@ -1720,11 +1720,15 @@ function updateApprovalOverlayPosition() {
 function autoResizeInput() {
   const input = $("#agent-input");
   if (!input) return;
+  const entry = input.closest(".composer-entry");
+  entry?.classList.remove("multiline");
   input.style.height = "auto";
-  const scrollHeight = input.scrollHeight;
   const style = getComputedStyle(input);
   const minHeight = Number.parseFloat(style.minHeight);
   const maxHeight = Number.parseFloat(style.maxHeight);
+  entry?.classList.toggle("multiline", input.scrollHeight > minHeight + 1);
+  input.style.height = "auto";
+  const scrollHeight = input.scrollHeight;
   const targetHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
   input.style.height = `${targetHeight}px`;
   input.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
