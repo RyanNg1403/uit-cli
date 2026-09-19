@@ -149,8 +149,15 @@ describe("mcp-server workspace gating and tools", () => {
     expect(download?.inputSchema.properties).not.toHaveProperty("fileUrl");
 
     const read = UIT_MCP_TOOLS.find((tool) => tool.name === "uit_read_resource");
-    expect(read?.inputSchema.properties).not.toHaveProperty("fileUrl");
-    expect(read?.inputSchema.properties).toHaveProperty("filename");
+    const variants = read?.inputSchema.oneOf as Array<{ properties: Record<string, unknown>; required: string[] }>;
+    expect(variants).toHaveLength(4);
+    expect(variants.every((variant) => !("fileUrl" in variant.properties) && !("moduleId" in variant.properties))).toBe(true);
+    expect(variants.map((variant) => variant.required)).toEqual([
+      ["courseId", "kind", "id"],
+      ["courseId", "kind", "id", "filename"],
+      ["courseId", "kind", "id"],
+      ["courseId", "kind", "id"]
+    ]);
   });
 
   it("passes the ID-based download reference to the course service", async () => {
@@ -219,6 +226,8 @@ describe("mcp-server workspace gating and tools", () => {
     await expect(execute("uit_read_resource", { courseId: 42, kind: "file", id: 10, filename: "lecture.pdf" }, { api, baseUrl: "https://courses.uit.edu.vn", userId: 7 })).resolves.toMatchObject({ name: "lecture.pdf" });
     expect(resolveCourseResource).toHaveBeenCalledWith(42, { kind: "file", id: 10, filename: "lecture.pdf" }, api);
     await expect(execute("uit_read_resource", { courseId: 42, kind: "file", id: 10, fileUrl: "https://courses.uit.edu.vn/file.pdf" }, { api, baseUrl: "https://courses.uit.edu.vn", userId: 7 })).rejects.toThrow("File URL is not accepted");
+    await expect(execute("uit_read_resource", { courseId: 42, kind: "module", id: 10, moduleId: 20 }, { api, baseUrl: "https://courses.uit.edu.vn", userId: 7 })).rejects.toThrow("moduleId is not accepted");
+    await expect(execute("uit_read_resource", { courseId: 42, kind: "module", id: 10, filename: "lecture.pdf" }, { api, baseUrl: "https://courses.uit.edu.vn", userId: 7 })).rejects.toThrow("filename is accepted only for file resources");
   });
 
   it.each(["uit_list_course_contents", "uit_download_resource", "uit_list_participants", "uit_get_grades"])("rejects removed tool alias %s", async (name) => {
