@@ -11,6 +11,7 @@ let threadStoreLastSerialized = "";
 let threadStoreReady = false;
 const streamUpdates = new Map();
 let messageNodes = new WeakMap();
+const hiddenMarkupParsers = new WeakMap();
 const timelineStates = new Map();
 let composerComposing = false;
 let codexAvailable = null;
@@ -24,8 +25,31 @@ const state = {
   menuResource: null, storageError: false, storageUnreadable: false, authBusy: false, loginFormOpen: false,
 };
 
-function isTurnAbortedMarker(text) {
-  return /^<turn_aborted>\s*[\s\S]*?\s*<\/turn_aborted>$/.test(String(text || "").trim());
+function stripHiddenControlMarkup(text) {
+  return window.uitHiddenMarkup.strip(String(text || ""));
+}
+function visibleMessageText(message) {
+  if (!message || message.streaming || !["user", "assistant"].includes(message.role)) return String(message?.text || "");
+  return stripHiddenControlMarkup(message.text);
+}
+function normalizedStoredMessages(messages) {
+  return messages
+    .filter((message) => message.kind !== "reasoning" && message.label !== "Thought process")
+    .map((message) => {
+      if (!["user", "assistant"].includes(message.role)) return message;
+      const text = stripHiddenControlMarkup(message.text);
+      if (message.text.trim() && !text.trim()) return null;
+      return text === message.text ? message : { ...message, text };
+    })
+    .filter(Boolean);
+}
+function hiddenMarkupParser(message) {
+  let parser = hiddenMarkupParsers.get(message);
+  if (!parser) {
+    parser = window.uitHiddenMarkup.createParser();
+    hiddenMarkupParsers.set(message, parser);
+  }
+  return parser;
 }
 
 function stopWorkingMessage(message) {
@@ -234,7 +258,7 @@ function threadStorePayload() {
   const threads = state.threads.filter(hasPrompt).map((thread) => ({
     id: thread.id, owner: thread.owner, course: thread.course, title: thread.title, renamed: thread.renamed, model: thread.model, effort: thread.effort,
     draft: thread.draft, resources: thread.resources.map(safeResource),
-    messages: thread.messages.filter((message) => message.kind !== "reasoning" && message.label !== "Thought process"),
+    messages: normalizedStoredMessages(thread.messages),
     threadId: thread.threadId, turnId: thread.turnId, cwd: thread.cwd, started: thread.started, prompted: true, forkSource: thread.forkSource,
     yolo: thread.yolo !== false,
     fast: thread.fast === true,
@@ -279,8 +303,7 @@ function applySavedThreadStore(saved) {
   state.threads = saved.threads.map((thread) => ({
     ...thread,
     archived: Boolean(thread.archived),
-    messages: thread.messages
-      .filter((message) => !isTurnAbortedMarker(message.text) && message.kind !== "reasoning" && message.label !== "Thought process")
+    messages: normalizedStoredMessages(thread.messages)
       .map((message) => thread.busy || thread.interrupted ? (message.status === "working" ? stopWorkingMessage(message) : message) : message),
     draft: String(thread.draft || ""), busy: false, pending: false, stopping: false,
     branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(), yolo: thread.yolo !== false,
@@ -303,10 +326,14 @@ async function restore() {
   try {
     const saved = await window.uit.threads.read();
     if (saved) {
+      const savedSerialized = JSON.stringify(saved);
       applySavedThreadStore(saved);
-      threadStoreLastSerialized = JSON.stringify(threadStorePayload());
+      threadStoreReady = true;
+      threadStoreLastSerialized = savedSerialized;
+      if (JSON.stringify(threadStorePayload()) !== savedSerialized) persist();
+    } else {
+      threadStoreReady = true;
     }
-    threadStoreReady = true;
   } catch {
     state.storageUnreadable = true;
     appError("Saved threads could not be read from UIT Studio storage. No threads were loaded or saved.");
@@ -1664,25 +1691,27 @@ async function syncThreadRollout(thread = activeThread()) {
       thread.lastRolloutMtime = result.mtime;
       let updated = false;
       for (const rm of result.messages) {
-        if (!rm.text || isTurnAbortedMarker(rm.text)) continue;
-        const existing = rolloutMessageMatch(thread.messages, rm);
+        const text = typeof rm.text === "string" ? stripHiddenControlMarkup(rm.text) : "";
+        if (!text.trim()) continue;
+        const rolloutMessage = { ...rm, text };
+        const existing = rolloutMessageMatch(thread.messages, rolloutMessage);
         if (existing) {
-          if (!isStudioContextMessage(existing, rm) && (existing.text !== rm.text || existing.status !== "completed")) {
-            existing.text = rm.text;
+          if (!isStudioContextMessage(existing, rolloutMessage) && (existing.text !== text || existing.status !== "completed")) {
+            existing.text = text;
             existing.status = "completed";
             updated = true;
           }
-          if (rm.id) existing.rolloutId = rm.id;
+          if (rolloutMessage.id) existing.rolloutId = rolloutMessage.id;
         } else {
           thread.messages.push({
-            role: rm.role,
-            text: rm.text,
-            rolloutId: rm.id,
-            turnId: rm.turnId,
-            kind: rm.role === "assistant" ? "markdown" : undefined,
+            role: rolloutMessage.role,
+            text,
+            rolloutId: rolloutMessage.id,
+            turnId: rolloutMessage.turnId,
+            kind: rolloutMessage.role === "assistant" ? "markdown" : undefined,
             status: "completed",
-            label: rm.role === "assistant" ? "Codex (external)" : undefined,
-            createdAt: rm.createdAt || result.mtime || Date.now()
+            label: rolloutMessage.role === "assistant" ? "Codex (external)" : undefined,
+            createdAt: rolloutMessage.createdAt || result.mtime || Date.now()
           });
           updated = true;
         }
@@ -2319,7 +2348,8 @@ function renderMessages(changes = null) {
           cached.workingMascot = null;
         }
       } else if (message.role === "assistant") {
-        if (!message.streaming) appendRichText(cached.content, message.text);
+        const displayText = visibleMessageText(message);
+        if (!message.streaming) appendRichText(cached.content, displayText);
         else {
           const previous = cached.content.textContent;
           if (cached.content.firstChild?.nodeType === Node.TEXT_NODE && message.text.startsWith(previous)) {
@@ -2329,11 +2359,11 @@ function renderMessages(changes = null) {
           }
         }
         if (cached.actions) {
-          cached.actions.hidden = Boolean(message.streaming) || !message.text;
+          cached.actions.hidden = Boolean(message.streaming) || !displayText;
           cached.actions.classList.toggle("is-continuation", !isFinalAgentMessage(thread, message));
         }
       } else if (cached.content) {
-        cached.content.textContent = message.text;
+        cached.content.textContent = visibleMessageText(message);
       }
       continue;
     }
@@ -2425,8 +2455,9 @@ function renderMessages(changes = null) {
       const isAssistant = message.role === "assistant";
       const rich = isAssistant || kind === "error";
       const content = node("pre", rich ? "md" : "");
-      if (isAssistant && !message.streaming) appendRichText(content, message.text);
-      else content.textContent = message.text;
+      const displayText = visibleMessageText(message);
+      if (isAssistant && !message.streaming) appendRichText(content, displayText);
+      else content.textContent = displayText;
 
       let actions = null;
       let copyBtn = null;
@@ -2441,7 +2472,7 @@ function renderMessages(changes = null) {
         actions = node("div", "message-actions user-actions");
         const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
         if (timeStr) actions.append(node("span", "message-time", timeStr));
-        copyBtn = createMessageCopyButton(() => message.text);
+        copyBtn = createMessageCopyButton(() => displayText);
         actions.append(copyBtn);
         item.append(actions);
       } else if (isAssistant) {
@@ -2451,9 +2482,9 @@ function renderMessages(changes = null) {
         actions.classList.toggle("is-continuation", !isFinalAgentMessage(thread, message));
         const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
         if (timeStr) actions.append(node("span", "message-time", timeStr));
-        copyBtn = createMessageCopyButton(() => message.text);
+        copyBtn = createMessageCopyButton(() => displayText);
         actions.append(copyBtn);
-        if (message.streaming || !message.text) actions.hidden = true;
+        if (message.streaming || !displayText) actions.hidden = true;
         item.append(actions);
       } else {
         item.append(node("p", "message-role", message.label || "Activity"), content);
@@ -2939,7 +2970,11 @@ function handleAgentEvent(message) {
       break;
     case "item/agentMessage/delta": {
       const entry = eventMessage("assistant", "Codex");
-      entry.streaming = true; entry.text += String(params.delta || ""); thread.streamItem = entry; deltaEntry = entry; break;
+      entry.streaming = true;
+      entry.text += hiddenMarkupParser(entry).push(String(params.delta || ""));
+      thread.streamItem = entry;
+      deltaEntry = entry;
+      break;
     }
     case "item/commandExecution/outputDelta": {
       const entry = eventMessage("event", "Running command", "tool", "working");
@@ -2996,8 +3031,20 @@ function handleAgentEvent(message) {
     case "item/completed": {
       if (item.type === "agentMessage") {
         const entry = eventMessage("assistant", "Codex");
-        entry.text = String(item.text || thread.streamItem?.text || ""); entry.streaming = false;
+        if (typeof item.text === "string") {
+          entry.text = stripHiddenControlMarkup(item.text);
+        } else {
+          const parser = hiddenMarkupParsers.get(entry);
+          if (parser) entry.text += parser.finish();
+          entry.text = stripHiddenControlMarkup(entry.text);
+        }
+        hiddenMarkupParsers.delete(entry);
+        entry.streaming = false;
         thread.streamItem = null;
+        if (!entry.text.trim()) {
+          const entryIndex = thread.messages.indexOf(entry);
+          if (entryIndex !== -1) thread.messages.splice(entryIndex, 1);
+        }
       } else if (item.type === "commandExecution") {
         const failed = Number.isFinite(item.exitCode) && item.exitCode !== 0;
         const entry = eventMessage("event", "Command completed", "tool", failed ? "failed" : "completed");

@@ -100,6 +100,74 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+type HiddenControlMarker = { open: string; close: string };
+const HIDDEN_CONTROL_MARKERS: readonly HiddenControlMarker[] = [
+  { open: "<oai-mem-citation>", close: "</oai-mem-citation>" },
+  { open: "<turn_aborted>", close: "</turn_aborted>" },
+];
+
+function longestSuffixPrefix(text: string, candidates: readonly string[]): number {
+  let longest = 0;
+  for (const candidate of candidates) {
+    const limit = Math.min(text.length, candidate.length - 1);
+    for (let length = limit; length > longest; length--) {
+      if (text.endsWith(candidate.slice(0, length))) {
+        longest = length;
+        break;
+      }
+    }
+  }
+  return longest;
+}
+
+function nextOpening(text: string): { index: number; marker: HiddenControlMarker } | null {
+  let match: { index: number; marker: HiddenControlMarker } | null = null;
+  for (const marker of HIDDEN_CONTROL_MARKERS) {
+    const index = text.indexOf(marker.open);
+    if (index === -1) continue;
+    if (!match || index < match.index || index === match.index && marker.open.length > match.marker.open.length) {
+      match = { index, marker };
+    }
+  }
+  return match;
+}
+
+/** Remove literal Codex control blocks without interpreting arbitrary markup. */
+export function stripHiddenControlMarkup(text: string): string {
+  let pending = String(text || "");
+  let active: HiddenControlMarker | null = null;
+  let visible = "";
+
+  while (pending) {
+    if (active) {
+      const closeIndex = pending.indexOf(active.close);
+      if (closeIndex !== -1) {
+        pending = pending.slice(closeIndex + active.close.length);
+        active = null;
+        continue;
+      }
+      const keep = longestSuffixPrefix(pending, [active.close]);
+      pending = pending.slice(pending.length - keep);
+      break;
+    }
+
+    const opening = nextOpening(pending);
+    if (opening) {
+      visible += pending.slice(0, opening.index);
+      pending = pending.slice(opening.index + opening.marker.open.length);
+      active = opening.marker;
+      continue;
+    }
+
+    const keep = longestSuffixPrefix(pending, HIDDEN_CONTROL_MARKERS.map((marker) => marker.open));
+    visible += pending.slice(0, pending.length - keep);
+    pending = pending.slice(pending.length - keep);
+    break;
+  }
+
+  return visible + (active ? "" : pending);
+}
+
 export function isTurnAbortedMarker(text: string): boolean {
   return /^<turn_aborted>\s*[\s\S]*?\s*<\/turn_aborted>$/.test(text.trim());
 }
@@ -875,8 +943,8 @@ async function readThreadRollout(threadId: string, afterMtime = 0): Promise<Json
               .map((c: JsonRecord) => c.text)
               .filter((text: unknown): text is string => typeof text === "string" && !text.startsWith("<skills_instructions>") && !text.startsWith("<permissions instructions>") && !text.startsWith("<recommended_plugins>") && !text.startsWith("<apps_instructions>") && !text.startsWith("<plugins_instructions>") && !text.startsWith("<environment_context>") && !text.startsWith("# AGENTS.md instructions"));
 
-            const fullText = textParts.join("\n").trim();
-            if (fullText && !isTurnAbortedMarker(fullText)) {
+            const fullText = stripHiddenControlMarkup(textParts.join("\n").trim()).trim();
+            if (fullText) {
               const createdAt = parsed.timestamp ? new Date(parsed.timestamp).getTime() : fileStats.mtimeMs;
               messages.push({
                 role: msg.role,
