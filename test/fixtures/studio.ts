@@ -140,8 +140,9 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (method === "agent.start" || method === "agent.send") return { threadId: input.threadId || `thread-${input.taskId}`, turnId: `turn-${input.taskId}`, workspace: `/fixture/UIT/${input.shortname}` };
     if (method === "agent.fork") return { id: `branch-${input.threadId}` };
     if (method === "agent.stop") { emit({ method: "turn/completed", params: { threadId: input.threadId, turn: { id: input.turnId, status: "interrupted" } } }); return; }
-    if (method === "agent.releaseLock" || method === "agent.openDesktop" || method === "agent.writeClipboard") return { success: true };
-    if (method === "agent.lockStatus") return { locked: false };
+    if (method === "agent.releaseLock" || method === "agent.writeClipboard") return { success: true };
+    if (method === "agent.openDesktop") return { success: true };
+    if (method === "agent.lockStatus") return { locked: false, handedOff: false };
     if (method === "agent.reconcile") return { missingThreadIds: [] };
     if (method === "agent.readRollout") return { mtime: 0, messages: [] };
     throw new Error(`Unexpected bridge call: ${method}`);
