@@ -6,6 +6,7 @@ import { deflateRawSync } from "node:zlib";
 import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
 import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeCourseFile, materializeFile, previewableMime, previewFile, resolveClassCodeSemesters, resolveCourseFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
+import { makeZip } from "./zip-fixture.js";
 
 const state = vi.hoisted(() => ({ home: "" }));
 vi.mock("node:os", () => ({ homedir: () => state.home }));
@@ -359,6 +360,45 @@ describe("course semesters and metadata", () => {
 });
 
 describe("trusted course resource resolution", () => {
+  it("reads ordered H5P video and slide references without persisting the package", async () => {
+    const packageFile = {
+      filename: "transformer.h5p",
+      fileurl: `${site}/tokenpluginfile.php/signed/1/mod_h5pactivity/package/transformer.h5p?token=secret`,
+      filesize: 1_024
+    };
+    const api = client({
+      core_course_get_contents: [{ modules: [{ id: 413677, name: "Transformer", modname: "h5pactivity" }] }],
+      mod_h5pactivity_get_h5pactivities_by_courses: {
+        h5pactivities: [{ coursemodule: 413677, name: "Transformer", intro: "<p>Chapter 9</p>", package: [packageFile] }]
+      }
+    });
+    vi.mocked(api.readFile!).mockResolvedValue({
+      mimeType: "application/zip.h5p",
+      data: makeZip([
+        { name: "h5p.json", data: Buffer.from(JSON.stringify({ title: "Transformer", mainLibrary: "H5P.InteractiveBook" })) },
+        { name: "content/content.json", deflate: true, data: Buffer.from(JSON.stringify({ chapters: [
+          { metadata: { title: "Cơ chế Self-Attention" }, params: { content: [{ content: { library: "H5P.Video 1.6", params: { sources: [{ path: "https://youtu.be/example" }] } } }] } },
+          { metadata: { title: "Slide" }, params: { content: [{ content: { library: "H5P.IFrameEmbed 1.0", params: { source: "https://drive.google.com/file/d/example/preview" } } }] } }
+        ] })) }
+      ])
+    });
+
+    await expect(resolveCourseResource(42, { kind: "module", id: 413677 }, api)).resolves.toMatchObject({
+      description: "Chapter 9",
+      files: [{ filename: "transformer.h5p", fileurl: `${site}/pluginfile.php/1/mod_h5pactivity/package/transformer.h5p` }],
+      h5p: {
+        title: "Transformer",
+        mainLibrary: "H5P.InteractiveBook",
+        entries: [
+          { position: 1, title: "Cơ chế Self-Attention", media: [{ kind: "video", provider: "YouTube", url: "https://youtu.be/example" }] },
+          { position: 2, title: "Slide", media: [{ kind: "slides", provider: "Google Drive", url: "https://drive.google.com/file/d/example/preview" }] }
+        ]
+      }
+    });
+    expect(api.call).toHaveBeenCalledWith("mod_h5pactivity_get_h5pactivities_by_courses", { "courseids[0]": 42 });
+    expect(api.readFile).toHaveBeenCalledWith(`${site}/pluginfile.php/1/mod_h5pactivity/package/transformer.h5p`);
+  });
+
   it("resolves cmid-only assignment references and attachments while preserving partial availability", async () => {
     const unavailable = { instance: "Instance not exposed", details: "Activity details are incomplete" };
     const api = client({

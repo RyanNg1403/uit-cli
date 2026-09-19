@@ -63,7 +63,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: "uit_course_contents",
-    description: "Read course modules, sections, assignments, and announcements. For downloads, reuse the returned module ID and exact filename; never reconstruct a file URL.",
+    description: "Read course modules, sections, assignments, and announcements. H5P activities are identified as h5pactivity modules and can be inspected with uit_read_resource. For downloads, reuse the returned module ID and exact filename; never reconstruct a file URL.",
     inputSchema: {
       type: "object",
       properties: { courseId: { type: "integer", description: "Course ID from uit_courses or the current course." } },
@@ -74,7 +74,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: "uit_read_resource",
-    description: "Read one current course resource. Call uit_course_contents first and reuse its kind, IDs, and exact filename; do not provide a file URL.",
+    description: "Read one current course resource. For an H5P module, this returns its ordered video, slide, and embedded-resource URLs directly. Call uit_course_contents first and reuse its kind, IDs, and exact filename; do not provide a file URL.",
     inputSchema: resourceSchema
   },
   {
