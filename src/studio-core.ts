@@ -8,6 +8,7 @@ import type { ApiClient } from "./types.js";
 import type { SsoSessionData } from "./config.js";
 import {
   isCodexThreadNotFoundError,
+  type CodexJsonValue,
   type CodexClient,
   CodexMessage,
   CodexModelOption,
@@ -137,6 +138,22 @@ const SESSIONS_FILE = join(homedir(), ".uit", "sessions.json");
 const LINKED_COURSES_STORE_VERSION = 2;
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
+
+/**
+ * Keep Studio's browser surface isolated from agent-controlled browser and
+ * desktop automation. This is a runtime override for this app-server's
+ * thread, not a persisted thread or global Codex configuration change. A
+ * Desktop resume therefore receives its normal tool catalogue.
+ */
+const STUDIO_CODEX_CONFIG: Record<string, CodexJsonValue> = {
+  allow_browser_and_computer_use: false,
+  mcp_servers: { node_repl: { enabled: false } },
+  plugins: {
+    "unified-computer-use@openai-bundled": {
+      mcp_servers: { cua_repl: { enabled: false } }
+    }
+  }
+};
 
 async function ensureStudioMcpConfig(): Promise<void> {
   await host.ensureMcpConfig();
@@ -897,7 +914,7 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     if (binding.busy) throw new Error("This thread already has an active turn.");
     if (binding.handoffPending) throw new Error("This thread is being handed off to ChatGPT Desktop.");
     if (binding.handedOff) throw new Error("This thread was handed off to ChatGPT Desktop and is read-only in Studio.");
-    const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
+    const resumed = await codex.resumeThread(threadId, { config: STUDIO_CODEX_CONFIG, excludeTurns: true });
     if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
     if (resumed.status.type === "active") {
       binding.locked = true;
@@ -916,7 +933,7 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     // host. Codex's `never` policy rejects MCP calls before the host can
     // respond, which makes the UIT tools unusable.
     const workspacePath = requireWorkspacePath(workspace.path);
-    started = await codex.startThread(workspacePath, { ...(model !== undefined ? { model } : {}), approvalPolicy: "on-request" });
+    started = await codex.startThread(workspacePath, { config: STUDIO_CODEX_CONFIG, ...(model !== undefined ? { model } : {}), approvalPolicy: "on-request" });
     threadId = started.thread.id;
     const fast = requestedFast === true;
     binding = { courseId, baseUrl: account.baseUrl, userId: account.userId, shortname: course.shortname, workspace: workspace.path, yolo, fast, busy: true };
@@ -1409,7 +1426,7 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       if (binding?.busy) return { locked: false };
       if (binding?.handoffPending) return { locked: true };
       try {
-        const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
+        const resumed = await codex.resumeThread(threadId, { config: STUDIO_CODEX_CONFIG, excludeTurns: true });
         if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
         const locked = resumed.status.type === "active";
         if (binding) {

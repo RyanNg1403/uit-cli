@@ -140,8 +140,10 @@ describe("CodexClient", () => {
     const server = mockServer((message) => {
       if (message.id !== undefined) server.send({ id: message.id, result: { thread: { id: "thread", status: { type: "idle" } }, turn: { id: "turn" } } });
     });
+    const config = { allow_browser_and_computer_use: false, mcp_servers: { node_repl: { enabled: false } } };
     await server.client.startThread("/workspace");
-    await server.client.resumeThread("thread", { excludeTurns: true });
+    await server.client.startThread("/workspace", { config });
+    await server.client.resumeThread("thread", { config, excludeTurns: true });
     await server.client.forkThread("thread", "last");
     await server.client.forkThread("thread");
     await server.client.startTurn("thread", "hello");
@@ -150,7 +152,8 @@ describe("CodexClient", () => {
     await server.client.interruptTurn("thread", "turn");
     expect(server.messages.slice(2).map(({ method, params }) => ({ method, params }))).toEqual([
       { method: "thread/start", params: { cwd: "/workspace", serviceName: "uit_studio", sandbox: "workspace-write", approvalPolicy: "on-request" } },
-      { method: "thread/resume", params: { threadId: "thread", excludeTurns: true } },
+      { method: "thread/start", params: { cwd: "/workspace", serviceName: "uit_studio", sandbox: "workspace-write", approvalPolicy: "on-request", config } },
+      { method: "thread/resume", params: { threadId: "thread", config, excludeTurns: true } },
       { method: "thread/fork", params: { threadId: "thread", lastTurnId: "last" } },
       { method: "thread/fork", params: { threadId: "thread" } },
       { method: "turn/start", params: { threadId: "thread", input: [{ type: "text", text: "hello" }] } },

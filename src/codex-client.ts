@@ -46,6 +46,8 @@ export type CodexDynamicToolSpec = CodexDynamicToolFunction | {
 };
 
 export interface CodexThreadStartOptions {
+  /** Configuration overrides applied only while this thread is loaded here. */
+  config?: Record<string, CodexJsonValue>;
   dynamicTools?: CodexDynamicToolSpec[];
   model?: string;
   approvalPolicy?: "on-request" | "never";
@@ -94,6 +96,8 @@ export interface CodexAccountReadResult {
 }
 
 export interface CodexThreadResumeOptions {
+  /** Configuration overrides applied only while this thread is loaded here. */
+  config?: Record<string, CodexJsonValue>;
   excludeTurns?: boolean;
 }
 
@@ -270,6 +274,7 @@ export class CodexClient extends EventEmitter {
       serviceName: "uit_studio",
       sandbox: "workspace-write",
       approvalPolicy: "on-request",
+      ...(options.config !== undefined ? { config: options.config } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.approvalPolicy !== undefined ? { approvalPolicy: options.approvalPolicy } : {}),
       ...(options.dynamicTools !== undefined ? { dynamicTools: options.dynamicTools } : {})
@@ -312,6 +317,7 @@ export class CodexClient extends EventEmitter {
     await this.connect();
     const result = await this.request("thread/resume", {
       threadId,
+      ...(options.config !== undefined ? { config: options.config } : {}),
       ...(options.excludeTurns !== undefined ? { excludeTurns: options.excludeTurns } : {})
     });
     return parseThreadResumeResult(result);
