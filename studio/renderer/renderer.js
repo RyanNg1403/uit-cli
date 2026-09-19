@@ -24,6 +24,18 @@ const state = {
   menuResource: null, storageError: false, storageUnreadable: false, authBusy: false, loginFormOpen: false,
 };
 
+function isTurnAbortedMarker(text) {
+  return /^<turn_aborted>\s*[\s\S]*?\s*<\/turn_aborted>$/.test(String(text || "").trim());
+}
+
+function stopWorkingMessage(message) {
+  if (message.kind === "turn-state") {
+    return { ...message, status: "stopped", label: "Interrupted", text: "This turn ended when UIT Studio closed. Send a message to continue." };
+  }
+  const detail = [message.command, message.output].filter(Boolean).join("\n") || message.text || "This action was stopped.";
+  return { ...message, status: "stopped", label: "Stopped", text: detail };
+}
+
 function node(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -268,10 +280,8 @@ function applySavedThreadStore(saved) {
     ...thread,
     archived: Boolean(thread.archived),
     messages: thread.messages
-      .filter((message) => message.kind !== "reasoning" && message.label !== "Thought process")
-      .map((message) => message.kind === "turn-state" && message.status === "working"
-        ? { ...message, status: "stopped", label: "Interrupted", text: "This turn ended when UIT Studio closed. Send a message to continue." }
-        : message),
+      .filter((message) => !isTurnAbortedMarker(message.text) && message.kind !== "reasoning" && message.label !== "Thought process")
+      .map((message) => thread.busy || thread.interrupted ? (message.status === "working" ? stopWorkingMessage(message) : message) : message),
     draft: String(thread.draft || ""), busy: false, pending: false, stopping: false,
     branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(), yolo: thread.yolo !== false,
     fast: thread.fast === true,
@@ -1607,6 +1617,17 @@ async function checkThreadLock(thread = activeThread()) {
   try {
     const result = await window.uit.agent.lockStatus(thread.threadId);
     if (activeThread()?.id !== currentId) return;
+    if (result?.busy === true) {
+      thread.busy = true;
+      thread.pending = false;
+      thread.interrupted = false;
+      if (typeof result.taskId === "string") thread.taskId = result.taskId;
+      if (typeof result.turnId === "string") thread.turnId = result.turnId;
+      const stopped = thread.messages.find((message) => message.kind === "turn-state" && message.status === "stopped");
+      if (stopped) Object.assign(stopped, { status: "working", label: "Codex is working", text: "Codex is working" });
+    } else if (result?.lastTurnStatus === "interrupted") {
+      thread.interrupted = false;
+    }
     thread.locked = result && typeof result.locked === "boolean" ? result.locked : false;
     if (result && typeof result.handedOff === "boolean") thread.handedOff = result.handedOff;
     persist();
@@ -1643,7 +1664,7 @@ async function syncThreadRollout(thread = activeThread()) {
       thread.lastRolloutMtime = result.mtime;
       let updated = false;
       for (const rm of result.messages) {
-        if (!rm.text) continue;
+        if (!rm.text || isTurnAbortedMarker(rm.text)) continue;
         const existing = rolloutMessageMatch(thread.messages, rm);
         if (existing) {
           if (!isStudioContextMessage(existing, rm) && (existing.text !== rm.text || existing.status !== "completed")) {
@@ -2850,9 +2871,12 @@ function handleAgentEvent(message) {
     }
     return;
   }
-  // Never fall back to the selected thread. taskId exists before start resolves.
+  // A restored thread has no ephemeral taskId until the server sends its first
+  // post-reload event. Only use the threadId fallback for that exact case;
+  // concurrent live tasks retain strict taskId routing.
   const thread = params.taskId
     ? state.threads.find((item) => item.taskId === params.taskId)
+      || state.threads.find((item) => item.threadId && item.threadId === threadId && !item.taskId)
     : state.threads.find((item) => item.threadId && item.threadId === threadId);
   if (!thread) {
     if (message.method === "codex/exit" && !params.taskId && !threadId) {
@@ -3023,7 +3047,12 @@ function handleAgentEvent(message) {
     }
     case "turn/completed":
       if (turnId) thread.completedTurns.add(turnId);
-      thread.busy = false; thread.stopping = false; thread.streamItem = null; thread.approvals = [];
+      thread.busy = false; thread.stopping = false; thread.interrupted = false; thread.streamItem = null; thread.approvals = [];
+      if (params.turn?.status === "interrupted") {
+        for (const message of thread.messages) {
+          if (message.status === "working" && (!message.turnId || !turnId || message.turnId === turnId)) Object.assign(message, stopWorkingMessage(message));
+        }
+      }
       if (params.turn?.error || params.turn?.status === "failed") {
         const entry = turnState();
         const text = params.turn?.error ? `${errorText(params.turn.error)} Review the error and send again to retry.` : "The turn failed before Codex returned an answer. Send again to retry.";

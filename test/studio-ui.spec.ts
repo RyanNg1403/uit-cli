@@ -1623,6 +1623,45 @@ test("completed conversation persists, stream output deduplicates and offline re
   for (const method of ["agent.start", "agent.send", "workspace.create"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
+test("reload routes buffered active-turn events back to the persisted thread", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await page.getByLabel("Message Codex").fill("Keep working after reload");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start"))[0].input;
+  const params = { taskId: input.taskId, threadId: `thread-${input.taskId}`, turnId: `turn-${input.taskId}` };
+
+  await page.reload();
+  await page.evaluate(({ taskId, turnId }) => {
+    window.uit.agent.lockStatus = async () => ({ locked: false, busy: true, taskId, turnId });
+  }, params);
+  await page.locator('.nav-item[data-view="agent"]').click();
+  await emit(page, "item/agentMessage/delta", { ...params, itemId: "answer", delta: "Recovered answer" });
+  await expect(page.locator("#agent-messages .assistant")).toContainText("Recovered answer");
+  await emit(page, "turn/completed", { ...params, turn: { id: params.turnId, status: "completed" } });
+  await expect(page.locator("#agent-status")).toHaveText("Ready");
+});
+
+test("reload converts persisted working activities to stopped state", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await page.getByLabel("Message Codex").fill("Keep working after reload");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start"))[0].input;
+  const params = { taskId: input.taskId, threadId: `thread-${input.taskId}`, turnId: `turn-${input.taskId}` };
+  await emit(page, "item/started", { ...params, item: { id: "cmd", type: "commandExecution", command: "sleep 20" } });
+  await expect(page.locator(".message-tool.is-working")).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.messages.some((message: any) => message.status === "working"))).toBe(true);
+
+  await page.reload();
+  await page.locator('.nav-item[data-view="agent"]').click();
+  await expect(page.locator(".message-tool.is-working")).toHaveCount(0);
+  await expect(page.locator("#agent-turn-status .agent-working-spinner")).toHaveCount(0);
+  await expect(page.locator("#agent-messages")).toContainText("Stopped");
+});
+
 test("rollout sync repairs matching items and keeps distinct messages with overlapping text", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
@@ -1639,6 +1678,7 @@ test("rollout sync repairs matching items and keeps distinct messages with overl
       mtime: Date.now(),
       messages: [
         { id: "prompt", turnId: "external-turn", role: "user", text: "Start externally\n\nCourse: Computer science 1\nPortal: https://courses.uit.edu.vn" },
+        { id: "abort", turnId: "external-turn", role: "user", text: "<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>" },
         { id: "answer", turnId: "external-turn", role: "assistant", text: "Complete answer" },
         { id: "another-answer", turnId: "external-turn", role: "assistant", text: "OK, completed" }
       ]
@@ -1648,6 +1688,7 @@ test("rollout sync repairs matching items and keeps distinct messages with overl
 
   await expect(page.locator("#agent-messages .user")).toHaveCount(1);
   await expect(page.locator("#agent-messages .user")).toContainText("Start externally");
+  await expect(page.locator("#agent-messages")).not.toContainText("turn_aborted");
   await expect(page.locator("#agent-messages .assistant")).toHaveCount(2);
   await expect(page.locator("#agent-messages .assistant").nth(0)).toContainText("Complete answer");
   await expect(page.locator("#agent-messages .assistant").nth(1)).toContainText("OK, completed");
