@@ -1385,8 +1385,11 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 }
 .context-pill svg { width: 12px; height: 12px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .context-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-entry { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
 #agent-input {
   display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   border: 0 !important;
   outline: none !important;
   box-shadow: none !important;
@@ -1395,9 +1398,9 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   max-width: 100%;
   box-sizing: border-box;
   resize: none;
-  min-height: 48px;
-  max-height: 220px;
-  padding: 4px 2px 6px;
+  min-height: 32px;
+  max-height: 108px;
+  padding: 5px 2px 6px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
@@ -1433,9 +1436,10 @@ textarea:disabled {
 .mention-item .mention-kind { flex: 0 0 auto; font: 9px ui-monospace, monospace; text-transform: uppercase; color: var(--muted); }
 .mention-item .mention-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mention-item[aria-selected="true"] { background: var(--selected); }
-.composer-actions { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
-.composer-actions .icon-button {
+.composer-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.composer-entry > .icon-button {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   font-size: 16px;
@@ -1449,12 +1453,11 @@ textarea:disabled {
   background: transparent;
   transition: all .15s ease;
 }
-.composer-actions .icon-button:hover:not(:disabled) {
+.composer-entry > .icon-button:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--strong-border);
   background: var(--hover);
 }
-.composer-spacer { flex: 1; }
 .composer-options,
 .composer-submit { display: flex; align-items: center; gap: 6px; }
 .composer-options { min-width: 0; }
@@ -1885,7 +1888,8 @@ dialog::backdrop { background: var(--backdrop); }
   .citation-link { max-width: 100%; overflow-wrap: anywhere; }
   .thread-empty { padding-block: 20px; }
   .composer { padding: 0 14px calc(12px + env(safe-area-inset-bottom)); }
-  .composer-actions { flex-wrap: wrap; }
+  .composer-entry { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .composer-actions { grid-column: 1 / -1; flex-wrap: wrap; justify-content: flex-end; }
   .composer-options { flex: 1 1 auto; justify-content: flex-end; }
   .composer-pill { min-width: 0; max-width: min(46vw, 210px); overflow: hidden; text-overflow: ellipsis; }
   .send-button { width: 42px; height: 42px; }

@@ -847,6 +847,33 @@ test("composer shows course context and a working model/effort picker", async ({
   for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
+test("composer starts compact, grows to its cap, then scrolls vertically", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  const input = page.getByLabel("Message Codex");
+  const actions = page.locator(".composer-actions");
+  await expect(input).toHaveCSS("height", "32px");
+  await expect(input).toHaveCSS("max-height", "108px");
+  await expect(input).toHaveCSS("overflow-y", "hidden");
+  const compactInput = await input.boundingBox();
+  const compactActions = await actions.boundingBox();
+  expect(compactInput).not.toBeNull();
+  expect(compactActions).not.toBeNull();
+  expect(Math.abs(compactInput!.y + compactInput!.height - compactActions!.y - compactActions!.height)).toBeLessThanOrEqual(2);
+
+  await input.fill("First line\nSecond line\nThird line");
+  const grownHeight = await input.evaluate((element) => element.getBoundingClientRect().height);
+  expect(grownHeight).toBeGreaterThan(compactInput!.height);
+  expect(grownHeight).toBeLessThan(108);
+
+  await input.fill(Array.from({ length: 20 }, (_, index) => `Line ${index + 1}`).join("\n"));
+  await expect(input).toHaveCSS("height", "108px");
+  await expect(input).toHaveCSS("overflow-y", "auto");
+  await input.fill("");
+  await expect(input).toHaveCSS("height", "32px");
+  await expect(input).toHaveCSS("overflow-y", "hidden");
+});
+
 test("@-mention popup attaches course files as chips without sending", async ({ page, boot }) => {
   await boot();
   await createThread(page);

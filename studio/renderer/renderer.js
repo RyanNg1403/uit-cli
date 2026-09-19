@@ -1722,9 +1722,12 @@ function autoResizeInput() {
   if (!input) return;
   input.style.height = "auto";
   const scrollHeight = input.scrollHeight;
-  const targetHeight = Math.min(Math.max(scrollHeight, 48), 220);
+  const style = getComputedStyle(input);
+  const minHeight = Number.parseFloat(style.minHeight);
+  const maxHeight = Number.parseFloat(style.maxHeight);
+  const targetHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
   input.style.height = `${targetHeight}px`;
-  input.style.overflowY = scrollHeight > 220 ? "auto" : "hidden";
+  input.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
   updateApprovalOverlayPosition();
 }
 function renderChips() {
