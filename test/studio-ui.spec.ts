@@ -2226,7 +2226,7 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   await expect(resumeMenu).toBeHidden();
 });
 
-test("keeps a thread read-only after handing it to the Desktop App", async ({ page, boot }) => {
+test("keeps a Desktop-owned thread read-only and reclaims it after Desktop releases it", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
   await page.getByRole("button", { name: "New Thread", exact: true }).click();
@@ -2249,6 +2249,14 @@ test("keeps a thread read-only after handing it to the Desktop App", async ({ pa
   await expect(page.locator("#thread-lock-badge")).toBeVisible();
   await expect(page.locator("#agent-input")).toBeDisabled();
   await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.handedOff)).toBe(true);
+
+  await page.evaluate(() => {
+    window.uit.agent.lockStatus = async () => ({ locked: false, handedOff: false });
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(page.locator("#thread-lock-badge")).toBeHidden();
+  await expect(page.locator("#agent-input")).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.handedOff)).toBe(false);
 });
 
 test("during thread-lock, input box, rename, and delete options convert to not-allowed cursor and are disabled", async ({ page, boot }) => {

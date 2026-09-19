@@ -100,6 +100,21 @@ function isActiveThreadWriterError(error: unknown): boolean {
   return /active writer/i.test(errorMessage(error));
 }
 
+const DESKTOP_HANDOFF_CONFIRMATION_INTERVAL_MS = 25;
+
+function codexWriterLockPath(threadId: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(threadId)) throw new Error("Invalid Codex thread ID.");
+  const codexHome = process.env.CODEX_HOME ? resolve(process.env.CODEX_HOME) : join(homedir(), ".codex");
+  return join(codexHome, "thread-writer-locks", `${threadId}.lock`);
+}
+
+async function waitForDesktopWriter(threadId: string): Promise<void> {
+  const lockPath = codexWriterLockPath(threadId);
+  while (!existsSync(lockPath)) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, DESKTOP_HANDOFF_CONFIRMATION_INTERVAL_MS));
+  }
+}
+
 let host!: StudioHost;
 let service!: typeof import("./desktop-service.js");
 let codex!: CodexClient;
@@ -167,7 +182,7 @@ async function loadService() {
     const notificationThreadId = params.threadId || params.thread?.id;
     const binding = threadBindings.get(notificationThreadId);
     if (message.method === "thread/status/changed" && notificationThreadId && isThreadStatus(params.status) && binding) {
-      binding.locked = binding.handedOff === true || (!binding.busy && params.status.type === "active");
+      binding.locked = !binding.busy && params.status.type === "active";
     }
     if (message.method === "thread/deleted" && notificationThreadId) {
       threadBindings.delete(notificationThreadId);
@@ -1393,22 +1408,27 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const binding = threadBindings.get(threadId);
       if (binding?.busy) return { locked: false };
       if (binding?.handoffPending) return { locked: true };
-      if (binding?.handedOff) return { locked: true };
       try {
         const resumed = await codex.resumeThread(threadId, { excludeTurns: true });
         if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
         const locked = resumed.status.type === "active";
-        if (binding) binding.locked = locked;
-        return { locked };
+        if (binding) {
+          binding.locked = locked;
+          binding.handedOff = false;
+        }
+        return { locked, handedOff: false };
       } catch (error) {
         // A Desktop/CLI handoff can win the writer race between the renderer
         // releasing Studio and its next lock-status check. Treat that exact
         // app-server response as read-only state instead of clearing the lock
         // or surfacing a misleading renderer error.
         if (!isActiveThreadWriterError(error)) throw error;
-        if (binding) binding.locked = true;
+        if (binding) {
+          binding.locked = true;
+          binding.handedOff = true;
+        }
         await codex.disconnectAndWait().catch(() => undefined);
-        return { locked: true };
+        return { locked: true, handedOff: true };
       }
     },
     "thread:open-desktop": async (rawInput) => {
@@ -1441,6 +1461,7 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
         }
         try {
           await host.openCodexDesktop(threadId);
+          if (!wasHandedOff) await waitForDesktopWriter(threadId);
         } catch (error) {
           if (!wasHandedOff) {
             binding.handedOff = false;

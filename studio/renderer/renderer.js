@@ -1603,20 +1603,16 @@ async function checkThreadLock(thread = activeThread()) {
     applyThreadLockDisplay(thread);
     return;
   }
-  if (thread.handedOff === true) {
-    thread.locked = true;
-    applyThreadLockDisplay(thread);
-    return;
-  }
   const currentId = thread.id;
   try {
     const result = await window.uit.agent.lockStatus(thread.threadId);
     if (activeThread()?.id !== currentId) return;
     thread.locked = result && typeof result.locked === "boolean" ? result.locked : false;
+    if (result && typeof result.handedOff === "boolean") thread.handedOff = result.handedOff;
+    persist();
     applyThreadLockDisplay(thread);
   } catch {
     if (activeThread()?.id !== currentId) return;
-    thread.locked = false;
     applyThreadLockDisplay(thread);
   }
 }
@@ -3449,11 +3445,11 @@ $("#resume-codex-app")?.addEventListener("click", async () => {
   }
   const wasHandedOff = thread.handedOff === true;
   try {
-    thread.handedOff = true;
     thread.locked = true;
-    persist();
     applyThreadLockDisplay(thread);
     await window.uit.agent.openDesktop({ threadId: thread.threadId });
+    thread.handedOff = true;
+    persist();
     toast("Opening thread in ChatGPT Desktop (Lock released)...");
   } catch (err) {
     thread.handedOff = wasHandedOff;
