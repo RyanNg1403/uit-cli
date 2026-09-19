@@ -9,6 +9,7 @@ import { submitAssignmentFile } from "./assignment-submission.js";
 import { activateSession as selectActiveSession, get, save } from "./config.js";
 import { requestMobileToken } from "./commands.js";
 import { CodexClient } from "./codex-client.js";
+import { readH5pActivity, type H5pContentSummary } from "./h5p.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 export { calendarMonth, listCalendarEvents, addAssignmentIntervals, calendarReminders } from "./calendar.js";
 
@@ -722,6 +723,7 @@ export interface ResolvedCourseResource {
   description: string;
   url?: string;
   files?: CourseFile[];
+  h5p?: H5pContentSummary;
   unavailable?: Record<string, string>;
 }
 
@@ -763,6 +765,7 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
     if (module && module.id === reference.id) {
       let files = module.files;
       let description = module.description || "";
+      let h5p: H5pContentSummary | undefined;
       let unavailable = module.unavailable;
       if (module.modname === "assign") {
         try {
@@ -774,6 +777,11 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
           if (!/^(?:invalidfunction|cannotfindfunction|wsfunctionnotavailable)$/.test(code || "") &&
               (code !== undefined || !/^This UIT site does not expose mod_assign_get_assignments to the SSO session\./.test(String((error as Error)?.message)))) throw error;
         }
+      } else if (module.modname === "h5pactivity" && reference.kind === "module") {
+        const resolved = await readH5pActivity(courseId, module.id, api);
+        files = filesFrom(files, resolved.activity.files);
+        description = resolved.activity.description || description;
+        h5p = resolved.content;
       } else if (module.modname === "forum" && reference.kind === "file") {
         const announcements = (await listAnnouncements(courseId, api)).filter((item) => item.moduleId === module.id);
         files = filesFrom(files, ...announcements.map((item) => item.files));
@@ -783,7 +791,7 @@ export async function resolveCourseResource(courseId: number, reference: CourseR
       if (reference.kind === "file") {
         const file = selectFile(files);
         if (file) resource = { kind: "file", id: reference.id, moduleId: module.id, name: file.filename, description, url: file.fileurl, files: [file], unavailable };
-      } else resource = { kind: "module", id: module.id, moduleId: module.id, name: module.name, description, url: module.url, files, unavailable };
+      } else resource = { kind: "module", id: module.id, moduleId: module.id, name: module.name, description, url: module.url, files, h5p, unavailable };
     }
     if (!resource && reference.kind === "file" && (fileUrl !== undefined || reference.filename !== undefined)) {
       try {

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { afterEach, vi } from "vitest";
 import { courseDownloadPath, requestMobileToken } from "../src/commands.js";
 import { clean, extractUrls, htmlToText, idOrUrl, parseMoodleUrl, sanitize, ts } from "../src/output.js";
-import { extractH5pPackage, parseZip } from "../src/unzip.js";
+import { extractH5pPackage, parseZip, readZipEntry } from "../src/unzip.js";
 import { makeZip } from "./zip-fixture.js";
 
 afterEach(() => {
@@ -68,6 +68,17 @@ describe("h5p package extraction", () => {
     expect(entries.map((entry) => entry.name)).toEqual(["h5p.json", "content/content.json"]);
     expect(entries[0].data.toString()).toBe("{}");
     expect(entries[1].data.toString()).toBe('{"title":"Lesson"}');
+  });
+
+  it("reads only the requested metadata entry within its expansion limit", () => {
+    const zip = makeZip([
+      { name: "content/content.json", data: Buffer.from('{"title":"Lesson"}'), deflate: true },
+      { name: "content/videos/large.mp4", data: Buffer.alloc(1_024), deflate: true }
+    ]);
+
+    expect(readZipEntry(zip, "content/content.json", 100)?.toString()).toBe('{"title":"Lesson"}');
+    expect(readZipEntry(zip, "missing.json", 100)).toBeUndefined();
+    expect(() => readZipEntry(zip, "content/videos/large.mp4", 100)).toThrow("extraction limit");
   });
 
   it("extracts only the content/ payload from a .h5p package", () => {

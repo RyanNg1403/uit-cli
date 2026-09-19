@@ -56,6 +56,7 @@ for (const required of [
   "dist/assignment-submission.js",
   "dist/calendar.js",
   "dist/desktop-service.js",
+  "dist/h5p.js",
   "dist/mcp-server.js",
   "dist/mcp-entry.js",
   "dist/session-health.js",
