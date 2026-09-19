@@ -6,11 +6,13 @@ import { courses, fileTypes } from "./fixtures/studio";
 import { startStudioWebServer, type StudioWebServer } from "../src/studio-web-server.js";
 
 const currentSessions = [
-  { baseUrl: "https://courses.uit.edu.vn", userId: 101, authMode: "sso", label: "Current Moodle" },
-  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "token", label: "Legacy Moodle" }
+  { baseUrl: "https://courses.uit.edu.vn", userId: 101, authMode: "sso", label: "Current Moodle", health: { state: "connected", checkedAt: Date.now() } },
+  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "token", label: "Legacy Moodle", health: { state: "connected", checkedAt: Date.now() } }
 ];
 
-function fakeCore() {
+type WebTrace = { leases: any[]; agents: any[] };
+
+function fakeCore(trace: WebTrace) {
   const status = () => ({
     authenticated: true,
     authMode: "multi",
@@ -50,11 +52,12 @@ function fakeCore() {
       "course:open": () => undefined,
       "threads:read": () => null,
       "threads:write": () => ({ success: true }),
+      "studio:lease": (input: any) => { trace.leases.push(input); return { success: true, leaseMs: 5_000 }; },
       "workspace:create": (input: any) => ({ path: `/fixture/${input.courseId}` }),
       "codex:status": () => ({ state: "ready", installed: true, message: "Codex App Server is ready" }),
       "codex:models": () => [],
-      "agent:start": (input: any) => ({ threadId: `thread-${input.taskId}`, turnId: `turn-${input.taskId}`, workspace: `/fixture/${input.shortname}` }),
-      "agent:send": (input: any) => ({ threadId: input.threadId, turnId: `turn-${input.threadId}`, workspace: input.cwd }),
+      "agent:start": (input: any) => { trace.agents.push({ method: "start", input }); return { threadId: `thread-${input.taskId}`, turnId: `turn-${input.taskId}`, workspace: `/fixture/${input.shortname}` }; },
+      "agent:send": (input: any) => { trace.agents.push({ method: "send", input }); return { threadId: input.threadId, turnId: `turn-${input.threadId}`, workspace: input.cwd }; },
       "agent:fork": (input: any) => ({ id: `branch-${input.threadId}` }),
       "agent:delete": () => ({ success: true }),
       "agent:rename": () => ({ success: true }),
@@ -63,6 +66,7 @@ function fakeCore() {
       "agent:disconnect": () => undefined,
       "thread:release-lock": () => ({ success: true }),
       "thread:lock-status": () => ({ locked: false }),
+      "thread:reconcile": () => ({ missingThreadIds: [] }),
       "thread:open-desktop": () => ({ success: true }),
       "thread:read-rollout": () => ({ mtime: 0, messages: [] }),
       "clipboard:write": () => ({ success: true }),
@@ -73,15 +77,15 @@ function fakeCore() {
   };
 }
 
-async function startFixtureServer(): Promise<{ server: StudioWebServer; directory: string }> {
+async function startFixtureServer(trace: WebTrace = { leases: [], agents: [] }): Promise<{ server: StudioWebServer; directory: string; trace: WebTrace }> {
   const directory = await mkdtemp(join(tmpdir(), "uit-studio-web-browser-"));
   const server = await startStudioWebServer({
     staticRoot: resolve("studio/renderer"),
     controlFile: join(directory, "server.json"),
     userDataPath: join(directory, "profile"),
-    createCore: async (_host) => fakeCore()
+    createCore: async (_host) => fakeCore(trace)
   });
-  return { server, directory };
+  return { server, directory, trace };
 }
 
 test("opens the current Studio renderer through the authenticated web bridge", async ({ page }) => {
@@ -90,7 +94,7 @@ test("opens the current Studio renderer through the authenticated web bridge", a
     const eventStream = page.waitForResponse((response) => response.url().endsWith("/api/events") && response.request().method() === "GET");
     await page.goto(server.launchUrl());
     expect((await eventStream).status()).toBe(200);
-    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "assets/uit-dau-dau-icon.png");
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "assets/uit-dau-dau.svg");
     await expect(page.locator("#account-label")).toHaveText("Course accounts (2)");
     await expect(page.locator(".course-row")).toHaveCount(19);
 
@@ -101,6 +105,22 @@ test("opens the current Studio renderer through the authenticated web bridge", a
 
     const hash = await page.evaluate(() => window.location.hash);
     expect(hash).toBe("");
+  } finally {
+    await page.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("leases the Studio page and releases its active-turn ownership on pagehide", async ({ page }) => {
+  const { server, directory, trace } = await startFixtureServer();
+  try {
+    await page.goto(server.launchUrl());
+    await expect.poll(() => trace.leases.some((lease) => lease.state === "acquire")).toBe(true);
+    await page.evaluate(() => window.uit.agent.start({ taskId: "task-1", message: "work", shortname: "CS01" }));
+    expect(trace.agents[0]?.input.studioClientId).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    await expect.poll(() => trace.leases.at(-1)?.state).toBe("release");
   } finally {
     await page.close();
     await server.close();

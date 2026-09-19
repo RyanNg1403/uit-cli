@@ -45,6 +45,10 @@
 
   let csrfToken = "";
   let ready;
+  let leaseReady = Promise.resolve();
+  let leaseHeartbeat;
+  let leaseReleased = false;
+  let studioClientId;
   const eventListeners = new Set();
   let eventSource;
 
@@ -87,15 +91,58 @@
 
   ready = authenticate();
 
-  async function rpc(method, input) {
+  async function rawRpc(method, input, options = {}) {
     await ready;
     const headers = { "Content-Type": "application/json", "X-CSRF-Token": csrfToken };
     const body = { method };
     if (input !== undefined) body.input = input;
-    const payload = await fetchJson("/api/rpc", { method: "POST", headers, body: JSON.stringify(body) });
+    const payload = await fetchJson("/api/rpc", { method: "POST", headers, body: JSON.stringify(body), ...options });
     if (payload.ok !== true) throw responseError(payload, "UIT Studio could not complete the request.");
     return payload.result;
   }
+
+  async function rpc(method, input, options = {}) {
+    await ready;
+    if (method !== "studio:lease") await leaseReady;
+    const agentInput = method === "agent:start" || method === "agent:send"
+      ? { ...(input || {}), studioClientId }
+      : input;
+    return rawRpc(method, agentInput, options);
+  }
+
+  function acquireLease() {
+    studioClientId = globalThis.crypto?.randomUUID?.() || `studio-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    leaseReleased = false;
+    if (leaseHeartbeat) clearInterval(leaseHeartbeat);
+    leaseReady = rawRpc("studio:lease", { clientId: studioClientId, state: "acquire" });
+    leaseReady.then((result) => {
+      if (leaseReleased) return;
+      const leaseMs = Number(result?.leaseMs);
+      const heartbeatMs = Number.isFinite(leaseMs) && leaseMs > 0 ? Math.max(250, Math.floor(leaseMs / 3)) : 1_000;
+      leaseHeartbeat = setInterval(() => {
+        void rawRpc("studio:lease", { clientId: studioClientId, state: "heartbeat" }, { keepalive: true }).catch(() => undefined);
+      }, heartbeatMs);
+    }).catch(() => undefined);
+  }
+
+  function releaseLease() {
+    if (leaseReleased) return;
+    leaseReleased = true;
+    const clientId = studioClientId;
+    if (leaseHeartbeat) {
+      clearInterval(leaseHeartbeat);
+      leaseHeartbeat = undefined;
+    }
+    void leaseReady.catch(() => undefined).then(() => rawRpc(
+      "studio:lease",
+      { clientId, state: "release" },
+      { keepalive: true }
+    )).catch(() => undefined);
+  }
+
+  acquireLease();
+  window.addEventListener("pagehide", releaseLease);
+  window.addEventListener("pageshow", () => { if (leaseReleased) acquireLease(); });
 
   function connectEvents() {
     ready.then(() => {
@@ -124,6 +171,7 @@
   });
   bridge.agent.releaseLock = (threadId) => rpc("thread:release-lock", { threadId });
   bridge.agent.lockStatus = (threadId) => rpc("thread:lock-status", { threadId });
+  bridge.agent.reconcile = (threadIds) => rpc("thread:reconcile", { threadIds });
   bridge.agent.writeClipboard = async (text) => {
     try {
       if (navigator.clipboard && window.isSecureContext !== false) {

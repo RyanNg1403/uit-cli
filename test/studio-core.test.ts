@@ -2,7 +2,26 @@ import { chmod, mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { requireOpenableWorkspacePath, requiresExplicitUitMcpApproval } from "../src/studio-core.js";
+import { isTurnAbortedMarker, requireOpenableWorkspacePath, requiresExplicitUitMcpApproval, stripHiddenControlMarkup } from "../src/studio-core.js";
+
+describe("Studio rollout control messages", () => {
+  it("recognizes Codex turn-abort markers instead of treating them as user content", () => {
+    expect(isTurnAbortedMarker("<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>")).toBe(true);
+    expect(isTurnAbortedMarker("Please explain <turn_aborted>this text</turn_aborted>")).toBe(false);
+  });
+
+  it("removes complete and unterminated Codex control blocks while preserving visible text", () => {
+    expect(stripHiddenControlMarkup("Before <oai-mem-citation>hidden <citation_entries>data</citation_entries></oai-mem-citation> after")).toBe("Before  after");
+    expect(stripHiddenControlMarkup("<turn_aborted>interrupted</turn_aborted>")).toBe("");
+    expect(stripHiddenControlMarkup("Visible <oai-mem-citation>hidden")).toBe("Visible ");
+    expect(stripHiddenControlMarkup("literal <oai-mem-citatio")).toBe("literal <oai-mem-citatio");
+  });
+
+  it("does not treat unrelated XML-like text as control markup", () => {
+    const text = "Explain <citation_entries>this literal XML</citation_entries> and <custom>that</custom>.";
+    expect(stripHiddenControlMarkup(text)).toBe(text);
+  });
+});
 
 function approval(toolName: string) {
   return {

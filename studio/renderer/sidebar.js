@@ -12,6 +12,7 @@
   let collapsed = false;
   let mobileOpen = false;
   let drag = null;
+  let pendingTabFocus = null;
 
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
@@ -58,6 +59,7 @@
     if (!mobile.matches || (open && hasDialog())) return;
     const wasOpen = mobileOpen;
     mobileOpen = !!open;
+    pendingTabFocus = null;
     render();
     if (!hasDialog()) {
       if (mobileOpen && !wasOpen) close.focus();
@@ -147,15 +149,24 @@
       const next = current + step;
       // Own every transition inside the mobile rail instead of relying on
       // platform-native traversal, which can leave a select focused while the
-      // opening transform is still settling on macOS.
+      // opening transform is still settling on macOS. Keep the target through
+      // keyup because native select handling can restore focus after keydown.
       event.preventDefault();
-      controls[current < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (next + controls.length) % controls.length]?.focus();
+      pendingTabFocus = controls[current < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (next + controls.length) % controls.length];
+      pendingTabFocus?.focus();
     }
+  }, true);
+  document.addEventListener("keyup", (event) => {
+    if (event.key !== "Tab" || !pendingTabFocus) return;
+    const target = pendingTabFocus;
+    pendingTabFocus = null;
+    if (!hasDialog() && mobile.matches && mobileOpen && target.isConnected && document.activeElement !== target) target.focus();
   }, true);
 
   mobile.addEventListener("change", () => {
     const wasOpen = mobileOpen;
     mobileOpen = false;
+    pendingTabFocus = null;
     finishDrag(true);
     render();
     if (wasOpen && !hasDialog()) menu.focus();

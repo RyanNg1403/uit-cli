@@ -46,6 +46,8 @@ export type CodexDynamicToolSpec = CodexDynamicToolFunction | {
 };
 
 export interface CodexThreadStartOptions {
+  /** Configuration overrides applied only while this thread is loaded here. */
+  config?: Record<string, CodexJsonValue>;
   dynamicTools?: CodexDynamicToolSpec[];
   model?: string;
   approvalPolicy?: "on-request" | "never";
@@ -94,7 +96,28 @@ export interface CodexAccountReadResult {
 }
 
 export interface CodexThreadResumeOptions {
+  /** Configuration overrides applied only while this thread is loaded here. */
+  config?: Record<string, CodexJsonValue>;
   excludeTurns?: boolean;
+}
+
+export class CodexRpcError extends Error {
+  constructor(
+    readonly method: string,
+    readonly code: number | undefined,
+    readonly data: unknown,
+    message: string
+  ) {
+    super(message);
+    this.name = "CodexRpcError";
+  }
+}
+
+export function isCodexThreadNotFoundError(error: unknown, method: string, threadId: string): boolean {
+  return error instanceof CodexRpcError
+    && error.method === method
+    && error.code === -32600
+    && error.message === `thread not loaded: ${threadId}`;
 }
 
 export interface CodexTurn {
@@ -146,6 +169,14 @@ function parseThreadResumeResult(value: unknown): CodexThread {
   return { ...value.thread, id: value.thread.id, status };
 }
 
+function parseThreadReadResult(value: unknown): CodexThread {
+  if (!isRecord(value)) throw new Error("Malformed thread/read response: result must be an object.");
+  if (!isRecord(value.thread) || typeof value.thread.id !== "string" || value.thread.id.trim() === "") {
+    throw new Error("Malformed thread/read response: result.thread.id must be a non-empty string.");
+  }
+  return { ...value.thread, id: value.thread.id };
+}
+
 function parseThreadStatusChangedParams(value: unknown): { threadId: string; status: CodexThreadStatus } {
   if (!isRecord(value) || typeof value.threadId !== "string" || value.threadId.trim() === "") {
     throw new Error("Malformed thread/status/changed notification: params.threadId must be a non-empty string.");
@@ -166,7 +197,8 @@ export class CodexClient extends EventEmitter {
   private nextId = 1;
   private connected = false;
   private connecting: Promise<Record<string, unknown>> | undefined;
-  private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+  private disconnecting: Promise<void> | undefined;
+  private pending = new Map<number, { method: string; resolve: (value: any) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
   private serverRequests = new Set<CodexRequestId>();
 
   constructor(options: CodexClientOptions = {}) {
@@ -183,6 +215,7 @@ export class CodexClient extends EventEmitter {
   }
 
   connect(): Promise<Record<string, unknown>> {
+    if (this.disconnecting) return this.disconnecting.then(() => this.connect());
     if (this.connecting) return this.connecting;
     if (this.connected && this.process) return Promise.resolve({});
     let process: ChildProcessWithoutNullStreams | undefined;
@@ -241,6 +274,7 @@ export class CodexClient extends EventEmitter {
       serviceName: "uit_studio",
       sandbox: "workspace-write",
       approvalPolicy: "on-request",
+      ...(options.config !== undefined ? { config: options.config } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.approvalPolicy !== undefined ? { approvalPolicy: options.approvalPolicy } : {}),
       ...(options.dynamicTools !== undefined ? { dynamicTools: options.dynamicTools } : {})
@@ -283,9 +317,16 @@ export class CodexClient extends EventEmitter {
     await this.connect();
     const result = await this.request("thread/resume", {
       threadId,
+      ...(options.config !== undefined ? { config: options.config } : {}),
       ...(options.excludeTurns !== undefined ? { excludeTurns: options.excludeTurns } : {})
     });
     return parseThreadResumeResult(result);
+  }
+
+  async readThread(threadId: string): Promise<CodexThread> {
+    await this.connect();
+    const result = await this.request("thread/read", { threadId, includeTurns: false });
+    return parseThreadReadResult(result);
   }
 
   async startTurn(threadId: string, text: string, cwd?: string, options: CodexTurnStartOptions = {}): Promise<CodexTurn> {
@@ -332,8 +373,70 @@ export class CodexClient extends EventEmitter {
   }
 
   async disconnect(): Promise<void> {
+    await this.disconnectInternal(false);
+  }
+
+  /**
+   * Disconnect and wait until the child process has actually exited.
+   *
+   * This is required before handing a thread to another app-server: the
+   * rollout store permits only one active writer for a thread.
+   */
+  async disconnectAndWait(): Promise<void> {
+    await this.disconnectInternal(true);
+  }
+
+  private async disconnectInternal(waitForExit: boolean): Promise<void> {
+    if (this.disconnecting) {
+      if (waitForExit) await this.disconnecting;
+      return;
+    }
     this.connecting = undefined;
-    if (this.process) this.closeProcess(this.process, new Error("Codex client disconnected"));
+    const process = this.process;
+    if (!process) return;
+    if (!waitForExit) {
+      this.closeProcess(process, new Error("Codex client disconnected"));
+      return;
+    }
+    const exited = this.waitForProcessExit(process);
+    const disconnection = exited.finally(() => {
+      if (this.disconnecting === disconnection) this.disconnecting = undefined;
+    });
+    this.disconnecting = disconnection;
+    this.closeProcess(process, new Error("Codex client disconnected"));
+    await disconnection;
+  }
+
+  private waitForProcessExit(process: ChildProcessWithoutNullStreams): Promise<void> {
+    return new Promise((resolveExit, rejectExit) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        process.removeListener("close", onExit);
+        process.removeListener("error", onError);
+        rejectExit(new Error("Codex app-server did not exit after disconnect."));
+      }, 5_000);
+      timer.unref();
+      const onExit = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        process.removeListener("close", onExit);
+        process.removeListener("error", onError);
+        resolveExit();
+      };
+      const onError = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        process.removeListener("close", onExit);
+        process.removeListener("error", onError);
+        rejectExit(error);
+      };
+      process.once("close", onExit);
+      process.once("error", onError);
+    });
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<any> {
@@ -345,7 +448,7 @@ export class CodexClient extends EventEmitter {
         this.pending.delete(id);
         reject(new Error(`Codex request timed out: ${method}`));
       }, this.requestTimeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ method, id, params });
       } catch (error) {
@@ -411,10 +514,12 @@ export class CodexClient extends EventEmitter {
       }
       clearTimeout(pending.timer);
       this.pending.delete(message.id);
-      if (message.error) pending.reject(Object.assign(new Error(message.error.message || "Codex request failed"), {
-        code: message.error.code,
-        data: message.error.data
-      }));
+      if (message.error) pending.reject(new CodexRpcError(
+        pending.method,
+        message.error.code,
+        message.error.data,
+        message.error.message || "Codex request failed"
+      ));
       else pending.resolve(message.result);
       return;
     }

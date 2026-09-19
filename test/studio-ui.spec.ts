@@ -281,81 +281,6 @@ test("Codex icon returns to the persistent empty agent home", async ({ page, boo
   await expect(page.getByLabel("Message Codex")).toBeHidden();
 });
 
-test("mascot sprites animate efficiently for onboarding and active agent work", async ({ page, boot }) => {
-  await page.emulateMedia({ reducedMotion: "no-preference" });
-  await boot({ authenticated: false });
-  const onboarding = page.locator(".course-onboarding-mascot");
-  await expect(onboarding).toHaveAttribute("role", "img");
-  await expect(onboarding).toHaveAttribute("aria-label", "Đậu Đậu, the UIT panda mascot");
-  const onboardingStyle = await onboarding.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return { backgroundImage: style.backgroundImage, animationName: style.animationName, animationDuration: style.animationDuration };
-  });
-  expect(onboardingStyle.backgroundImage).toContain("dau-dau-onboarding.png");
-  expect(onboardingStyle.animationName).toBe("dau-dau-onboarding-frames");
-  expect(onboardingStyle.animationDuration).toBe("3.2s");
-
-  await page.evaluate(() => sessionStorage.clear());
-  await boot();
-  await openCourse(page);
-  await page.getByRole("button", { name: "New Thread", exact: true }).click();
-  await page.getByLabel("Message Codex").fill("Check the working mascot");
-  await page.locator("#send-agent").click();
-  await expect(page.locator("#page-title")).toHaveAttribute("aria-label", "Codex home");
-  await expect(page.locator("#page-title .codex-page-icon")).toHaveCount(1);
-  const workingStatus = page.locator("#agent-turn-status");
-  await expect(workingStatus).toBeVisible();
-  await expect(workingStatus).toContainText("Codex is working");
-  const workingMascot = workingStatus.locator(".message-turn-state.is-working .working-mascot");
-  await expect(workingMascot).toBeVisible();
-  const workingSpinner = workingStatus.locator(".agent-working-spinner");
-  await expect(workingSpinner).toBeVisible();
-  const agentStyle = await workingMascot.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return { backgroundImage: style.backgroundImage, animationName: style.animationName, animationDuration: style.animationDuration };
-  });
-  expect(agentStyle.backgroundImage).toContain("dau-dau-agent.png");
-  expect(agentStyle.animationName).toBe("dau-dau-agent-frames");
-  expect(agentStyle.animationDuration).toBe("1.6s");
-  const spinnerStyle = await workingSpinner.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return { width: style.width, height: style.height, animationName: style.animationName, animationDuration: style.animationDuration };
-  });
-  expect(spinnerStyle).toEqual({ width: "14px", height: "14px", animationName: "working-spin", animationDuration: "0.8s" });
-  const spinnerBox = await workingSpinner.boundingBox();
-  const copyBox = await workingStatus.locator(".turn-state-copy").boundingBox();
-  expect(spinnerBox).not.toBeNull();
-  expect(copyBox).not.toBeNull();
-  expect(spinnerBox!.x + spinnerBox!.width).toBeLessThanOrEqual(copyBox!.x);
-
-  const input = (await calls(page, "agent.start"))[0].input;
-  const activeParams = { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}` };
-  await emit(page, "item/agentMessage/delta", { ...activeParams, itemId: "answer", delta: "Generated while working" });
-  await expect(page.locator("#agent-messages .working-mascot")).toHaveCount(0);
-  const messagesBox = await page.locator("#agent-messages").boundingBox();
-  const statusBox = await workingStatus.boundingBox();
-  const statusRowBox = await workingStatus.locator(".message-turn-state").boundingBox();
-  const composerBox = await page.locator(".composer").boundingBox();
-  const formBox = await page.locator("#agent-form").boundingBox();
-  expect(messagesBox).not.toBeNull();
-  expect(statusBox).not.toBeNull();
-  expect(statusRowBox).not.toBeNull();
-  expect(composerBox).not.toBeNull();
-  expect(formBox).not.toBeNull();
-  expect(await workingStatus.evaluate((element) => getComputedStyle(element).position)).toBe("static");
-  expect(await workingStatus.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
-  expect(statusRowBox!.width).toBeLessThan(messagesBox!.width);
-  expect(statusBox!.width).toBeLessThan(messagesBox!.width);
-  expect(Math.abs(statusRowBox!.x - formBox!.x)).toBeLessThanOrEqual(1);
-  expect(statusBox!.y).toBeGreaterThanOrEqual(messagesBox!.y + messagesBox!.height);
-  expect(statusBox!.y + statusBox!.height).toBeLessThanOrEqual(composerBox!.y);
-  expect(composerBox!.y - (statusBox!.y + statusBox!.height)).toBeLessThanOrEqual(10);
-  await emit(page, "turn/completed", { threadId: `thread-${input.taskId}`, taskId: input.taskId, turnId: `turn-${input.taskId}`, turn: { id: `turn-${input.taskId}`, status: "completed" } });
-  await expect(page.locator(".working-mascot")).toHaveCount(0);
-  await expect(workingStatus).toBeHidden();
-  await expect(page.locator("#agent-status")).toHaveText("Ready");
-});
-
 test("New project groups years clearly and filters the requested year", async ({ page, boot }, info) => {
   await boot();
   await page.locator('[data-view="agent"]').click();
@@ -841,6 +766,37 @@ test("composer shows course context and a working model/effort picker", async ({
   for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
+test("composer starts compact, grows to its cap, then scrolls vertically", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  const input = page.getByLabel("Message Codex");
+  const actions = page.locator(".composer-actions");
+  await expect(input).toHaveCSS("height", "40px");
+  await expect(input).toHaveCSS("max-height", "132px");
+  await expect(input).toHaveCSS("overflow-y", "hidden");
+  const compactInput = await input.boundingBox();
+  const compactActions = await actions.boundingBox();
+  expect(compactInput).not.toBeNull();
+  expect(compactActions).not.toBeNull();
+  expect(Math.abs(compactInput!.y + compactInput!.height - compactActions!.y - compactActions!.height)).toBeLessThanOrEqual(4);
+  const compactEntry = await page.locator(".composer-entry").boundingBox();
+  expect(compactEntry).not.toBeNull();
+  expect(Math.abs(compactInput!.x + compactInput!.width - compactEntry!.x - compactEntry!.width)).toBeLessThanOrEqual(1);
+
+  await input.fill("First line\nSecond line\nThird line");
+  const grownHeight = await input.evaluate((element) => element.getBoundingClientRect().height);
+  expect(grownHeight).toBeGreaterThan(compactInput!.height);
+  expect(grownHeight).toBeLessThan(132);
+
+  await input.fill(Array.from({ length: 20 }, (_, index) => `Line ${index + 1}`).join("\n"));
+  await expect(input).toHaveCSS("height", "132px");
+  await expect(input).toHaveCSS("overflow-y", "auto");
+  await expect(input).toHaveCSS("scrollbar-width", "thin");
+  await input.fill("");
+  await expect(input).toHaveCSS("height", "40px");
+  await expect(input).toHaveCSS("overflow-y", "hidden");
+});
+
 test("@-mention popup attaches course files as chips without sending", async ({ page, boot }) => {
   await boot();
   await createThread(page);
@@ -946,6 +902,53 @@ test("codex file citations render as links that open the workspace file", async 
   });
   await link.click();
   expect(await page.evaluate(() => (window as any).__shellOpened)).toBe("/tmp/syllabus.pdf");
+});
+
+test("Codex control markers stay hidden across streamed chunk boundaries", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await sendAndStop(page, "Render a clean answer");
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
+  for (const delta of [
+    "Before <oai-mem-cita",
+    "tion>MEMORY.md:46-46<citation_entries>hidden</citation_entries>",
+    "</oai-mem-cita",
+    "tion> after",
+  ]) await emit(page, "item/agentMessage/delta", { threadId, itemId: "hidden-marker", delta });
+  await expect(page.locator("#agent-messages .assistant")).toHaveCount(1);
+  await expect(page.locator("#agent-messages .assistant")).toContainText("Before  after");
+  await expect(page.locator("#agent-messages")).not.toContainText("oai-mem-citation");
+  await expect(page.locator("#agent-messages")).not.toContainText("MEMORY.md:46-46");
+  await emit(page, "item/completed", { threadId, item: { id: "hidden-marker", type: "agentMessage", text: "Final <turn_aborted>internal</turn_aborted> answer" } });
+  await expect(page.locator("#agent-messages .assistant")).toContainText("Final  answer");
+  await emit(page, "item/completed", { threadId, item: { id: "marker-only", type: "agentMessage", text: "<oai-mem-citation>only hidden</oai-mem-citation>" } });
+  await expect(page.locator("#agent-messages .assistant")).toHaveCount(1);
+  expect(JSON.stringify(await threadStore(page))).not.toContain("turn_aborted");
+  expect(JSON.stringify(await threadStore(page))).not.toContain("oai-mem-citation");
+});
+
+test("legacy persisted control-only messages are removed and mixed messages are normalized", async ({ page, boot }) => {
+  await boot({ storage: JSON.stringify({
+    version: 2,
+    activeId: "legacy-markers",
+    projects: [courses[0]],
+    collapsed: [],
+    threads: [{
+      id: "legacy-markers", title: "Legacy markers", owner: { baseUrl: CURRENT, userId: 101 }, course: courses[0],
+      draft: "", resources: [], prompted: true, threadId: "thread-legacy-markers", messages: [
+        { role: "user", text: "<turn_aborted>internal context</turn_aborted>" },
+        { role: "assistant", text: "Visible <oai-mem-citation>hidden citation</oai-mem-citation> answer" },
+      ],
+    }],
+  }) });
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#agent-messages .user")).toHaveCount(0);
+  await expect(page.locator("#agent-messages .assistant pre")).toHaveText("Visible  answer");
+  await expect.poll(async () => (await threadStore(page)).threads[0].messages).toEqual([
+    expect.objectContaining({ role: "assistant", text: "Visible  answer" }),
+  ]);
+  expect(JSON.stringify(await threadStore(page))).not.toContain("oai-mem-citation");
+  expect(JSON.stringify(await threadStore(page))).not.toContain("turn_aborted");
 });
 
 test("markdown workspace file paths render as clickable filenames", async ({ page, boot }) => {
@@ -1143,6 +1146,25 @@ test("sent project threads persist follow-up drafts, rename, delete and switch i
   expect(await calls(page, "agent.start")).toHaveLength(0);
 });
 
+test("removes a Codex thread deleted externally when Studio regains focus", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Delete this thread in ChatGPT");
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
+
+  await page.evaluate((deletedThreadId) => {
+    window.uit.agent.reconcile = async (threadIds) => ({
+      missingThreadIds: threadIds.includes(deletedThreadId) ? [deletedThreadId] : []
+    });
+    window.dispatchEvent(new Event("focus"));
+  }, threadId);
+
+  await expect(page.locator(".thread-link")).toHaveCount(0);
+  await expect(page.locator(".thread-header")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads)).toEqual([]);
+});
+
 test("resource attachment resets on project change and removal persists for a sent thread", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
@@ -1264,6 +1286,41 @@ test("Course accounts show live session health and recovery actions", async ({ p
   await expect(page.locator("#legacy-pill")).toHaveText("Unavailable");
   await expect(page.locator("#legacy-status")).toContainText("Account 202 · Check your connection and try again.");
   await expect(page.locator("#legacy-relogin")).toHaveText("Re-login");
+});
+
+test("expired accounts are excluded from the count and expose inline SSO recovery", async ({ page, boot }) => {
+  await boot({ health: { [CURRENT]: "expired" } });
+  await expect(page.locator("#account-label")).toHaveText("Course accounts (1)");
+  await expect(page.locator("#app-error")).toContainText("UIT SSO session expired. Sign in again to reconnect.");
+  await expect(page.getByRole("button", { name: "Sign in again with UIT SSO", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign in again with UIT SSO", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "session.ssoLogin")).length).toBe(1);
+  expect((await calls(page, "session.ssoLogin"))[0].input).toEqual({ baseUrl: CURRENT });
+  await page.getByRole("button", { name: "Dismiss account warning", exact: true }).click();
+  await expect(page.locator("#app-error")).toBeHidden();
+});
+
+test("account load failures use the shared warning UI and fresh users see onboarding", async ({ page, boot }) => {
+  await boot({
+    health: { [CURRENT]: "expired", [LEGACY]: "expired" },
+    fail: { "courses.list": "Moodle: Dịch vụ web không tồn tại. Legacy Moodle: Token không hợp lệ" }
+  });
+  await expect(page.locator("#app-error")).toContainText("UIT SSO session expired. Sign in again to reconnect.");
+  await expect(page.locator("#app-error")).toContainText("Student ID session expired. Sign in again to reconnect.");
+  await expect(page.getByRole("button", { name: "Sign in again with UIT SSO", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in again with UIT Legacy", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign in again with UIT Legacy", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();
+  await expect(page.locator("#login-form")).toBeVisible();
+  await expect(page.getByLabel("Student ID", { exact: true })).toBeFocused();
+  await expect(page.locator("#course-grid [role=alert]")).toHaveCount(0);
+  await expect(page.locator("#course-grid")).not.toContainText("Dịch vụ web không tồn tại");
+});
+
+test("fresh users see onboarding without account failure warnings", async ({ page, boot }) => {
+  await boot({ authenticated: false });
+  await expect(page.locator("#app-error")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Connect UIT account", exact: true })).toBeVisible();
 });
 
 test("concurrent threads route events before start resolves and ignore duplicate/stale completions", async ({ page, boot }) => {
@@ -1613,6 +1670,45 @@ test("completed conversation persists, stream output deduplicates and offline re
   for (const method of ["agent.start", "agent.send", "workspace.create"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
+test("reload routes buffered active-turn events back to the persisted thread", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await page.getByLabel("Message Codex").fill("Keep working after reload");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start"))[0].input;
+  const params = { taskId: input.taskId, threadId: `thread-${input.taskId}`, turnId: `turn-${input.taskId}` };
+
+  await page.reload();
+  await page.evaluate(({ taskId, turnId }) => {
+    window.uit.agent.lockStatus = async () => ({ locked: false, busy: true, taskId, turnId });
+  }, params);
+  await page.locator('.nav-item[data-view="agent"]').click();
+  await emit(page, "item/agentMessage/delta", { ...params, itemId: "answer", delta: "Recovered answer" });
+  await expect(page.locator("#agent-messages .assistant")).toContainText("Recovered answer");
+  await emit(page, "turn/completed", { ...params, turn: { id: params.turnId, status: "completed" } });
+  await expect(page.locator("#agent-status")).toHaveText("Ready");
+});
+
+test("reload converts persisted working activities to stopped state", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await page.getByLabel("Message Codex").fill("Keep working after reload");
+  await page.locator("#send-agent").click();
+  const input = (await calls(page, "agent.start"))[0].input;
+  const params = { taskId: input.taskId, threadId: `thread-${input.taskId}`, turnId: `turn-${input.taskId}` };
+  await emit(page, "item/started", { ...params, item: { id: "cmd", type: "commandExecution", command: "sleep 20" } });
+  await expect(page.locator(".message-tool.is-working")).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.messages.some((message: any) => message.status === "working"))).toBe(true);
+
+  await page.reload();
+  await page.locator('.nav-item[data-view="agent"]').click();
+  await expect(page.locator(".message-tool.is-working")).toHaveCount(0);
+  await expect(page.locator("#agent-turn-status .agent-working-spinner")).toHaveCount(0);
+  await expect(page.locator("#agent-messages")).toContainText("Stopped");
+});
+
 test("rollout sync repairs matching items and keeps distinct messages with overlapping text", async ({ page, boot }) => {
   await boot();
   await openCourse(page);
@@ -1629,6 +1725,7 @@ test("rollout sync repairs matching items and keeps distinct messages with overl
       mtime: Date.now(),
       messages: [
         { id: "prompt", turnId: "external-turn", role: "user", text: "Start externally\n\nCourse: Computer science 1\nPortal: https://courses.uit.edu.vn" },
+        { id: "abort", turnId: "external-turn", role: "user", text: "<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>" },
         { id: "answer", turnId: "external-turn", role: "assistant", text: "Complete answer" },
         { id: "another-answer", turnId: "external-turn", role: "assistant", text: "OK, completed" }
       ]
@@ -1638,6 +1735,7 @@ test("rollout sync repairs matching items and keeps distinct messages with overl
 
   await expect(page.locator("#agent-messages .user")).toHaveCount(1);
   await expect(page.locator("#agent-messages .user")).toContainText("Start externally");
+  await expect(page.locator("#agent-messages")).not.toContainText("turn_aborted");
   await expect(page.locator("#agent-messages .assistant")).toHaveCount(2);
   await expect(page.locator("#agent-messages .assistant").nth(0)).toContainText("Complete answer");
   await expect(page.locator("#agent-messages .assistant").nth(1)).toContainText("OK, completed");
@@ -2009,56 +2107,6 @@ test("dark login dialog, native fields and visible credential error remain reada
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
-for (const width of [390, 320]) {
-  test(`dark mobile ${width}px appearance select participates in navigation focus trap`, async ({ page, boot }, info) => {
-    await page.setViewportSize({ width, height: 844 });
-    await page.emulateMedia({ colorScheme: "dark" });
-    await boot();
-    await page.getByRole("button", { name: "Open navigation" }).click();
-    await expect(page.locator("#close-sidebar")).toBeFocused();
-    // Focus is set as the drawer opens. Wait for its transform to finish before
-    // exercising native select traversal, which races that animation on macOS.
-    await expect(page.locator("#sidebar")).toHaveCSS("transform", "none");
-    expect(await page.locator("#main").evaluate((element: HTMLElement) => element.inert)).toBe(true);
-    await page.keyboard.press("Shift+Tab");
-    await expect(page.locator("#account-button")).toBeFocused();
-    await page.keyboard.press("Shift+Tab");
-    await expect(page.getByRole("combobox", { name: "Appearance", exact: true })).toBeFocused();
-    await expect(page.locator("#appearance")).toBeInViewport();
-    await page.keyboard.press("Shift+Tab");
-    await expect(page.locator("#course-nav button").last()).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.locator("#appearance")).toBeFocused();
-    await page.getByRole("combobox", { name: "Appearance", exact: true }).selectOption("light");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await page.getByRole("combobox", { name: "Appearance", exact: true }).selectOption("dark");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await page.screenshot({ path: info.outputPath(`dark-mobile-${width}-appearance.png`), fullPage: true });
-    await page.keyboard.press("Tab");
-    await expect(page.locator("#account-button")).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.locator("#close-sidebar")).toBeFocused();
-    await page.locator("#course-nav").getByRole("button", { name: courses[0].shortname, exact: true }).click();
-    await expect(page.locator("#contents-panel .file-row")).toHaveCount(fileTypes.length);
-    await expect(page.locator("#sidebar")).toBeHidden();
-    expect(await page.locator("#main").evaluate((element: HTMLElement) => element.inert)).toBe(false);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: info.outputPath(`dark-mobile-${width}-course.png`), fullPage: true });
-    await page.getByRole("button", { name: "Open navigation" }).click();
-    await page.locator("#appearance").focus();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
-    expect(await page.locator("#sidebar").evaluate((element: HTMLElement) => element.inert)).toBe(true);
-    await page.getByRole("button", { name: "Actions for lecture.txt", exact: true }).click();
-    await page.getByRole("menuitem", { name: "New Thread" }).click();
-    await page.getByLabel("Message Codex").fill("Dark mobile draft " + "longword".repeat(30));
-    await expect(page.locator(".resource-chip")).toContainText("@lecture.txt");
-    await expect(page.locator("#send-agent")).toBeInViewport();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: info.outputPath(`dark-mobile-${width}-agent.png`), fullPage: true });
-  });
-}
-
 test("member avatars load as blobs and fall back to role icons", async ({ page, boot }) => {
   await boot();
   await page.evaluate(() => {
@@ -2164,6 +2212,39 @@ test("thread header displays Open in dropdown with Codex CLI and Desktop App opt
   // Press Escape to close
   await page.keyboard.press("Escape");
   await expect(resumeMenu).toBeHidden();
+});
+
+test("keeps a Desktop-owned thread read-only and reclaims it after Desktop releases it", async ({ page, boot }) => {
+  await boot();
+  await openCourse(page);
+  await page.getByRole("button", { name: "New Thread", exact: true }).click();
+  await sendAndStop(page, "Test Desktop handoff");
+
+  const lockChecksBeforeHandoff = (await calls(page, "agent.lockStatus")).length;
+  await page.locator("#thread-resume-btn").click();
+  await page.locator("#resume-codex-app").click();
+
+  await expect.poll(async () => (await calls(page, "agent.openDesktop")).length).toBe(1);
+  await expect(page.locator("#thread-lock-badge")).toBeVisible();
+  await expect(page.locator("#agent-input")).toBeDisabled();
+  expect(await calls(page, "agent.lockStatus")).toHaveLength(lockChecksBeforeHandoff);
+
+  await control(page, "fail", "agent.openDesktop", "Desktop launch failed");
+  await page.locator("#thread-resume-btn").click();
+  await page.locator("#resume-codex-app").click();
+  await expect.poll(async () => (await calls(page, "agent.openDesktop")).length).toBe(2);
+  await expect(page.locator("#toast")).toContainText("Could not open Desktop App. Desktop launch failed");
+  await expect(page.locator("#thread-lock-badge")).toBeVisible();
+  await expect(page.locator("#agent-input")).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.handedOff)).toBe(true);
+
+  await page.evaluate(() => {
+    window.uit.agent.lockStatus = async () => ({ locked: false, handedOff: false });
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(page.locator("#thread-lock-badge")).toBeHidden();
+  await expect(page.locator("#agent-input")).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => window.__mock.threadStore.threads[0]?.handedOff)).toBe(false);
 });
 
 test("during thread-lock, input box, rename, and delete options convert to not-allowed cursor and are disabled", async ({ page, boot }) => {

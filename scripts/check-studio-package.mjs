@@ -56,6 +56,7 @@ for (const required of [
   "dist/assignment-submission.js",
   "dist/calendar.js",
   "dist/desktop-service.js",
+  "dist/h5p.js",
   "dist/mcp-server.js",
   "dist/mcp-entry.js",
   "dist/session-health.js",
@@ -66,9 +67,10 @@ for (const required of [
   "dist/studio-web-launcher.js",
   "dist/uit-tools.js",
   "studio-build/renderer/index.html",
+  "studio-build/renderer/hidden-markup.js",
   "studio-build/renderer/renderer.js",
   "studio-build/renderer/calendar.js",
-  "studio-build/renderer/assets/uit-dau-dau-icon.png"
+  "studio-build/renderer/assets/uit-dau-dau.svg"
 ]) {
   if (!runtimeFiles.includes(required)) throw new Error(`uit-runtime package is missing ${required}`);
 }

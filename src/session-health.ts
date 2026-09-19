@@ -29,7 +29,7 @@ function isAuthenticationError(value: unknown): boolean {
   const item = record(value);
   const code = String(item?.errorcode || "").toLowerCase().replace(/[\s_-]+/g, "");
   if (authenticationErrorCodes.has(code)) return true;
-  return /(?:session|token|sesskey|authentication)\s+(?:is\s+)?(?:expired|invalid|failed)|(?:session|token|sesskey)\s+(?:has\s+)?expired|(?:not\s+authenticated|not\s+logged\s+in)|(?:sign|log)\s+in\s+again|(?:requires?|needs?)\s+(?:a\s+)?login|invalid\s+(?:session|token|sesskey)/i.test(String(item?.message || value));
+  return /(?:session|token|sesskey|authentication)\s+(?:is\s+)?(?:expired|invalid|failed)|(?:session|token|sesskey)\s+(?:has\s+)?expired|(?:not\s+authenticated|not\s+logged\s+in)|(?:sign|log)\s+in\s+again|(?:requires?|needs?)\s+(?:a\s+)?login|invalid\s+(?:session|token|sesskey)|phiên\s+đăng\s+nhập\s+đã\s+(?:hết\s+hạn|đăng\s+xuất)|dịch\s+vụ\s+web\s+không\s+tồn\s+tại|token\s+không\s+(?:hợp\s+lệ|được\s+tìm\s+thấy)/i.test(String(item?.message || value));
 }
 
 /** Classify a failed live account request without exposing provider error text to the UI. */

@@ -363,7 +363,7 @@ describe("CLI command flows", () => {
     ]);
   });
 
-  it("shows the package and a download tip when viewing an h5pactivity module", async () => {
+  it("shows ordered external media when viewing an h5pactivity module", async () => {
     const api = mockApi({
       core_course_get_course_module: {
         cm: { id: 500, modname: "h5pactivity", instance: 29903, course: 18576, name: "Lesson" }
@@ -377,16 +377,34 @@ describe("CLI command flows", () => {
         ]
       }
     });
+    api.readFile = vi.fn(async () => ({
+      mimeType: "application/zip.h5p",
+      data: makeZip([
+        { name: "h5p.json", data: Buffer.from(JSON.stringify({ title: "Lesson", mainLibrary: "H5P.InteractiveBook" })) },
+        { name: "content/content.json", data: Buffer.from(JSON.stringify({ chapters: [
+          { metadata: { title: "Self-Attention" }, params: { content: [{ content: { library: "H5P.Video 1.6", params: { sources: [{ path: "https://youtu.be/example" }] } } }] } },
+          { metadata: { title: "Slide" }, params: { content: [{ content: { library: "H5P.IFrameEmbed 1.0", params: { source: "https://drive.google.com/file/d/example/preview" } } }] } }
+        ] })) }
+      ])
+    }));
 
     const code = await main(["node", "uit", "--json", "view", "500"], api);
 
     expect(code).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({
+    expect(JSON.parse(stdout)).toMatchObject({
       module_id: 500,
       type: "h5pactivity",
       name: "Lesson",
-      files: [{ filename: "lesson.h5p", fileurl: "https://files/lesson.h5p", filesize: 100, filepath: "/" }]
+      files: [{ filename: "lesson.h5p", fileurl: "https://files/lesson.h5p", filesize: 100, filepath: "/" }],
+      h5p: {
+        title: "Lesson",
+        entries: [
+          { position: 1, title: "Self-Attention", media: [{ kind: "video", provider: "YouTube", url: "https://youtu.be/example" }] },
+          { position: 2, title: "Slide", media: [{ kind: "slides", provider: "Google Drive", url: "https://drive.google.com/file/d/example/preview" }] }
+        ]
+      }
     });
+    expect(api.readFile).toHaveBeenCalledWith("https://files/lesson.h5p");
   });
 
   it("explains when an h5pactivity package cannot be loaded in view", async () => {
@@ -402,7 +420,7 @@ describe("CLI command flows", () => {
     expect(code).toBe(0);
     const payload = JSON.parse(stdout);
     expect(payload.files).toEqual([]);
-    expect(payload.note).toContain("Could not load");
+    expect(payload.note).toContain("Could not read");
   });
 
   it("hints to check the ID when a course-scoped command fails with invalidrecord", async () => {

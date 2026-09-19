@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import open from "open";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
@@ -322,19 +322,12 @@ function parseLastEventId(request: IncomingMessage): number {
   return Number.isSafeInteger(id) ? id : 0;
 }
 
-function detachedSpawn(command: string, args: string[]): Promise<void> {
-  return new Promise((resolveSpawn, reject) => {
-    const child = spawn(command, args, { detached: true, stdio: "ignore" });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolveSpawn();
-    });
-  });
-}
-
 export async function openSystemTarget(target: string): Promise<void> {
   await open(target);
+}
+
+export async function openCodexDesktopThread(threadId: string): Promise<void> {
+  await openSystemTarget(`codex://threads/${encodeURIComponent(threadId)}`);
 }
 
 function clipboardWrite(text: string, platform: NodeJS.Platform): void {
@@ -385,12 +378,7 @@ export function createStudioWebHost(options: {
     },
     openExternal: (url: string) => openSystemTarget(url),
     writeClipboard: (text: string) => clipboardWrite(text, platform),
-    openCodexDesktop: async (cwd: string, threadId: string) => {
-      await detachedSpawn("codex", ["app", cwd]).catch(() => undefined);
-      const openThread = () => { openSystemTarget(`codex://threads/${threadId}`).catch(() => undefined); };
-      setTimeout(openThread, 350);
-      setTimeout(openThread, 1_000);
-    }
+    openCodexDesktop: openCodexDesktopThread
   };
 }
 

@@ -11,10 +11,12 @@ let threadStoreLastSerialized = "";
 let threadStoreReady = false;
 const streamUpdates = new Map();
 let messageNodes = new WeakMap();
+const hiddenMarkupParsers = new WeakMap();
 const timelineStates = new Map();
 let composerComposing = false;
 let codexAvailable = null;
 let codexRequirement = "Checking Codex App Server readiness...";
+let threadReconciliation = null;
 const state = {
   sessions: [], courses: [], projects: [], threads: [], activeId: null, view: "courses",
   semester: null, archived: false, selectedCourse: null, listGeneration: 0,
@@ -22,6 +24,41 @@ const state = {
   courseParticipants: { key: null, items: [] }, courseGrades: { key: null, items: [] }, activeCourseTab: "materials",
   menuResource: null, storageError: false, storageUnreadable: false, authBusy: false, loginFormOpen: false,
 };
+
+function stripHiddenControlMarkup(text) {
+  return window.uitHiddenMarkup.strip(String(text || ""));
+}
+function visibleMessageText(message) {
+  if (!message || message.streaming || !["user", "assistant"].includes(message.role)) return String(message?.text || "");
+  return stripHiddenControlMarkup(message.text);
+}
+function normalizedStoredMessages(messages) {
+  return messages
+    .filter((message) => message.kind !== "reasoning" && message.label !== "Thought process")
+    .map((message) => {
+      if (!["user", "assistant"].includes(message.role)) return message;
+      const text = stripHiddenControlMarkup(message.text);
+      if (message.text.trim() && !text.trim()) return null;
+      return text === message.text ? message : { ...message, text };
+    })
+    .filter(Boolean);
+}
+function hiddenMarkupParser(message) {
+  let parser = hiddenMarkupParsers.get(message);
+  if (!parser) {
+    parser = window.uitHiddenMarkup.createParser();
+    hiddenMarkupParsers.set(message, parser);
+  }
+  return parser;
+}
+
+function stopWorkingMessage(message) {
+  if (message.kind === "turn-state") {
+    return { ...message, status: "stopped", label: "Interrupted", text: "This turn ended when UIT Studio closed. Send a message to continue." };
+  }
+  const detail = [message.command, message.output].filter(Boolean).join("\n") || message.text || "This action was stopped.";
+  return { ...message, status: "stopped", label: "Stopped", text: detail };
+}
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -107,7 +144,9 @@ function uid() { return crypto.randomUUID(); }
 function identity(ref) { return JSON.stringify([ref.baseUrl, String(ref.userId)]); }
 function courseKey(course) { return JSON.stringify([course.baseUrl, String(course.userId), Number(course.id)]); }
 function courseRef(course) { return { courseId: course.id, baseUrl: course.baseUrl, userId: course.userId }; }
-function connected(ref) { return !!ref && state.sessions.some((session) => identity(session) === identity(ref)); }
+function connected(ref) {
+  return !!ref && state.sessions.some((session) => identity(session) === identity(ref) && !["expired", "unavailable"].includes(sessionHealthState(session)));
+}
 function activeThread() { return state.threads.find((thread) => thread.id === state.activeId && visibleThread(thread)); }
 function visibleThread(thread) { return connected(thread?.course || thread?.owner); }
 function hasPrompt(thread) { return thread.prompted === true; }
@@ -161,7 +200,28 @@ function toast(message) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => { $("#toast").hidden = true; }, 6000);
 }
-function appError(message) { $("#app-error").textContent = message; $("#app-error").hidden = !message; }
+function appError(message, action) {
+  const banner = $("#app-error");
+  const actions = Array.isArray(action?.actions) ? action.actions : action ? [action] : [];
+  banner.replaceChildren();
+  banner.hidden = !message;
+  banner.dataset.accountNotice = actions.some((entry) => entry.kind === "account") ? "true" : "false";
+  if (!message) return;
+  banner.append(node("span", "error-banner-message", message));
+  for (const entry of actions) {
+    const actionButton = button(entry.label, "error-banner-action", async () => {
+      actionButton.disabled = true;
+      try { await entry.run(); }
+      catch (error) { appError(errorText(error)); }
+      finally { if (actionButton.isConnected) actionButton.disabled = false; }
+    });
+    banner.append(actionButton);
+  }
+  const close = button("×", "error-banner-close", () => appError(""));
+  close.setAttribute("aria-label", actions.some((entry) => entry.kind === "account") ? "Dismiss account warning" : "Dismiss error");
+  close.title = "Dismiss";
+  banner.append(close);
+}
 
 // Persist only renderer-owned state, never session objects or bridge credentials.
 function safeResource(resource) {
@@ -198,10 +258,11 @@ function threadStorePayload() {
   const threads = state.threads.filter(hasPrompt).map((thread) => ({
     id: thread.id, owner: thread.owner, course: thread.course, title: thread.title, renamed: thread.renamed, model: thread.model, effort: thread.effort,
     draft: thread.draft, resources: thread.resources.map(safeResource),
-    messages: thread.messages.filter((message) => message.kind !== "reasoning" && message.label !== "Thought process"),
+    messages: normalizedStoredMessages(thread.messages),
     threadId: thread.threadId, turnId: thread.turnId, cwd: thread.cwd, started: thread.started, prompted: true, forkSource: thread.forkSource,
     yolo: thread.yolo !== false,
     fast: thread.fast === true,
+    handedOff: thread.handedOff === true,
     archived: Boolean(thread.archived),
     createdAt: thread.createdAt, updatedAt: thread.updatedAt,
     interrupted: thread.busy || thread.interrupted,
@@ -242,11 +303,8 @@ function applySavedThreadStore(saved) {
   state.threads = saved.threads.map((thread) => ({
     ...thread,
     archived: Boolean(thread.archived),
-    messages: thread.messages
-      .filter((message) => message.kind !== "reasoning" && message.label !== "Thought process")
-      .map((message) => message.kind === "turn-state" && message.status === "working"
-        ? { ...message, status: "stopped", label: "Interrupted", text: "This turn ended when UIT Studio closed. Send a message to continue." }
-        : message),
+    messages: normalizedStoredMessages(thread.messages)
+      .map((message) => thread.busy || thread.interrupted ? (message.status === "working" ? stopWorkingMessage(message) : message) : message),
     draft: String(thread.draft || ""), busy: false, pending: false, stopping: false,
     branching: false, taskId: null, streamItem: null, approvals: [], completedTurns: new Set(), yolo: thread.yolo !== false,
     fast: thread.fast === true,
@@ -268,10 +326,14 @@ async function restore() {
   try {
     const saved = await window.uit.threads.read();
     if (saved) {
+      const savedSerialized = JSON.stringify(saved);
       applySavedThreadStore(saved);
-      threadStoreLastSerialized = JSON.stringify(threadStorePayload());
+      threadStoreReady = true;
+      threadStoreLastSerialized = savedSerialized;
+      if (JSON.stringify(threadStorePayload()) !== savedSerialized) persist();
+    } else {
+      threadStoreReady = true;
     }
-    threadStoreReady = true;
   } catch {
     state.storageUnreadable = true;
     appError("Saved threads could not be read from UIT Studio storage. No threads were loaded or saved.");
@@ -409,6 +471,38 @@ function removeLocalThread(thread) {
   state.threads = state.threads.filter((item) => item !== thread);
   if (state.activeId === thread.id) state.activeId = null;
 }
+
+function removeCodexThreads(threadIds) {
+  const missing = new Set(threadIds);
+  const removed = state.threads.filter((thread) => thread.threadId && missing.has(thread.threadId));
+  if (!removed.length) return false;
+  for (const thread of removed) {
+    removeLocalThread(thread);
+    timelineStates.delete(thread.id);
+  }
+  persist();
+  renderRail();
+  if (state.view === "agent") renderConversation();
+  return true;
+}
+
+async function reconcileCodexThreads() {
+  if (codexAvailable !== true) return;
+  if (threadReconciliation) return threadReconciliation;
+  const threadIds = [...new Set(state.threads.map((thread) => thread.threadId).filter(Boolean))];
+  if (!threadIds.length) return;
+  const reconciliation = (async () => {
+    const result = await window.uit.agent.reconcile(threadIds);
+    if (!result || !Array.isArray(result.missingThreadIds) || !result.missingThreadIds.every((id) => threadIds.includes(id))) {
+      throw new Error("Codex returned an invalid thread reconciliation result.");
+    }
+    removeCodexThreads(result.missingThreadIds);
+  })().finally(() => {
+    if (threadReconciliation === reconciliation) threadReconciliation = null;
+  });
+  threadReconciliation = reconciliation;
+  return reconciliation;
+}
 async function deleteThread(thread) {
   if (!thread || thread.stopping || thread.deleting) return;
   if (thread.locked) {
@@ -428,13 +522,6 @@ async function deleteThread(thread) {
     persist(); renderRail(); renderConversation();
     toast("Thread permanently deleted.");
   } catch (error) {
-    // If the native thread was already gone or not found, remove it locally idempotently.
-    if (/no rollout|not found|unknown|no such|already deleted|does not exist/i.test(errorText(error))) {
-      removeLocalThread(thread);
-      persist(); renderRail(); renderConversation();
-      toast("Thread permanently deleted.");
-      return;
-    }
     if (state.threads.includes(thread)) thread.deleting = false;
     renderRail();
     toast(`Could not delete this thread. ${errorText(error)} Try again.`);
@@ -582,7 +669,7 @@ async function loadCourses(refresh = false) {
     if (generation !== state.listGeneration) return;
     applySessionHealth(status);
     renderDiscovery(status);
-    if (!state.storageError && !state.storageUnreadable) appError((status.portalErrors || []).map((entry) => `${entry.message} Reconnect this portal in Course accounts.`).join("\n"));
+    if (!state.storageError && !state.storageUnreadable) renderPortalNotice(status);
     const groups = semesterGroups(state.courses);
     // Missing Moodle dates must not hide courses behind an inferred legacy year.
     // Keep an explicit filter on refresh; new accounts and invalid filters show all.
@@ -601,11 +688,14 @@ async function loadCourses(refresh = false) {
     if (state.view === "agent") renderConversation();
   } catch (error) {
     if (generation !== state.listGeneration) return;
-    renderLoadError($("#course-grid"), "Courses could not be loaded", error, () => loadCourses(true));
+    let status = null;
     try {
-      const status = await window.uit.session.status();
-      if (generation === state.listGeneration) { applySessionHealth(status); renderDiscovery(status); }
+      status = await window.uit.session.status();
+      if (generation === state.listGeneration) { applySessionHealth(status, false); renderDiscovery(status); renderPortalNotice(status); }
     } catch { /* Keep the original discovery failure visible. */ }
+    if (generation !== state.listGeneration) return;
+    if (portalNotice(status || {})) renderCourseList();
+    else renderLoadError($("#course-grid"), "Courses could not be loaded", error, () => loadCourses(true));
   } finally {
     if (generation === state.listGeneration) $("#refresh-courses").disabled = false;
   }
@@ -1554,11 +1644,23 @@ async function checkThreadLock(thread = activeThread()) {
   try {
     const result = await window.uit.agent.lockStatus(thread.threadId);
     if (activeThread()?.id !== currentId) return;
+    if (result?.busy === true) {
+      thread.busy = true;
+      thread.pending = false;
+      thread.interrupted = false;
+      if (typeof result.taskId === "string") thread.taskId = result.taskId;
+      if (typeof result.turnId === "string") thread.turnId = result.turnId;
+      const stopped = thread.messages.find((message) => message.kind === "turn-state" && message.status === "stopped");
+      if (stopped) Object.assign(stopped, { status: "working", label: "Codex is working", text: "Codex is working" });
+    } else if (result?.lastTurnStatus === "interrupted") {
+      thread.interrupted = false;
+    }
     thread.locked = result && typeof result.locked === "boolean" ? result.locked : false;
+    if (result && typeof result.handedOff === "boolean") thread.handedOff = result.handedOff;
+    persist();
     applyThreadLockDisplay(thread);
   } catch {
     if (activeThread()?.id !== currentId) return;
-    thread.locked = false;
     applyThreadLockDisplay(thread);
   }
 }
@@ -1589,25 +1691,27 @@ async function syncThreadRollout(thread = activeThread()) {
       thread.lastRolloutMtime = result.mtime;
       let updated = false;
       for (const rm of result.messages) {
-        if (!rm.text) continue;
-        const existing = rolloutMessageMatch(thread.messages, rm);
+        const text = typeof rm.text === "string" ? stripHiddenControlMarkup(rm.text) : "";
+        if (!text.trim()) continue;
+        const rolloutMessage = { ...rm, text };
+        const existing = rolloutMessageMatch(thread.messages, rolloutMessage);
         if (existing) {
-          if (!isStudioContextMessage(existing, rm) && (existing.text !== rm.text || existing.status !== "completed")) {
-            existing.text = rm.text;
+          if (!isStudioContextMessage(existing, rolloutMessage) && (existing.text !== text || existing.status !== "completed")) {
+            existing.text = text;
             existing.status = "completed";
             updated = true;
           }
-          if (rm.id) existing.rolloutId = rm.id;
+          if (rolloutMessage.id) existing.rolloutId = rolloutMessage.id;
         } else {
           thread.messages.push({
-            role: rm.role,
-            text: rm.text,
-            rolloutId: rm.id,
-            turnId: rm.turnId,
-            kind: rm.role === "assistant" ? "markdown" : undefined,
+            role: rolloutMessage.role,
+            text,
+            rolloutId: rolloutMessage.id,
+            turnId: rolloutMessage.turnId,
+            kind: rolloutMessage.role === "assistant" ? "markdown" : undefined,
             status: "completed",
-            label: rm.role === "assistant" ? "Codex (external)" : undefined,
-            createdAt: rm.createdAt || result.mtime || Date.now()
+            label: rolloutMessage.role === "assistant" ? "Codex (external)" : undefined,
+            createdAt: rolloutMessage.createdAt || result.mtime || Date.now()
           });
           updated = true;
         }
@@ -1666,11 +1770,18 @@ function updateApprovalOverlayPosition() {
 function autoResizeInput() {
   const input = $("#agent-input");
   if (!input) return;
+  const entry = input.closest(".composer-entry");
+  entry?.classList.remove("multiline");
+  input.style.height = "auto";
+  const style = getComputedStyle(input);
+  const minHeight = Number.parseFloat(style.minHeight);
+  const maxHeight = Number.parseFloat(style.maxHeight);
+  entry?.classList.toggle("multiline", input.scrollHeight > minHeight + 1);
   input.style.height = "auto";
   const scrollHeight = input.scrollHeight;
-  const targetHeight = Math.min(Math.max(scrollHeight, 48), 220);
+  const targetHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
   input.style.height = `${targetHeight}px`;
-  input.style.overflowY = scrollHeight > 220 ? "auto" : "hidden";
+  input.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
   updateApprovalOverlayPosition();
 }
 function renderChips() {
@@ -2022,9 +2133,7 @@ function renderAgentTurnStatus(thread) {
     return;
   }
   const status = node("div", "message-turn-state is-working");
-  const copy = node("div", "turn-state-copy");
-  copy.append(node("strong", "turn-state-label", "Codex is working"));
-  status.append(mascotFrame("working-mascot", "Codex is working"), mascotFrame("agent-working-spinner"), copy);
+  status.append(mascotFrame("working-mascot", "Codex is working"), mascotFrame("agent-working-spinner"));
   target.append(status);
   target.hidden = false;
   target.setAttribute("aria-hidden", "false");
@@ -2239,7 +2348,8 @@ function renderMessages(changes = null) {
           cached.workingMascot = null;
         }
       } else if (message.role === "assistant") {
-        if (!message.streaming) appendRichText(cached.content, message.text);
+        const displayText = visibleMessageText(message);
+        if (!message.streaming) appendRichText(cached.content, displayText);
         else {
           const previous = cached.content.textContent;
           if (cached.content.firstChild?.nodeType === Node.TEXT_NODE && message.text.startsWith(previous)) {
@@ -2249,11 +2359,11 @@ function renderMessages(changes = null) {
           }
         }
         if (cached.actions) {
-          cached.actions.hidden = Boolean(message.streaming) || !message.text;
+          cached.actions.hidden = Boolean(message.streaming) || !displayText;
           cached.actions.classList.toggle("is-continuation", !isFinalAgentMessage(thread, message));
         }
       } else if (cached.content) {
-        cached.content.textContent = message.text;
+        cached.content.textContent = visibleMessageText(message);
       }
       continue;
     }
@@ -2345,8 +2455,9 @@ function renderMessages(changes = null) {
       const isAssistant = message.role === "assistant";
       const rich = isAssistant || kind === "error";
       const content = node("pre", rich ? "md" : "");
-      if (isAssistant && !message.streaming) appendRichText(content, message.text);
-      else content.textContent = message.text;
+      const displayText = visibleMessageText(message);
+      if (isAssistant && !message.streaming) appendRichText(content, displayText);
+      else content.textContent = displayText;
 
       let actions = null;
       let copyBtn = null;
@@ -2361,7 +2472,7 @@ function renderMessages(changes = null) {
         actions = node("div", "message-actions user-actions");
         const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
         if (timeStr) actions.append(node("span", "message-time", timeStr));
-        copyBtn = createMessageCopyButton(() => message.text);
+        copyBtn = createMessageCopyButton(() => displayText);
         actions.append(copyBtn);
         item.append(actions);
       } else if (isAssistant) {
@@ -2371,9 +2482,9 @@ function renderMessages(changes = null) {
         actions.classList.toggle("is-continuation", !isFinalAgentMessage(thread, message));
         const timeStr = formatMessageTimestamp(message.createdAt || (message.createdAt = Date.now()));
         if (timeStr) actions.append(node("span", "message-time", timeStr));
-        copyBtn = createMessageCopyButton(() => message.text);
+        copyBtn = createMessageCopyButton(() => displayText);
         actions.append(copyBtn);
-        if (message.streaming || !message.text) actions.hidden = true;
+        if (message.streaming || !displayText) actions.hidden = true;
         item.append(actions);
       } else {
         item.append(node("p", "message-role", message.label || "Activity"), content);
@@ -2777,11 +2888,7 @@ function handleAgentEvent(message) {
     return;
   }
   if (message.method === "thread/deleted" && threadId) {
-    const removed = state.threads.filter((thread) => thread.threadId === threadId);
-    if (!removed.length) return;
-    for (const thread of removed) { removeLocalThread(thread); timelineStates.delete(thread.id); }
-    persist(); renderRail();
-    if (state.view === "agent") renderConversation();
+    removeCodexThreads([threadId]);
     return;
   }
   if (message.method === "thread/name/updated" && threadId) {
@@ -2795,9 +2902,12 @@ function handleAgentEvent(message) {
     }
     return;
   }
-  // Never fall back to the selected thread. taskId exists before start resolves.
+  // A restored thread has no ephemeral taskId until the server sends its first
+  // post-reload event. Only use the threadId fallback for that exact case;
+  // concurrent live tasks retain strict taskId routing.
   const thread = params.taskId
     ? state.threads.find((item) => item.taskId === params.taskId)
+      || state.threads.find((item) => item.threadId && item.threadId === threadId && !item.taskId)
     : state.threads.find((item) => item.threadId && item.threadId === threadId);
   if (!thread) {
     if (message.method === "codex/exit" && !params.taskId && !threadId) {
@@ -2860,7 +2970,11 @@ function handleAgentEvent(message) {
       break;
     case "item/agentMessage/delta": {
       const entry = eventMessage("assistant", "Codex");
-      entry.streaming = true; entry.text += String(params.delta || ""); thread.streamItem = entry; deltaEntry = entry; break;
+      entry.streaming = true;
+      entry.text += hiddenMarkupParser(entry).push(String(params.delta || ""));
+      thread.streamItem = entry;
+      deltaEntry = entry;
+      break;
     }
     case "item/commandExecution/outputDelta": {
       const entry = eventMessage("event", "Running command", "tool", "working");
@@ -2917,8 +3031,20 @@ function handleAgentEvent(message) {
     case "item/completed": {
       if (item.type === "agentMessage") {
         const entry = eventMessage("assistant", "Codex");
-        entry.text = String(item.text || thread.streamItem?.text || ""); entry.streaming = false;
+        if (typeof item.text === "string") {
+          entry.text = stripHiddenControlMarkup(item.text);
+        } else {
+          const parser = hiddenMarkupParsers.get(entry);
+          if (parser) entry.text += parser.finish();
+          entry.text = stripHiddenControlMarkup(entry.text);
+        }
+        hiddenMarkupParsers.delete(entry);
+        entry.streaming = false;
         thread.streamItem = null;
+        if (!entry.text.trim()) {
+          const entryIndex = thread.messages.indexOf(entry);
+          if (entryIndex !== -1) thread.messages.splice(entryIndex, 1);
+        }
       } else if (item.type === "commandExecution") {
         const failed = Number.isFinite(item.exitCode) && item.exitCode !== 0;
         const entry = eventMessage("event", "Command completed", "tool", failed ? "failed" : "completed");
@@ -2968,7 +3094,12 @@ function handleAgentEvent(message) {
     }
     case "turn/completed":
       if (turnId) thread.completedTurns.add(turnId);
-      thread.busy = false; thread.stopping = false; thread.streamItem = null; thread.approvals = [];
+      thread.busy = false; thread.stopping = false; thread.interrupted = false; thread.streamItem = null; thread.approvals = [];
+      if (params.turn?.status === "interrupted") {
+        for (const message of thread.messages) {
+          if (message.status === "working" && (!message.turnId || !turnId || message.turnId === turnId)) Object.assign(message, stopWorkingMessage(message));
+        }
+      }
       if (params.turn?.error || params.turn?.status === "failed") {
         const entry = turnState();
         const text = params.turn?.error ? `${errorText(params.turn.error)} Review the error and send again to retry.` : "The turn failed before Codex returned an answer. Send again to retry.";
@@ -3017,11 +3148,17 @@ function normalizeSessionHealth(health) {
   const sessionState = ["checking", "connected", "expired", "unavailable"].includes(health?.state) ? health.state : "checking";
   return { state: sessionState, ...(Number.isFinite(health?.checkedAt) ? { checkedAt: health.checkedAt } : {}) };
 }
-function applySessionHealth(result) {
+function applySessionHealth(result, renderCourses = true) {
   if (!Array.isArray(result?.sessions)) return;
   const latest = new Map(result.sessions.map((session) => [identity(session), normalizeSessionHealth(session.health)]));
   state.sessions = state.sessions.map((session) => ({ ...session, health: latest.get(identity(session)) || normalizeSessionHealth(session.health) }));
-  renderSessions();
+  state.courses = state.courses.filter(connected);
+  if (state.selectedCourse && !connected(state.selectedCourse)) { state.selectedCourse = null; showView("courses"); }
+  if (!activeThread()) state.activeId = null;
+  renderAccountLabel();
+  renderSessions(); renderRail();
+  if (renderCourses) renderCourseList();
+  if (state.view === "agent") renderConversation();
 }
 function applySessions(result) {
   calendar.reset();
@@ -3034,7 +3171,8 @@ function applySessions(result) {
   if (state.menuResource && !connected(state.menuResource.course)) { $("#resource-menu").close(); state.menuResource = null; }
   if ($("#rename-dialog").open && !state.threads.some((thread) => thread.id === $("#rename-dialog").dataset.taskId && visibleThread(thread))) $("#rename-dialog").close();
   if (state.selectedCourse && !connected(state.selectedCourse)) { state.selectedCourse = null; showView("courses"); }
-  $("#account-label").textContent = state.sessions.length ? `Course accounts (${state.sessions.length})` : "Connect accounts";
+  if (!state.sessions.length && $("#app-error").dataset.accountNotice === "true") appError("");
+  renderAccountLabel();
   if ($("#project-picker").open) renderProjectOptions();
   renderSessions(); renderRail(); renderCourseList();
   if (state.view === "agent") renderConversation();
@@ -3050,6 +3188,16 @@ function portalKind(baseUrl) { return String(baseUrl || "").endsWith("/sdh") ? "
 function sessionHealthState(session) {
   return normalizeSessionHealth(session?.health).state;
 }
+function renderAccountLabel() {
+  const label = $("#account-label");
+  if (!state.sessions.length) {
+    label.textContent = "Connect accounts";
+    return;
+  }
+  const checking = state.sessions.some((session) => sessionHealthState(session) === "checking");
+  const connectedCount = state.sessions.filter((session) => sessionHealthState(session) === "connected").length;
+  label.textContent = checking ? "Course accounts" : `Course accounts (${connectedCount})`;
+}
 function sessionHealthLabel(healthState) {
   return ({ checking: "Checking…", connected: "Connected", expired: "Session expired", unavailable: "Unavailable" })[healthState];
 }
@@ -3062,6 +3210,50 @@ function sessionHealthDetail(session) {
 }
 function aggregateSessionHealth(sessions) {
   return ["expired", "unavailable", "checking", "connected"].find((candidate) => sessions.some((session) => sessionHealthState(session) === candidate)) || "checking";
+}
+function sessionDisplayName(session) {
+  if (!session) return "UIT course account";
+  return session.baseUrl === CURRENT_SITE || session.authMode === "sso" ? "UIT SSO" : portalKind(session.baseUrl) === "Graduate" ? "Graduate Moodle" : "Student ID";
+}
+function sessionForPortalError(entry) {
+  return state.sessions.find((session) => String(session.baseUrl).replace(/\/+$/, "") === String(entry?.baseUrl || "").replace(/\/+$/, ""));
+}
+function portalNotice(status) {
+  const errors = Array.isArray(status?.portalErrors) ? status.portalErrors : [];
+  const issues = new Map();
+  for (const entry of errors) {
+    const session = sessionForPortalError(entry);
+    if (session) issues.set(identity(session), { session, entry });
+  }
+  for (const session of state.sessions) {
+    if (["expired", "unavailable"].includes(sessionHealthState(session)) && !issues.has(identity(session))) issues.set(identity(session), { session });
+  }
+  if (!issues.size) return null;
+  const messages = [];
+  const actions = [];
+  const actionLabels = new Set();
+  for (const { session, entry } of issues.values()) {
+    const healthState = sessionHealthState(session);
+    const name = sessionDisplayName(session);
+    messages.push(healthState === "expired"
+      ? `${name} session expired. Sign in again to reconnect.`
+      : healthState === "unavailable"
+        ? `${name} could not be reached. Reconnect the account to restore course access.`
+        : `${name} course data could not be loaded. Check Course accounts.`);
+    const action = session && ["expired", "unavailable"].includes(healthState) && (session.authMode === "sso" || session.baseUrl === CURRENT_SITE)
+      ? { kind: "account", label: "Sign in again with UIT SSO", run: async () => { await authAction(() => window.uit.session.ssoLogin({ baseUrl: session.baseUrl }), "UIT SSO connected."); } }
+      : session && ["expired", "unavailable"].includes(healthState)
+        ? { kind: "account", label: "Sign in again with UIT Legacy", run: () => openLogin({ legacy: true }) }
+        : { kind: "account", label: "Open Course accounts", run: openLogin };
+    if (!actionLabels.has(action.label)) { actionLabels.add(action.label); actions.push(action); }
+  }
+  return { message: messages.join("\n"), actions };
+}
+function renderPortalNotice(status) {
+  if (state.storageError || state.storageUnreadable) return;
+  const notice = portalNotice(status);
+  if (notice) appError(notice.message, { actions: notice.actions });
+  else if ($("#app-error").dataset.accountNotice === "true") appError("");
 }
 function renderHealthPill(pill, healthState) {
   pill.className = `status-pill ${healthState}`;
@@ -3112,7 +3304,7 @@ function renderSessions() {
     const healthState = aggregateSessionHealth(legacySessions);
     renderHealthPill(legacyPill, healthState);
     legacyStatus.textContent = legacySessions.map((session) => `${portalKind(session.baseUrl)} · ${sessionHealthDetail(session)}`).join(", ");
-    legacyRelogin.textContent = healthState === "expired" ? "Sign in again" : "Re-login";
+    legacyRelogin.textContent = healthState === "expired" ? "Sign in again with UIT Legacy" : "Re-login";
     legacyRelogin.hidden = state.loginFormOpen;
     legacyRelogin.disabled = state.authBusy;
     legacyDisconnect.hidden = false;
@@ -3132,11 +3324,12 @@ function renderSessions() {
   $("#logout-button").disabled = state.authBusy || !state.sessions.length;
   $$("input, select, button", loginForm).forEach((control) => { control.disabled = state.authBusy; });
 }
-function openLogin() {
-  state.loginFormOpen = false;
+function openLogin(options = {}) {
+  state.loginFormOpen = options?.legacy === true;
   $("#login-error").textContent = ""; $("#login-status").textContent = "";
   renderSessions();
   if (!$("#login-modal").open) $("#login-modal").showModal();
+  if (state.loginFormOpen) $("#login-form input[name='username']").focus();
   window.uit.session.status().then(renderDiscovery).catch(() => { $("#discovery-report").textContent = "Could not read discovery diagnostics."; });
 }
 async function authAction(action, success) {
@@ -3333,19 +3526,25 @@ $("#resume-codex-app")?.addEventListener("click", async () => {
     toast("No active Codex thread workspace to open.");
     return;
   }
+  const wasHandedOff = thread.handedOff === true;
   try {
-    await window.uit.agent.openDesktop({
-      threadId: thread.threadId,
-      cwd: thread.cwd,
-      title: thread.title || ""
-    });
+    thread.locked = true;
+    applyThreadLockDisplay(thread);
+    await window.uit.agent.openDesktop({ threadId: thread.threadId });
+    thread.handedOff = true;
+    persist();
     toast("Opening thread in ChatGPT Desktop (Lock released)...");
-    await checkThreadLock(thread);
   } catch (err) {
+    thread.handedOff = wasHandedOff;
+    thread.locked = wasHandedOff;
+    persist();
+    applyThreadLockDisplay(thread);
     toast(`Could not open Desktop App. ${errorText(err)}`);
   }
 });
 window.addEventListener("focus", async () => {
+  try { await reconcileCodexThreads(); }
+  catch (error) { console.error("Thread reconciliation error:", error); }
   const thread = activeThread();
   if (thread && state.view === "agent") {
     await checkThreadLock(thread);
@@ -3461,7 +3660,7 @@ $("#sso-disconnect").addEventListener("click", () => {
   const currentSession = state.sessions.find((s) => s.baseUrl === CURRENT_SITE);
   if (currentSession) authAction(() => window.uit.session.logout({ baseUrl: currentSession.baseUrl }), "UIT SSO disconnected.");
 });
-$("#legacy-relogin").addEventListener("click", () => { state.loginFormOpen = true; renderSessions(); $("#login-form input[name='username']").focus(); });
+$("#legacy-relogin").addEventListener("click", () => openLogin({ legacy: true }));
 $("#legacy-disconnect").addEventListener("click", () => {
   const legacy = state.sessions.find((s) => s.baseUrl !== CURRENT_SITE);
   if (legacy) authAction(() => window.uit.session.logout({ baseUrl: legacy.baseUrl }), "Student ID disconnected.");
@@ -3516,7 +3715,11 @@ window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist();
       codexRequirement = status?.message || "Codex App Server is not ready. Check the Codex CLI installation and sign-in.";
       dot.classList.toggle("ready", codexAvailable);
       agentNav.title = codexAvailable ? "Codex App Server ready" : codexRequirement;
-      if (codexAvailable) ensureModels();
+      if (codexAvailable) {
+        try { await reconcileCodexThreads(); }
+        catch (error) { console.error("Thread reconciliation error:", error); }
+        ensureModels();
+      }
     } catch {
       codexAvailable = false;
       codexRequirement = "Could not check Codex App Server readiness. Check the Codex CLI installation and sign-in.";

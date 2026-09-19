@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { defaultApiClient } from "./api.js";
 import { get, save } from "./config.js";
+import { listH5pActivities, readH5pActivity } from "./h5p.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 import { extractH5pPackage } from "./unzip.js";
 import { submitAssignmentFile } from "./assignment-submission.js";
@@ -392,13 +393,16 @@ async function viewForum(moduleId: number, instance: number | undefined, ctx: Co
 
 async function viewH5p(moduleId: number, courseId: number, name: string, ctx: CommandContext): Promise<void> {
   let files: MoodleRecord[] = [];
+  let h5p: Awaited<ReturnType<typeof readH5pActivity>>["content"] | undefined;
   let note: string | undefined;
   try {
-    files = (await fetchH5pPackages(courseId, ctx)).get(moduleId) || [];
+    const result = await readH5pActivity(courseId, moduleId, ctx.api);
+    files = result.activity.files;
+    h5p = result.content;
   } catch (error) {
-    note = `Could not load H5P package: ${error instanceof Error ? error.message : String(error)}`;
+    note = `Could not read H5P content: ${error instanceof Error ? error.message : String(error)}`;
   }
-  const data: MoodleRecord = { module_id: moduleId, type: "h5pactivity", name, files };
+  const data: MoodleRecord = { module_id: moduleId, type: "h5pactivity", name, files, h5p };
   if (note) data.note = note;
   if (isJsonMode()) {
     console.log(JSON.stringify(data, null, 2));
@@ -407,8 +411,11 @@ async function viewH5p(moduleId: number, courseId: number, name: string, ctx: Co
   console.log(`[h5pactivity] ${name}`);
   console.log(`module_id: ${moduleId}\n`);
   for (const file of files) console.log(`  ${file.filename}  (${formatSize(file.filesize || 0)})`);
+  for (const entry of h5p?.entries || []) {
+    console.log(`\n${entry.position}. ${entry.title}`);
+    for (const media of entry.media) console.log(`  [${media.kind}] ${media.url || media.packagePath}`);
+  }
   if (note) console.log(`  ${note}`);
-  if (files.length) console.log(`\nTip: uit download ${courseId} --module ${moduleId}   (add --extract to unpack media)`);
 }
 
 async function viewResource(moduleId: number, courseId: number, name: string, ctx: CommandContext): Promise<void> {
@@ -693,27 +700,6 @@ export async function cmdAnnouncements(args: { course_id: number; limit?: number
   }
 }
 
-// H5P activities expose no files through core_course_get_contents; their .h5p
-// package lives behind a dedicated web service, keyed by module ID (coursemodule).
-async function fetchH5pPackages(courseId: number, ctx: CommandContext): Promise<Map<number, MoodleRecord[]>> {
-  const packages = new Map<number, MoodleRecord[]>();
-  const response = await ctx.api.call<MoodleRecord>("mod_h5pactivity_get_h5pactivities_by_courses", {
-    "courseids[0]": courseId
-  });
-  for (const activity of response.h5pactivities || []) {
-    const files = (activity.package || [])
-      .filter((file: MoodleRecord) => file.fileurl)
-      .map((file: MoodleRecord) => ({
-        filename: file.filename,
-        fileurl: file.fileurl,
-        filesize: file.filesize || 0,
-        filepath: file.filepath || "/"
-      }));
-    if (files.length) packages.set(activity.coursemodule, files);
-  }
-  return packages;
-}
-
 export async function cmdDownload(
   args: { course_id: number; output?: string; module?: number; file?: string; force?: boolean; extract?: boolean },
   ctx = createContext()
@@ -740,7 +726,9 @@ export async function cmdDownload(
   let h5pPackages = new Map<number, MoodleRecord[]>();
   if (hasH5p) {
     try {
-      h5pPackages = await fetchH5pPackages(courseId, ctx);
+      h5pPackages = new Map(
+        [...(await listH5pActivities(courseId, ctx.api))].map(([moduleId, activity]) => [moduleId, activity.files])
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       warnings.push(`Could not load H5P activity packages: ${message}`);

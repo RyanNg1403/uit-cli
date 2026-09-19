@@ -18,6 +18,7 @@ const sharedModules = [
   "commands",
   "config",
   "desktop-service",
+  "h5p",
   "mcp-server",
   "mcp-entry",
   "studio-core",

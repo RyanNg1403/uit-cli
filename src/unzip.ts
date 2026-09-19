@@ -9,6 +9,66 @@ export interface ZipEntry {
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
+const LOCAL_SIGNATURE = 0x04034b50;
+
+export function readZipEntry(buffer: Buffer, requestedName: string, maxExpandedBytes: number): Buffer | undefined {
+  if (!requestedName || !Number.isSafeInteger(maxExpandedBytes) || maxExpandedBytes <= 0) {
+    throw new Error("invalid zip entry request");
+  }
+  const eocd = findEndOfCentralDirectory(buffer);
+  if (eocd < 0 || eocd + 22 > buffer.length) throw new Error("not a valid zip archive");
+
+  const entryCount = buffer.readUInt16LE(eocd + 10);
+  const centralSize = buffer.readUInt32LE(eocd + 12);
+  const centralOffset = buffer.readUInt32LE(eocd + 16);
+  if (entryCount === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff ||
+      centralOffset + centralSize > eocd) {
+    throw new Error("unsupported zip archive");
+  }
+
+  let offset = centralOffset;
+  for (let i = 0; i < entryCount; i++) {
+    if (offset + 46 > eocd || buffer.readUInt32LE(offset) !== CENTRAL_SIGNATURE) {
+      throw new Error("invalid zip central directory");
+    }
+    const flags = buffer.readUInt16LE(offset + 8);
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const expandedSize = buffer.readUInt32LE(offset + 24);
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const nextOffset = offset + 46 + nameLength + extraLength + commentLength;
+    if (nextOffset > eocd) throw new Error("invalid zip central directory");
+    const name = buffer.toString("utf8", offset + 46, offset + 46 + nameLength);
+    offset = nextOffset;
+    if (name !== requestedName) continue;
+
+    if ((flags & 1) !== 0) throw new Error(`encrypted zip entry ${name} is not supported`);
+    if (method !== 0 && method !== 8) throw new Error(`unsupported zip compression method ${method} for ${name}`);
+    if (expandedSize > maxExpandedBytes) throw new Error(`zip entry ${name} exceeds the extraction limit`);
+    if (localOffset + 30 > centralOffset || buffer.readUInt32LE(localOffset) !== LOCAL_SIGNATURE) {
+      throw new Error(`invalid zip entry location for ${name}`);
+    }
+    if (buffer.readUInt16LE(localOffset + 8) !== method || (buffer.readUInt16LE(localOffset + 6) & 1) !== 0) {
+      throw new Error(`mismatched zip entry ${name}`);
+    }
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    if (dataStart + compressedSize > centralOffset) throw new Error(`invalid zip entry size for ${name}`);
+    const localName = buffer.toString("utf8", localOffset + 30, localOffset + 30 + localNameLength);
+    if (localName !== name) throw new Error(`mismatched zip entry name for ${name}`);
+
+    const raw = buffer.subarray(dataStart, dataStart + compressedSize);
+    const data = method === 0 ? Buffer.from(raw) : inflateRawSync(raw, { maxOutputLength: maxExpandedBytes });
+    if (data.length !== expandedSize) throw new Error(`invalid expanded size for zip entry ${name}`);
+    return data;
+  }
+  if (offset !== centralOffset + centralSize) throw new Error("invalid zip central directory size");
+  return undefined;
+}
 
 // Read a ZIP archive from a buffer using its central directory, so entries with
 // streamed sizes (data descriptors) are handled correctly. Only the stored (0)

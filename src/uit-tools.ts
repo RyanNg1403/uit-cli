@@ -39,17 +39,33 @@ export interface UitToolServices {
   submitAssignment(courseId: number, assignmentId: number, filePath: string, api: ApiClient): Promise<unknown>;
 }
 
+const courseIdInput = { type: "integer", description: "Course ID from uit_courses or the current course." };
+
+function resourceInput(
+  kind: "module" | "file" | "assignment" | "announcement",
+  idDescription: string,
+  includeFilename = false
+): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      courseId: courseIdInput,
+      kind: { type: "string", enum: [kind] },
+      id: { type: "integer", description: idDescription },
+      ...(includeFilename ? { filename: { type: "string", description: "Exact filename from the owning module in uit_course_contents; do not provide a URL." } } : {})
+    },
+    required: ["courseId", "kind", "id", ...(includeFilename ? ["filename"] : [])],
+    additionalProperties: false
+  };
+}
+
 const resourceSchema: Record<string, unknown> = {
-  type: "object",
-  properties: {
-    courseId: { type: "integer", description: "Course ID from uit_courses or the current course." },
-    kind: { type: "string", enum: ["module", "file", "assignment", "announcement"], description: "Resource type; use file for an attachment." },
-    id: { type: "integer", description: "Resource ID from uit_course_contents; file resources use their owning course-module ID." },
-    moduleId: { type: "integer", description: "Owning course-module ID (cmid) from course contents." },
-    filename: { type: "string", description: "Exact filename from the selected course module; required for file resources; do not provide a URL." }
-  },
-  required: ["courseId", "kind", "id"],
-  additionalProperties: false
+  oneOf: [
+    resourceInput("module", "Course-module ID (cmid) from uit_course_contents."),
+    resourceInput("file", "Owning course-module ID (cmid) from uit_course_contents.", true),
+    resourceInput("assignment", "Assignment instance ID from uit_course_contents."),
+    resourceInput("announcement", "Announcement ID from uit_course_contents.")
+  ]
 };
 
 /** The one source of truth for the UIT tools exposed to Codex. */
@@ -63,7 +79,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: "uit_course_contents",
-    description: "Read course modules, sections, assignments, and announcements. For downloads, reuse the returned module ID and exact filename; never reconstruct a file URL.",
+    description: "Read course modules, sections, assignments, and announcements. H5P activities are identified as h5pactivity modules and can be inspected with uit_read_resource. For downloads, reuse the returned module ID and exact filename; never reconstruct a file URL.",
     inputSchema: {
       type: "object",
       properties: { courseId: { type: "integer", description: "Course ID from uit_courses or the current course." } },
@@ -74,7 +90,7 @@ export const UIT_TOOLS: UitToolSpec[] = [
   {
     type: "function",
     name: "uit_read_resource",
-    description: "Read one current course resource. Call uit_course_contents first and reuse its kind, IDs, and exact filename; do not provide a file URL.",
+    description: "Read one current course resource. For an H5P module, this returns its ordered video, slide, and embedded-resource URLs directly. Call uit_course_contents first and reuse the resource kind and its matching ID. Files additionally require their exact filename; never provide a file URL.",
     inputSchema: resourceSchema
   },
   {
@@ -187,6 +203,17 @@ function rejectFileUrl(args: Record<string, unknown>): void {
   if (args.fileUrl !== undefined) throw new Error("File URL is not accepted. Use the course-module ID and exact filename from course contents.");
 }
 
+function resourceReference(args: Record<string, unknown>): Record<string, unknown> {
+  rejectFileUrl(args);
+  if (args.moduleId !== undefined) throw new Error("moduleId is not accepted. Pass the kind-specific resource ID as id.");
+  const kind = requiredString(args.kind, "Resource kind");
+  if (!(["module", "file", "assignment", "announcement"] as string[]).includes(kind)) throw new Error("Unknown course resource kind.");
+  const reference: Record<string, unknown> = { kind, id: positiveId(args.id, "Resource ID") };
+  if (kind === "file") reference.filename = requiredString(args.filename, "Filename");
+  else if (args.filename !== undefined) throw new Error("filename is accepted only for file resources.");
+  return reference;
+}
+
 function filterParticipants(
   participants: Array<{ roles: string[] }>,
   roleFilter: unknown
@@ -222,11 +249,8 @@ export function createUitToolExecutor(services: UitToolServices) {
         return Object.fromEntries(results.map((entry, index) => [["modules", "assignments", "announcements"][index], entry.status === "fulfilled" ? entry.value : { error: errorMessage(entry.reason) }]));
       }
       case "uit_read_resource": {
-        rejectFileUrl(args);
         const courseId = courseIdFor(args, context);
-        const reference = { ...args };
-        delete reference.courseId;
-        return await services.resolveCourseResource(courseId, reference, context.api);
+        return await services.resolveCourseResource(courseId, resourceReference(args), context.api);
       }
       case "uit_course_members": {
         const courseId = courseIdFor(args, context);

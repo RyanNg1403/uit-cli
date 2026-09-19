@@ -1290,13 +1290,12 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   max-width: 100%;
   margin: 0;
   min-height: 0;
-  padding: 5px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--subtle);
-  box-shadow: var(--shadow-sm);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
-.agent-turn-status .turn-state-copy { min-width: 0; }
 #view-agent.agent-working #agent-status { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .message-tool.is-working .tool-call > summary .tool-status-dot,
@@ -1386,6 +1385,7 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
 }
 .context-pill svg { width: 12px; height: 12px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .context-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-entry { position: relative; min-width: 0; }
 #agent-input {
   display: block;
   border: 0 !important;
@@ -1396,13 +1396,24 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65
   max-width: 100%;
   box-sizing: border-box;
   resize: none;
-  min-height: 48px;
-  max-height: 220px;
-  padding: 4px 2px 6px;
+  min-height: 40px;
+  max-height: 132px;
+  padding: 9px 390px 9px 40px;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   overflow-y: hidden;
+  scrollbar-color: var(--muted) transparent;
+  scrollbar-width: thin;
+}
+.composer-entry.multiline #agent-input { padding: 10px 10px 48px; }
+#agent-input::-webkit-scrollbar { width: 6px; }
+#agent-input::-webkit-scrollbar-track { background: transparent; }
+#agent-input::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--muted);
+  background-clip: content-box;
 }
 #agent-input:focus,
 #agent-input:focus-visible {
@@ -1434,30 +1445,34 @@ textarea:disabled {
 .mention-item .mention-kind { flex: 0 0 auto; font: 9px ui-monospace, monospace; text-transform: uppercase; color: var(--muted); }
 .mention-item .mention-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mention-item[aria-selected="true"] { background: var(--selected); }
-.composer-actions { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
-.composer-actions .icon-button {
+.composer-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.composer-entry > .icon-button {
+  position: absolute;
+  left: 0;
+  bottom: 6px;
+  z-index: 1;
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  width: 30px;
-  min-height: 30px;
-  height: 30px;
+  font-size: 14px;
+  width: 27px;
+  min-height: 27px;
+  height: 27px;
   padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--border);
+  border: 0;
   color: var(--muted);
   background: transparent;
   transition: all .15s ease;
 }
-.composer-actions .icon-button:hover:not(:disabled) {
+.composer-entry > .icon-button svg { width: 12px; height: 12px; }
+.composer-entry > .icon-button:hover:not(:disabled) {
   color: var(--text);
-  border-color: var(--strong-border);
-  background: var(--hover);
+  background: transparent;
 }
-.composer-spacer { flex: 1; }
 .composer-options,
 .composer-submit { display: flex; align-items: center; gap: 6px; }
+.composer-actions { position: absolute; right: 0; bottom: 4px; z-index: 1; }
 .composer-options { min-width: 0; }
 .composer-submit { margin-left: 2px; }
 .composer-pill {
@@ -1573,7 +1588,11 @@ button.composer-pill:hover:not(:disabled) {
 }
 .approval:last-child { margin-bottom: 0; }
 .approval .form-error { grid-column: 1 / -1; margin: 0; }
-.error-banner { color: var(--error); background: var(--error-background); padding: 10px 28px; font-size: 12px; }
+.error-banner { display: flex; align-items: center; gap: 12px; color: var(--error); background: var(--error-background); padding: 10px 28px; font-size: 12px; }
+.error-banner-message { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.error-banner-action { flex: 0 0 auto; color: var(--error); border-color: currentColor; font-size: 12px; padding: 4px 9px; }
+.error-banner-action:hover:not(:disabled) { background: color-mix(in srgb, var(--error) 12%, transparent); }
+.error-banner-close { flex: 0 0 auto; width: 28px; min-height: 28px; padding: 0; color: var(--error); font-size: 19px; line-height: 1; }
 
 /* ═══════════════════════════════════════════════════
    DIALOGS
@@ -1882,7 +1901,11 @@ dialog::backdrop { background: var(--backdrop); }
   .citation-link { max-width: 100%; overflow-wrap: anywhere; }
   .thread-empty { padding-block: 20px; }
   .composer { padding: 0 14px calc(12px + env(safe-area-inset-bottom)); }
-  .composer-actions { flex-wrap: wrap; }
+  .composer-entry { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
+  #agent-input { grid-column: 2; padding: 5px 2px 6px; }
+  .composer-entry.multiline #agent-input { padding: 10px 8px; }
+  .composer-entry > .icon-button { position: static; align-self: end; margin-bottom: 6px; }
+  .composer-actions { position: static; grid-column: 1 / -1; flex-wrap: wrap; justify-content: flex-end; }
   .composer-options { flex: 1 1 auto; justify-content: flex-end; }
   .composer-pill { min-width: 0; max-width: min(46vw, 210px); overflow: hidden; text-overflow: ellipsis; }
   .send-button { width: 42px; height: 42px; }

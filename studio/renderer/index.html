@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; frame-src blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none';" />
     <title>UIT Studio</title>
-    <link rel="icon" type="image/png" sizes="1024x1024" href="assets/uit-dau-dau-icon.png" />
-    <link rel="apple-touch-icon" href="assets/uit-dau-dau-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="assets/uit-dau-dau.svg" />
+    <link rel="apple-touch-icon" href="assets/uit-dau-dau.svg" />
     <script src="./appearance.js"></script>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -130,22 +130,23 @@
             <form id="agent-form">
               <div id="composer-context" class="composer-context" hidden></div>
               <div id="resource-chips" class="resource-chips" aria-label="Attached resources"></div>
-              <label class="sr-only" for="agent-input">Message Codex</label>
-              <textarea id="agent-input" rows="3" placeholder="Do anything..." aria-describedby="agent-status" aria-controls="mention-list" aria-expanded="false"></textarea>
-              <div id="mention-list" class="mention-list" role="listbox" aria-label="Mention course resources" hidden></div>
-              <div class="composer-actions">
+              <div class="composer-entry">
+                <label class="sr-only" for="agent-input">Message Codex</label>
                 <button id="attach-resource" class="icon-button" type="button" aria-label="Attach course resource" title="Attach course resource"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg></button>
-                <span class="composer-spacer"></span>
-                <div class="composer-options" role="group" aria-label="Codex options">
-                  <button id="yolo-toggle" class="composer-pill yolo-toggle" type="button" aria-pressed="true" title="YOLO mode">YOLO</button>
-                  <button id="fast-toggle" class="composer-pill fast-toggle" type="button" aria-pressed="false" title="Fast mode">Fast</button>
-                  <button id="model-picker" class="composer-pill" type="button" aria-haspopup="dialog" title="Model and reasoning effort">Auto</button>
-                </div>
-                <div class="composer-submit" role="group" aria-label="Message actions">
-                  <button id="stop-agent" class="send-button" type="button" hidden aria-label="Stop" title="Stop"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg></button>
-                  <button id="send-agent" class="send-button" type="submit" aria-label="Send" title="Send"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <textarea id="agent-input" rows="1" placeholder="Do anything..." aria-describedby="agent-status" aria-controls="mention-list" aria-expanded="false"></textarea>
+                <div class="composer-actions">
+                  <div class="composer-options" role="group" aria-label="Codex options">
+                    <button id="yolo-toggle" class="composer-pill yolo-toggle" type="button" aria-pressed="true" title="YOLO mode">YOLO</button>
+                    <button id="fast-toggle" class="composer-pill fast-toggle" type="button" aria-pressed="false" title="Fast mode">Fast</button>
+                    <button id="model-picker" class="composer-pill" type="button" aria-haspopup="dialog" title="Model and reasoning effort">Auto</button>
+                  </div>
+                  <div class="composer-submit" role="group" aria-label="Message actions">
+                    <button id="stop-agent" class="send-button" type="button" hidden aria-label="Stop" title="Stop"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg></button>
+                    <button id="send-agent" class="send-button" type="submit" aria-label="Send" title="Send"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-9M4.5 7 8 3.5 11.5 7" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                  </div>
                 </div>
               </div>
+              <div id="mention-list" class="mention-list" role="listbox" aria-label="Mention course resources" hidden></div>
               <div id="model-menu" class="model-menu" role="dialog" aria-label="Model and reasoning effort" hidden></div>
             </form>
             <div class="composer-foot"><span id="agent-status" role="status">Ready</span></div>
@@ -215,6 +216,7 @@
     <script src="./web-bridge.js"></script>
     <script src="./sidebar.js"></script>
     <script src="./calendar.js"></script>
+    <script src="./hidden-markup.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>
