@@ -67,6 +67,7 @@ for (const required of [
   "dist/studio-web-launcher.js",
   "dist/uit-tools.js",
   "studio-build/renderer/index.html",
+  "studio-build/renderer/hidden-markup.js",
   "studio-build/renderer/renderer.js",
   "studio-build/renderer/calendar.js",
   "studio-build/renderer/assets/uit-dau-dau.svg"

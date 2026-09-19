@@ -904,6 +904,53 @@ test("codex file citations render as links that open the workspace file", async 
   expect(await page.evaluate(() => (window as any).__shellOpened)).toBe("/tmp/syllabus.pdf");
 });
 
+test("Codex control markers stay hidden across streamed chunk boundaries", async ({ page, boot }) => {
+  await boot();
+  await createThread(page);
+  await sendAndStop(page, "Render a clean answer");
+  const threadId = await page.evaluate(() => window.__mock.threadStore.threads[0].threadId);
+  for (const delta of [
+    "Before <oai-mem-cita",
+    "tion>MEMORY.md:46-46<citation_entries>hidden</citation_entries>",
+    "</oai-mem-cita",
+    "tion> after",
+  ]) await emit(page, "item/agentMessage/delta", { threadId, itemId: "hidden-marker", delta });
+  await expect(page.locator("#agent-messages .assistant")).toHaveCount(1);
+  await expect(page.locator("#agent-messages .assistant")).toContainText("Before  after");
+  await expect(page.locator("#agent-messages")).not.toContainText("oai-mem-citation");
+  await expect(page.locator("#agent-messages")).not.toContainText("MEMORY.md:46-46");
+  await emit(page, "item/completed", { threadId, item: { id: "hidden-marker", type: "agentMessage", text: "Final <turn_aborted>internal</turn_aborted> answer" } });
+  await expect(page.locator("#agent-messages .assistant")).toContainText("Final  answer");
+  await emit(page, "item/completed", { threadId, item: { id: "marker-only", type: "agentMessage", text: "<oai-mem-citation>only hidden</oai-mem-citation>" } });
+  await expect(page.locator("#agent-messages .assistant")).toHaveCount(1);
+  expect(JSON.stringify(await threadStore(page))).not.toContain("turn_aborted");
+  expect(JSON.stringify(await threadStore(page))).not.toContain("oai-mem-citation");
+});
+
+test("legacy persisted control-only messages are removed and mixed messages are normalized", async ({ page, boot }) => {
+  await boot({ storage: JSON.stringify({
+    version: 2,
+    activeId: "legacy-markers",
+    projects: [courses[0]],
+    collapsed: [],
+    threads: [{
+      id: "legacy-markers", title: "Legacy markers", owner: { baseUrl: CURRENT, userId: 101 }, course: courses[0],
+      draft: "", resources: [], prompted: true, threadId: "thread-legacy-markers", messages: [
+        { role: "user", text: "<turn_aborted>internal context</turn_aborted>" },
+        { role: "assistant", text: "Visible <oai-mem-citation>hidden citation</oai-mem-citation> answer" },
+      ],
+    }],
+  }) });
+  await page.locator('[data-view="agent"]').click();
+  await expect(page.locator("#agent-messages .user")).toHaveCount(0);
+  await expect(page.locator("#agent-messages .assistant pre")).toHaveText("Visible  answer");
+  await expect.poll(async () => (await threadStore(page)).threads[0].messages).toEqual([
+    expect.objectContaining({ role: "assistant", text: "Visible  answer" }),
+  ]);
+  expect(JSON.stringify(await threadStore(page))).not.toContain("oai-mem-citation");
+  expect(JSON.stringify(await threadStore(page))).not.toContain("turn_aborted");
+});
+
 test("markdown workspace file paths render as clickable filenames", async ({ page, boot }) => {
   await boot();
   await createThread(page);
