@@ -2,7 +2,14 @@ import { chmod, mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { requireOpenableWorkspacePath, requiresExplicitUitMcpApproval } from "../src/studio-core.js";
+import { isTurnAbortedMarker, requireOpenableWorkspacePath, requiresExplicitUitMcpApproval } from "../src/studio-core.js";
+
+describe("Studio rollout control messages", () => {
+  it("recognizes Codex turn-abort markers instead of treating them as user content", () => {
+    expect(isTurnAbortedMarker("<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>")).toBe(true);
+    expect(isTurnAbortedMarker("Please explain <turn_aborted>this text</turn_aborted>")).toBe(false);
+  });
+});
 
 function approval(toolName: string) {
   return {

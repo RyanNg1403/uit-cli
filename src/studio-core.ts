@@ -81,6 +81,9 @@ type ThreadBinding = CourseReference & {
   locked?: boolean;
   handedOff?: boolean;
   handoffPending?: boolean;
+  studioClientId?: string;
+  cancelRequested?: boolean;
+  lastTurnStatus?: "completed" | "interrupted" | "failed";
   completedTurns?: Set<string>;
 };
 type AgentRequest = CodexServerRequest & { params: JsonRecord };
@@ -95,6 +98,10 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object" && "message" in error) return String((error as { message: unknown }).message);
   return String(error);
+}
+
+export function isTurnAbortedMarker(text: string): boolean {
+  return /^<turn_aborted>\s*[\s\S]*?\s*<\/turn_aborted>$/.test(text.trim());
 }
 
 function isActiveThreadWriterError(error: unknown): boolean {
@@ -133,6 +140,13 @@ let linkedWrite = Promise.resolve();
 let portalErrors: PortalError[] = [];
 const accountHealth = new Map<string, AccountHealth>();
 let cachedModels: CachedModels | undefined;
+const STUDIO_CLIENT_LEASE_MS = 5_000;
+const STUDIO_CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+const studioClientLeases = new Map<string, number>();
+let studioLeaseTimer: NodeJS.Timeout | undefined;
+let studioLifecycleWrite = Promise.resolve();
+let studioTurnInterruption: Promise<void> | undefined;
+let studioLifecycleClosed = false;
 let idleLockTimer: NodeJS.Timeout | undefined;
 const SESSIONS_FILE = join(homedir(), ".uit", "sessions.json");
 const LINKED_COURSES_STORE_VERSION = 2;
@@ -211,6 +225,9 @@ async function loadService() {
     if (binding && message.method === "turn/completed") {
       if (!turnId || binding.turnId !== turnId) return;
       binding.busy = false;
+      binding.cancelRequested = false;
+      const status = params.turn?.status;
+      if (status === "completed" || status === "interrupted" || status === "failed") binding.lastTurnStatus = status;
       (binding.completedTurns ||= new Set()).add(turnId);
       for (const [id, request] of approvals) if (request.params.threadId === params.threadId) approvals.delete(id);
       scheduleIdleLockRelease();
@@ -221,7 +238,10 @@ async function loadService() {
   const disconnected = (info: JsonRecord): void => {
     approvals.clear();
     allowAllUitMcpRequests = false;
-    for (const binding of threadBindings.values()) binding.busy = false;
+    for (const binding of threadBindings.values()) {
+      binding.busy = false;
+      binding.cancelRequested = false;
+    }
     sendAgentEvent({ method: "codex/exit", params: info });
   };
   codex.on("error", (error: Error) => disconnected({ message: error.message }));
@@ -692,6 +712,116 @@ function scheduleIdleLockRelease(): void {
   }, 2500);
 }
 
+function requireStudioClientId(value: unknown): string {
+  const clientId = requireString(value, "Studio client ID");
+  if (!STUDIO_CLIENT_ID_PATTERN.test(clientId)) throw new Error("Studio client ID has an invalid format.");
+  return clientId;
+}
+
+function isStudioClientLive(clientId: string | undefined): boolean {
+  if (!clientId) return true;
+  const expiresAt = studioClientLeases.get(clientId);
+  if (expiresAt === undefined || expiresAt <= Date.now()) {
+    studioClientLeases.delete(clientId);
+    return false;
+  }
+  return true;
+}
+
+function enqueueStudioLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+  const next = studioLifecycleWrite.catch(() => undefined).then(operation);
+  studioLifecycleWrite = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+function scheduleStudioLeaseWatchdog(): void {
+  if (studioLeaseTimer) clearTimeout(studioLeaseTimer);
+  studioLeaseTimer = undefined;
+  const nextExpiry = Math.min(...studioClientLeases.values());
+  if (!Number.isFinite(nextExpiry)) return;
+  studioLeaseTimer = setTimeout(() => {
+    studioLeaseTimer = undefined;
+    void enqueueStudioLifecycle(async () => {
+      const now = Date.now();
+      const expired = new Set<string>();
+      for (const [clientId, expiresAt] of studioClientLeases) {
+        if (expiresAt <= now) {
+          studioClientLeases.delete(clientId);
+          expired.add(clientId);
+        }
+      }
+      scheduleStudioLeaseWatchdog();
+      return expired;
+    }).then((expired) => expired.size ? interruptStudioTurns(expired) : undefined)
+      .catch((error) => console.error("Could not reconcile an expired Studio client lease:", errorMessage(error)));
+  }, Math.max(0, nextExpiry - Date.now()));
+  studioLeaseTimer.unref();
+}
+
+function settleInterruptedTurn(threadId: string, binding: ThreadBinding, turnId: string): void {
+  if (!binding.busy || binding.turnId !== turnId) return;
+  binding.busy = false;
+  binding.cancelRequested = false;
+  binding.lastTurnStatus = "interrupted";
+  (binding.completedTurns ||= new Set()).add(turnId);
+  for (const [id, request] of approvals) if (request.params.threadId === threadId) approvals.delete(id);
+  sendAgentEvent({ method: "turn/completed", params: {
+    threadId,
+    turnId,
+    ...(binding.taskId ? { taskId: binding.taskId } : {}),
+    turn: { id: turnId, status: "interrupted" }
+  } });
+  scheduleIdleLockRelease();
+}
+
+async function interruptStudioTurns(clientIds?: ReadonlySet<string>): Promise<void> {
+  if (studioTurnInterruption) await studioTurnInterruption;
+  const operation = (async () => {
+    const active = [...threadBindings.entries()].filter(([, binding]) => {
+      if (!binding.busy) return false;
+      if (!clientIds) return true;
+      return binding.studioClientId !== undefined && clientIds.has(binding.studioClientId);
+    });
+    await Promise.all(active.map(async ([threadId, binding]) => {
+      const turnId = binding.turnId;
+      if (!turnId) {
+        binding.cancelRequested = true;
+        return;
+      }
+      try {
+        await codex.interruptTurn(threadId, turnId);
+        settleInterruptedTurn(threadId, binding, turnId);
+      } catch (error) {
+        console.error(`Could not interrupt Studio turn ${turnId}:`, errorMessage(error));
+      }
+    }));
+  })();
+  const tracked = operation.finally(() => {
+    if (studioTurnInterruption === tracked) studioTurnInterruption = undefined;
+  });
+  studioTurnInterruption = tracked;
+  await tracked;
+}
+
+async function updateStudioClientLease(rawInput: unknown): Promise<JsonRecord> {
+  const input = requireObject(rawInput, "Studio client lease");
+  const clientId = requireStudioClientId(input.clientId);
+  const state = requireString(input.state, "Studio client lease state");
+  if (!["acquire", "heartbeat", "release"].includes(state)) throw new Error("Unknown Studio client lease state.");
+  const accepted = await enqueueStudioLifecycle(async () => {
+    if (studioLifecycleClosed) return false;
+    if (state === "release") {
+      studioClientLeases.delete(clientId);
+    } else {
+      studioClientLeases.set(clientId, Date.now() + STUDIO_CLIENT_LEASE_MS);
+    }
+    scheduleStudioLeaseWatchdog();
+    return true;
+  });
+  if (accepted && state === "release") await interruptStudioTurns(new Set([clientId]));
+  return { success: true, leaseMs: STUDIO_CLIENT_LEASE_MS };
+}
+
 const rolloutFilePaths = new Map<string, string>();
 
 async function findRolloutFilePath(threadId: string): Promise<string | null> {
@@ -746,7 +876,7 @@ async function readThreadRollout(threadId: string, afterMtime = 0): Promise<Json
               .filter((text: unknown): text is string => typeof text === "string" && !text.startsWith("<skills_instructions>") && !text.startsWith("<permissions instructions>") && !text.startsWith("<recommended_plugins>") && !text.startsWith("<apps_instructions>") && !text.startsWith("<plugins_instructions>") && !text.startsWith("<environment_context>") && !text.startsWith("# AGENTS.md instructions"));
 
             const fullText = textParts.join("\n").trim();
-            if (fullText) {
+            if (fullText && !isTurnAbortedMarker(fullText)) {
               const createdAt = parsed.timestamp ? new Date(parsed.timestamp).getTime() : fileStats.mtimeMs;
               messages.push({
                 role: msg.role,
@@ -885,6 +1015,8 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
   };
   const taskId = requireString(input.taskId, "Task ID");
   const message = requireString(input.message, "Agent message");
+  const studioClientId = requireStudioClientId(input.studioClientId);
+  if (!isStudioClientLive(studioClientId)) throw new Error("The Studio browser session is no longer active. Reopen Studio and try again.");
   const model = input.model === undefined ? undefined : requireString(input.model, "Model");
   const effort = input.effort === undefined ? undefined : requireString(input.effort, "Reasoning effort");
   if (model !== undefined && (model.length > 100 || !/^[A-Za-z0-9._-]+$/.test(model))) throw new Error("Unknown model selection.");
@@ -915,6 +1047,7 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     if (binding.handoffPending) throw new Error("This thread is being handed off to ChatGPT Desktop.");
     if (binding.handedOff) throw new Error("This thread was handed off to ChatGPT Desktop and is read-only in Studio.");
     const resumed = await codex.resumeThread(threadId, { config: STUDIO_CODEX_CONFIG, excludeTurns: true });
+    if (!isStudioClientLive(studioClientId)) throw new Error("The Studio browser session is no longer active. Reopen Studio and try again.");
     if (!isThreadStatus(resumed?.status)) throw new Error("Malformed thread/resume response: result.thread.status must contain a valid Codex thread status.");
     if (resumed.status.type === "active") {
       binding.locked = true;
@@ -924,6 +1057,9 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     binding.busy = true;
     binding.locked = false;
     binding.workspace = workspace.path;
+    binding.studioClientId = studioClientId;
+    binding.cancelRequested = false;
+    binding.lastTurnStatus = undefined;
     binding.yolo = yolo;
     binding.fast = fast;
     binding.turnId = undefined;
@@ -934,9 +1070,13 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
     // respond, which makes the UIT tools unusable.
     const workspacePath = requireWorkspacePath(workspace.path);
     started = await codex.startThread(workspacePath, { config: STUDIO_CODEX_CONFIG, ...(model !== undefined ? { model } : {}), approvalPolicy: "on-request" });
+    if (!isStudioClientLive(studioClientId)) {
+      await codex.deleteThread(started.thread.id).catch(() => undefined);
+      throw new Error("The Studio browser session is no longer active. Reopen Studio and try again.");
+    }
     threadId = started.thread.id;
     const fast = requestedFast === true;
-    binding = { courseId, baseUrl: account.baseUrl, userId: account.userId, shortname: course.shortname, workspace: workspace.path, yolo, fast, busy: true };
+    binding = { courseId, baseUrl: account.baseUrl, userId: account.userId, shortname: course.shortname, workspace: workspace.path, yolo, fast, busy: true, studioClientId };
     threadBindings.set(threadId, binding);
   }
   binding.taskId = taskId;
@@ -950,6 +1090,11 @@ async function startAgentTurn(rawInput: unknown, existing = false): Promise<Json
       serviceTierForTurn: binding.fast === true ? "fast" : "default"
     });
     binding.turnId = turn.id;
+    if (binding.cancelRequested || !isStudioClientLive(studioClientId)) {
+      await codex.interruptTurn(threadId, turn.id).catch(() => undefined);
+      settleInterruptedTurn(threadId, binding, turn.id);
+      throw new Error("The Studio browser session closed before the turn completed.");
+    }
     try { checkAccount(); }
     catch (error) { await codex.interruptTurn(threadId, turn.id).catch(() => undefined); throw error; }
     return { threadId, turnId: turn.id, status: turn.status, workspace: workspace.path, model: started?.model, effort, fast: binding.fast === true };
@@ -1196,6 +1341,7 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
   const handlers: Record<string, StudioHandler> = {
     "threads:read": () => readStudioThreadStore(host.userDataPath),
     "threads:write": (rawInput) => writeStudioThreadStore(host.userDataPath, rawInput),
+    "studio:lease": (rawInput) => updateStudioClientLease(rawInput),
     "calendar:announcements": (rawInput) => {
       const input = requireObject(rawInput, "Announcement input");
       if (typeof input.refresh !== "boolean") throw new Error("Refresh must be a boolean.");
@@ -1423,7 +1569,17 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
       const input = requireObject(rawInput, "Lock status input");
       const threadId = requireString(input.threadId, "Thread ID");
       const binding = threadBindings.get(threadId);
-      if (binding?.busy) return { locked: false };
+      if (binding?.busy) {
+        if (binding.studioClientId && !isStudioClientLive(binding.studioClientId)) {
+          await interruptStudioTurns(new Set([binding.studioClientId]));
+        }
+        return {
+          locked: false,
+          busy: binding.busy,
+          ...(binding.taskId ? { taskId: binding.taskId } : {}),
+          ...(binding.turnId ? { turnId: binding.turnId } : {})
+        };
+      }
       if (binding?.handoffPending) return { locked: true };
       try {
         const resumed = await codex.resumeThread(threadId, { config: STUDIO_CODEX_CONFIG, excludeTurns: true });
@@ -1433,7 +1589,11 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
           binding.locked = locked;
           binding.handedOff = false;
         }
-        return { locked, handedOff: false };
+        return {
+          locked,
+          handedOff: false,
+          ...(binding?.lastTurnStatus ? { lastTurnStatus: binding.lastTurnStatus } : {})
+        };
       } catch (error) {
         // A Desktop/CLI handoff can win the writer race between the renderer
         // releasing Studio and its next lock-status check. Treat that exact
@@ -1522,6 +1682,7 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
 
 export async function createStudioCore(newHost: StudioHost): Promise<StudioCore> {
   host = newHost;
+  studioLifecycleClosed = false;
   await loadService();
   if (!reminderTimer && process.env.UIT_DISABLE_CONFIG !== "1") {
     reminderTimer = setInterval(() => { void checkCalendarReminders(); }, 60_000);
@@ -1536,6 +1697,14 @@ export async function createStudioCore(newHost: StudioHost): Promise<StudioCore>
         clearTimeout(idleLockTimer);
         idleLockTimer = undefined;
       }
+      if (studioLeaseTimer) {
+        clearTimeout(studioLeaseTimer);
+        studioLeaseTimer = undefined;
+      }
+      studioLifecycleClosed = true;
+      studioClientLeases.clear();
+      await enqueueStudioLifecycle(async () => undefined);
+      await enqueueStudioLifecycle(() => interruptStudioTurns());
       await clearSsoSession().catch(() => undefined);
       await Promise.resolve(codex?.disconnect()).catch(() => undefined);
     }
