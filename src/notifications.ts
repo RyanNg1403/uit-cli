@@ -22,7 +22,7 @@ function message(item: MoodleRecord) {
   return { id: item.id, userId: item.useridfrom, text: String(item.text || ""), timecreated: item.timecreated };
 }
 
-export function createNotificationHandlers(accounts: () => Account[], openExternal: (url: string) => Promise<void>) {
+export function createNotificationHandlers(accounts: () => Account[], openExternal?: (url: string) => Promise<void>) {
   const links = new WeakMap<ApiClient, Map<number, string>>();
   const handler = (operation: (account: Account, input: MoodleRecord) => Promise<unknown>) => async (raw: unknown) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Account input is required.");
@@ -36,7 +36,7 @@ export function createNotificationHandlers(accounts: () => Account[], openExtern
       return result;
     } catch (error) {
       const code = (error as { errorcode?: string }).errorcode;
-      if (["servicerequireslogin", "invalidtoken", "requireloginerror"].includes(code || "")) throw new Error("Session expired. Reconnect this account in Course accounts.", { cause: error });
+      if (["servicerequireslogin", "invalidtoken", "requireloginerror"].includes(code || "")) throw new Error("Session expired. Sign in to this account again.", { cause: error });
       if (["servicenotavailable", "accessexception", "disabled"].includes(code || "")) throw new Error("This Moodle site does not allow this operation for your account.", { cause: error });
       throw error;
     }
@@ -67,6 +67,7 @@ export function createNotificationHandlers(accounts: () => Account[], openExtern
     "notifications:open": handler(async ({ api }, input) => {
       const url = links.get(api)?.get(integer(input.id));
       if (!url) throw new Error("Refresh notifications before opening this link.");
+      if (!openExternal) throw new Error("Opening notification links is unavailable in this client.");
       await openExternal(url);
     }),
     "inbox:list": handler(async ({ api, userId }, input) => {

@@ -61,6 +61,78 @@ afterEach(() => {
 });
 
 describe("CLI command flows", () => {
+  it("lists paginated notifications as JSON without marking them read", async () => {
+    const api = mockApi({ message_popup_get_popup_notifications: { notifications: [{ id: 7, subject: "New grade", fullmessage: "Your work was graded", timecreated: 1700000000, read: false }], unreadcount: 1 } });
+    expect(await main(["node", "uit", "--json", "notifications", "list", "--offset", "20"], api)).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ items: [{ id: 7, subject: "New grade", text: "Your work was graded" }], unread: 1, nextOffset: null });
+    expect(api.call).toHaveBeenCalledExactlyOnceWith("message_popup_get_popup_notifications", { useridto: 42, newestfirst: 1, limit: 20, offset: 20 });
+  });
+
+  it("shows readable notification bodies and removes terminal control characters", async () => {
+    const api = mockApi({ message_popup_get_popup_notifications: { notifications: [{ id: 7, subject: "Course update", fullmessagehtml: "<p>Hello &amp; welcome</p>\u001b[31m", read: true }], unreadcount: 0 } });
+    expect(await main(["node", "uit", "notifications", "list", "--full"], api)).toBe(0);
+    expect(stdout).toContain("Course update");
+    expect(stdout).toContain("Hello & welcome");
+    expect(stdout).not.toContain("\u001b");
+  });
+
+  it("lists conversations and reads older messages without a read mutation", async () => {
+    const api = mockApi({ core_message_get_conversation_messages: { messages: [{ id: 5, useridfrom: 9, text: "Hello", timecreated: 1700000000 }], members: [{ id: 9, fullname: "Teacher" }] } });
+    expect(await main(["node", "uit", "--json", "inbox", "messages", "33", "--offset", "20"], api)).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ items: [{ id: 5, userId: 9, text: "Hello" }], members: [{ id: 9, name: "Teacher" }], nextOffset: null });
+    expect(api.call).toHaveBeenCalledExactlyOnceWith("core_message_get_conversation_messages", { currentuserid: 42, convid: 33, newest: 1, limitfrom: 20, limitnum: 20 });
+  });
+
+  it("lists inbox conversations using the active account", async () => {
+    const api = mockApi({ core_message_get_conversations: { conversations: [{ id: 33, members: [{ id: 42, fullname: "Me" }, { id: 9, fullname: "Teacher" }], unreadcount: 2, messages: [] }] } });
+    expect(await main(["node", "uit", "--json", "inbox", "list"], api)).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ items: [{ id: 33, name: "Teacher", unread: 2 }], nextOffset: null });
+    expect(api.call).toHaveBeenCalledExactlyOnceWith("core_message_get_conversations", { userid: 42, limitfrom: 0, limitnum: 20 });
+  });
+
+  it.each([
+    [["notifications", "read", "7"], "core_message_mark_notification_read", { notificationid: 7 }],
+    [["notifications", "read-all"], "core_message_mark_all_notifications_as_read", { useridto: 42 }],
+    [["inbox", "read", "33"], "core_message_mark_all_conversation_messages_as_read", { userid: 42, conversationid: 33 }]
+  ])("performs only the explicit read action %j", async (args, method, params) => {
+    const api = mockApi({ [method as string]: true });
+    expect(await main(["node", "uit", "--json", ...args as string[]], api)).toBe(0);
+    expect(JSON.parse(stdout).status).toBe("read");
+    expect(api.call).toHaveBeenCalledExactlyOnceWith(method, params);
+  });
+
+  it("sends a plain-text reply once and reports the resulting message ID", async () => {
+    const api = mockApi({ core_message_send_messages_to_conversation: [{ id: 88, text: "Thanks", useridfrom: 42, timecreated: 1700000000 }] });
+    expect(await main(["node", "uit", "--json", "inbox", "send", "33", "Thanks"], api)).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ status: "sent", conversationId: 33, messageIds: [88] });
+    expect(api.call).toHaveBeenCalledExactlyOnceWith("core_message_send_messages_to_conversation", { conversationid: 33, messages: [{ text: "Thanks", textformat: 2 }] });
+  });
+
+  it.each([
+    ["notifications", "list", "--offset", "-1"],
+    ["inbox", "messages", "0"],
+    ["inbox", "send", "33", " "],
+    ["inbox", "send", "33", "é".repeat(2049)]
+  ])("rejects invalid messaging input before any API call", async (...args) => {
+    const api = mockApi({});
+    expect(await main(["node", "uit", "--json", ...args], api)).not.toBe(0);
+    expect(api.call).not.toHaveBeenCalled();
+  });
+
+  it("propagates send failures without retrying", async () => {
+    const api = mockApi({});
+    vi.mocked(api.call).mockRejectedValue(new Error("Connection lost"));
+    expect(await main(["node", "uit", "--json", "inbox", "send", "33", "Hello"], api)).toBe(1);
+    expect(JSON.parse(stdout)).toEqual({ error: "Connection lost" });
+    expect(api.call).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads unread counts and reports unavailable counts rather than zero", async () => {
+    const api = mockApi({ message_popup_get_unread_popup_notification_count: 3 });
+    expect(await main(["node", "uit", "--json", "notifications", "counts"], api)).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ notifications: 3, conversations: null });
+  });
+
   it.each(["--version", "-v"])("prints %s without starting a command", async (flag) => {
     const api = mockApi({});
 

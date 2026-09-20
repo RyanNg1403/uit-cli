@@ -1,5 +1,5 @@
 import type { CalendarEvent } from "./calendar.js";
-import { createNotificationHandlers } from "./studio-notifications.js";
+import { createNotificationHandlers } from "./notifications.js";
 import { classifySessionError, type SessionHealthState } from "./session-health.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";

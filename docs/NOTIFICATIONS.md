@@ -45,3 +45,31 @@ compatibility with Moodle REST tokens and AJAX sessions.
 Test account isolation, pagination, safe links, input validation, server errors,
 read mutations, stale responses, text rendering, and explicit sends. Live checks
 are read-only; sending and marking read are verified with fixtures.
+
+## CLI
+
+Commands use the active CLI account, matching `uit courses`. They also honor
+`UIT_TOKEN`, `UIT_BASE_URL`, and `UIT_USER_ID` like other CLI commands.
+Use `uit login` for SSO or `uit login --legacy` for the legacy site.
+
+```sh
+uit notifications list
+uit notifications list --full --offset 20
+uit notifications counts
+uit notifications read 123
+uit notifications read-all
+uit inbox list
+uit inbox messages 456
+uit inbox messages 456 --offset 20
+uit inbox read 456
+uit inbox send 456 "Thanks for the update."
+uit --json notifications list
+uit --json inbox messages 456
+```
+
+Lists return at most 20 entries and include `nextOffset` in JSON (null at the end).
+JSON message pages retain Moodle's newest-first order; terminal output presents
+each message page chronologically. Listing never marks anything read. Read and
+send commands immediately perform the explicit requested action on Moodle.
+Do not automatically retry a failed send; inspect the conversation first because
+a connection failure can occur after Moodle accepted the message.

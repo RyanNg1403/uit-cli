@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createNotificationHandlers } from "../src/studio-notifications.js";
+import { createNotificationHandlers } from "../src/notifications.js";
 import type { ApiClient } from "../src/types.js";
 
 function setup() {
