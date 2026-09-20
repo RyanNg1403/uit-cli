@@ -6,6 +6,7 @@ const CURRENT_SITE = "https://courses.uit.edu.vn";
 const THREAD_STORE_VERSION = 2;
 let streamFrame = null, streamPersistTimer = null, draftPersistTimer = null;
 let calendar;
+let notifications;
 let threadStoreWrite = Promise.resolve();
 let threadStoreLastSerialized = "";
 let threadStoreReady = false;
@@ -344,7 +345,7 @@ function showView(view) {
   if (view !== "agent") discardUnsent();
   if (view !== "course") state.detailGeneration++;
   state.view = view;
-  for (const name of ["courses", "course", "agent", "calendar"]) $("#view-" + name).hidden = name !== view;
+  for (const name of ["courses", "course", "agent", "calendar", "notifications"]) $("#view-" + name).hidden = name !== view;
   const threadHeader = $(".thread-header");
   if (threadHeader) threadHeader.hidden = view !== "agent" || !activeThread();
   const pageTitle = $("#page-title");
@@ -356,7 +357,7 @@ function showView(view) {
     pageTitle.setAttribute("title", "Codex home");
     pageTitle.classList.add("page-title-action");
   } else {
-    pageTitle.textContent = view === "calendar" ? "Calendar" : "Courses";
+    pageTitle.textContent = view === "notifications" ? "Notifications" : view === "calendar" ? "Calendar" : "Courses";
     pageTitle.removeAttribute("role");
     pageTitle.removeAttribute("tabindex");
     pageTitle.removeAttribute("aria-label");
@@ -369,6 +370,7 @@ function showView(view) {
   });
   if (view === "agent") renderConversation();
   if (view === "calendar") calendar.show();
+  if (view === "notifications") notifications.show();
   renderRail();
   window.uitSidebar.closeMobile();
 }
@@ -3163,6 +3165,7 @@ function applySessionHealth(result, renderCourses = true) {
 function applySessions(result) {
   calendar.reset();
   state.sessions = Array.isArray(result.sessions) ? result.sessions.map(({ baseUrl, userId, authMode, label, health }) => ({ baseUrl, userId, authMode, label, health: normalizeSessionHealth(health) })) : [];
+  notifications.setAccounts(state.sessions);
   state.loginFormOpen = false;
   state.listGeneration++; state.detailGeneration++;
   state.courses = state.courses.filter(connected);
@@ -3687,6 +3690,7 @@ window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist();
 
 (async function initializeStudio() {
   await restore();
+  notifications = new window.UitNotifications();
   calendar = new window.UitCalendar({
     notify: toast,
     navigate: () => showView("calendar"),
