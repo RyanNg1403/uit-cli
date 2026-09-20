@@ -17,15 +17,27 @@
 ## UIT Studio
 
 <p align="center">
-  <img src="docs/assets/uit-studio-panda.png" alt="UIT Studio panda mascot" width="180">
+  <img src="docs/assets/uit-studio-launch.gif" alt="UIT Studio launch demo" width="800">
 </p>
 
-- **Your course space. Built to focus.**
-- Both installation methods launch the same local web Studio with `uit-studio`. The npm installation requires [Node.js 24.0+](https://nodejs.org/); native release packages include Node.js and the SSO Chromium runtime.
-- **See what's due. Find what you need. Get back to learning.**
-- Track deadlines, announcements, and course materials in one focused workspace.
-- Calendar keeps the next deadline visible. Announcements keep you in the loop. Reminders keep you ahead.
-- Studio runs locally in the background. Run `uit-studio stop` whenever you want to shut it down.
+UIT Studio is a local course workspace for:
+
+- browsing course materials, announcements, assignments, grades, and calendar;
+- starting Codex agent threads with course context;
+- free to start: [Codex CLI](https://developers.openai.com/codex/cli/) + [ChatGPT Desktop](https://chatgpt.com/download/), with ChatGPT sign-in.
+
+Sign in with UIT SSO or a legacy Moodle account. Both installation methods launch the same local web Studio with `uit-studio`; run `uit-studio stop` to shut it down.
+
+Agent mode requires the [Codex CLI](https://github.com/openai/codex):
+
+```bash
+npm install -g @openai/codex
+codex --login
+```
+
+The ChatGPT desktop app alone is not sufficient for agent mode.
+
+### Installation
 
 <details>
 <summary>macOS</summary>
@@ -79,26 +91,12 @@ uit-studio
 
 </details>
 
-### Agent mode requirement
-
-Course features work without Codex. Agent mode requires the **Codex CLI**:
-
-```bash
-npm install -g @openai/codex
-codex --login
-```
-
-The ChatGPT desktop app alone is not sufficient. Sign in to UIT Studio with UIT SSO or a legacy Moodle account.
-
-<p align="center">
-  <img src="docs/landing-page/assets/studio-courses.png" alt="UIT Studio courses workspace" width="860">
-</p>
-
-Ask with course context. Continue the same thread in Codex CLI or the ChatGPT desktop app.
-
-<p align="center">
-  <img src="docs/landing-page/assets/studio-chat.png" alt="UIT Studio agent workspace" width="860" style="border-radius: 8px;">
-</p>
+<table>
+  <tr>
+    <td><img src="docs/landing-page/assets/studio-courses.png" alt="UIT Studio courses workspace" width="100%"></td>
+    <td><img src="docs/landing-page/assets/studio-chat.png" alt="UIT Studio agent workspace" width="100%"></td>
+  </tr>
+</table>
 
 ---
 
