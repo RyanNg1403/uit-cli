@@ -73,3 +73,25 @@ each message page chronologically. Listing never marks anything read. Read and
 send commands immediately perform the explicit requested action on Moodle.
 Do not automatically retry a failed send; inspect the conversation first because
 a connection failure can occur after Moodle accepted the message.
+
+## MCP
+
+The same shared service is available through these tools:
+
+| Tool | Arguments | Effect |
+| --- | --- | --- |
+| `uit_notifications` | `offset?` | Read notification page |
+| `uit_notification_counts` | None | Read notification and conversation unread counts |
+| `uit_inbox` | `offset?` | Read conversation page |
+| `uit_conversation_messages` | `id`, `offset?` | Read message page |
+| `uit_mark_notification_read` | `id` | Mark one notification read |
+| `uit_mark_all_notifications_read` | None | Mark all account notifications read |
+| `uit_mark_conversation_read` | `id` | Mark a conversation read |
+| `uit_send_message` | `id`, `text` | Send an explicitly authorized reply |
+
+MCP retains its existing managed course workspace requirement and resolves the
+active authenticated account on each call. Tool arguments cannot override that
+account. Read/write annotations are exposed to MCP hosts; these are hints, not an
+authorization mechanism. Existing host approval policy still applies. No new
+confirmation framework is introduced. Sending is non-idempotent and is never
+retried automatically. MCP mutations are verified with mocks, not real messages.
