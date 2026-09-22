@@ -95,7 +95,8 @@ describe("Studio workspace attachments", () => {
     }
   });
 
-  it("does not open executable workspace files", async () => {
+  // Windows chmod does not set POSIX executable permission bits.
+  it.skipIf(process.platform === "win32")("does not open executable workspace files", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "uit-studio-open-")));
     const path = join(root, "SS010.O23", "run.txt");
     try {
