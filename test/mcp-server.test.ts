@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+import * as os from "node:os";
 import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import {
@@ -17,6 +18,11 @@ import {
 } from "../src/mcp-server.js";
 import { createUitToolExecutor, type UitToolServices } from "../src/uit-tools.js";
 import type { ApiClient } from "../src/types.js";
+
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: vi.fn(actual.homedir) };
+});
 
 describe("mcp-server workspace gating and tools", () => {
   it("gates tools based on whether cwd is inside ~/UIT", () => {
@@ -39,7 +45,55 @@ describe("mcp-server workspace gating and tools", () => {
     expect(toolNames).toContain("uit_course_grades");
     expect(toolNames).toContain("uit_download_material");
     expect(toolNames).toContain("uit_submit_assignment");
-    expect(toolNames.length).toBe(7);
+    expect(toolNames.length).toBe(15);
+  });
+
+  it("advertises messaging read/write semantics and rejects account arguments", async () => {
+    for (const name of ["uit_notifications", "uit_notification_counts", "uit_inbox", "uit_conversation_messages"]) {
+      expect(UIT_MCP_TOOLS.find((tool) => tool.name === name)?.annotations?.readOnlyHint).toBe(true);
+    }
+    for (const name of ["uit_mark_notification_read", "uit_mark_all_notifications_read", "uit_mark_conversation_read", "uit_send_message"]) {
+      expect(UIT_MCP_TOOLS.find((tool) => tool.name === name)?.annotations?.readOnlyHint).toBe(false);
+    }
+    expect(UIT_MCP_TOOLS.find((tool) => tool.name === "uit_send_message")?.annotations?.idempotentHint).toBe(false);
+    const execute = createUitToolExecutor({} as UitToolServices);
+    const api = { call: vi.fn() } as unknown as ApiClient;
+    const context = { api, baseUrl: "https://courses.example", userId: 7 };
+    for (const args of [{ userId: 99 }, { baseUrl: "https://other.example" }, { offset: -1 }, { all: true }]) {
+      await expect(execute("uit_notifications", args, context)).rejects.toThrow();
+    }
+    expect(api.call).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["uit_notifications", { offset: 20 }, "message_popup_get_popup_notifications", { useridto: 7, newestfirst: 1, limit: 20, offset: 20 }, { notifications: [], unreadcount: 0 }],
+    ["uit_inbox", {}, "core_message_get_conversations", { userid: 7, limitfrom: 0, limitnum: 20 }, { conversations: [] }],
+    ["uit_conversation_messages", { id: 3, offset: 20 }, "core_message_get_conversation_messages", { currentuserid: 7, convid: 3, limitfrom: 20, limitnum: 20, newest: 1 }, { messages: [], members: [] }],
+    ["uit_mark_notification_read", { id: 2 }, "core_message_mark_notification_read", { notificationid: 2 }, true],
+    ["uit_mark_all_notifications_read", {}, "core_message_mark_all_notifications_as_read", { useridto: 7 }, true],
+    ["uit_mark_conversation_read", { id: 3 }, "core_message_mark_all_conversation_messages_as_read", { userid: 7, conversationid: 3 }, true],
+    ["uit_send_message", { id: 3, text: "Hello" }, "core_message_send_messages_to_conversation", { conversationid: 3, messages: [{ text: "Hello", textformat: 2 }] }, [{ id: 5, text: "Hello" }]]
+  ])("routes %s through the shared service without extra calls", async (name, args, method, params, response) => {
+    const api = { call: vi.fn().mockResolvedValue(response) } as unknown as ApiClient;
+    const execute = createUitToolExecutor({} as UitToolServices);
+    await execute(name as string, args as Record<string, unknown>, { api, baseUrl: "https://courses.example", userId: 7 });
+    expect(api.call).toHaveBeenCalledExactlyOnceWith(method, params);
+  });
+
+  it("keeps MCP sends single-shot on failure and validates message size", async () => {
+    const api = { call: vi.fn().mockRejectedValue(new Error("Connection lost")) } as unknown as ApiClient;
+    const execute = createUitToolExecutor({} as UitToolServices);
+    const context = { api, baseUrl: "https://courses.example", userId: 7 };
+    await expect(execute("uit_send_message", { id: 3, text: "é".repeat(2049) }, context)).rejects.toThrow("4096");
+    expect(api.call).not.toHaveBeenCalled();
+    await expect(execute("uit_send_message", { id: 3, text: "Hello" }, context)).rejects.toThrow("Connection lost");
+    expect(api.call).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns separate unread counts through MCP", async () => {
+    const api = { call: vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(3) } as unknown as ApiClient;
+    const execute = createUitToolExecutor({} as UitToolServices);
+    await expect(execute("uit_notification_counts", {}, { api, baseUrl: "https://courses.example", userId: 7 })).resolves.toEqual([2, 3]);
   });
 
   it("does not expose Studio approval policy in the submission tool description", () => {
@@ -276,12 +330,11 @@ describe("mcp-server workspace gating and tools", () => {
   it("registers the real Node executable and CLI entrypoint directly", () => {
     const directory = mkdtempSync(join(tmpdir(), "uit-direct-mcp-test-"));
     const executable = join(directory, "uit");
-    const previousHome = process.env.HOME;
+    const home = vi.spyOn(os, "homedir").mockReturnValue(directory);
     const previousCodexHome = process.env.CODEX_HOME;
     const previousExecutable = process.env.UIT_CLI_EXECUTABLE;
     try {
       writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
-      process.env.HOME = directory;
       delete process.env.CODEX_HOME;
       process.env.UIT_CLI_EXECUTABLE = executable;
       installMcpServer();
@@ -294,8 +347,7 @@ describe("mcp-server workspace gating and tools", () => {
       installMcpServer();
       expect(readFileSync(join(directory, ".codex", "config.toml"), "utf8")).toBe(config);
     } finally {
-      if (previousHome === undefined) delete process.env.HOME;
-      else process.env.HOME = previousHome;
+      home.mockRestore();
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
       if (previousExecutable === undefined) delete process.env.UIT_CLI_EXECUTABLE;
@@ -306,22 +358,20 @@ describe("mcp-server workspace gating and tools", () => {
 
   it("removes only the legacy managed MCP wrapper", () => {
     const directory = mkdtempSync(join(tmpdir(), "uit-legacy-mcp-test-"));
-    const previousHome = process.env.HOME;
+    const home = vi.spyOn(os, "homedir").mockReturnValue(directory);
     const previousCodexHome = process.env.CODEX_HOME;
     try {
       const wrapperDirectory = join(directory, ".local", "bin");
       const wrapper = join(wrapperDirectory, "uit-mcp");
       mkdirSync(wrapperDirectory, { recursive: true });
       writeFileSync(wrapper, "#!/usr/bin/env bash\n# Managed by uit-cli\nexec node old-cli.js\n");
-      process.env.HOME = directory;
       delete process.env.CODEX_HOME;
 
       installMcpServer();
 
       expect(existsSync(wrapper)).toBe(false);
     } finally {
-      if (previousHome === undefined) delete process.env.HOME;
-      else process.env.HOME = previousHome;
+      home.mockRestore();
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
       rmSync(directory, { recursive: true, force: true });
@@ -415,7 +465,7 @@ describe("mcp-server workspace gating and tools", () => {
       writeFileAtomically(config, "updated\n", statSync(config).mode & 0o777);
 
       expect(readFileSync(config, "utf8")).toBe("updated\n");
-      expect(statSync(config).mode & 0o777).toBe(0o640);
+      if (process.platform !== "win32") expect(statSync(config).mode & 0o777).toBe(0o640);
       expect(readdirSync(directory)).toEqual(["config.toml"]);
     } finally {
       rmSync(directory, { recursive: true, force: true });

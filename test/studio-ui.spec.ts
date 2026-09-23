@@ -1,6 +1,72 @@
 import { test, expect, courses, semesters, fileTypes, CURRENT, LEGACY, key, calls, control, emit, openCourse, threadStore } from "./fixtures/studio";
 import type { Page } from "playwright/test";
 
+test("Notifications paginate, render safe text and change read state only explicitly", async ({ page, boot }) => {
+  await boot();
+  await page.locator('[data-view="notifications"]').click();
+  await expect(page.locator(".mail-notification")).toHaveCount(20);
+  await page.locator(".mail-notification summary").first().click();
+  await expect(page.locator(".mail-body").first()).toHaveText("Course update");
+  expect(await page.evaluate(() => window.previewExecuted)).toBeUndefined();
+  expect(await calls(page, "notifications.read")).toHaveLength(0);
+  await page.getByRole("button", { name: "Mark as read", exact: true }).first().click();
+  await expect(page.locator(".mail-notification").first().locator(".mail-unread")).toHaveCount(0);
+  await page.locator("#mail-more").click();
+  await expect(page.locator(".mail-notification")).toHaveCount(21);
+  await page.locator("#mail-account").selectOption("1");
+  await expect.poll(async () => (await calls(page, "notifications.list")).at(-1)?.input).toMatchObject({ baseUrl: LEGACY, userId: 202, offset: 0 });
+});
+
+test("Inbox loads conversations and sends only explicit replies while retaining failed drafts", async ({ page, boot }, info) => {
+  await boot();
+  await page.locator('[data-view="notifications"]').click();
+  await page.locator("#mail-inbox").click();
+  await page.locator(".mail-conversation-item").click();
+  await expect(page.locator("#mail-messages")).toContainText("Hello");
+  expect(await calls(page, "inbox.read")).toHaveLength(0);
+  await page.locator("#mail-draft").fill("My reply");
+  expect(await calls(page, "inbox.send")).toHaveLength(0);
+  await page.locator("#mail-send").click();
+  await expect(page.locator("#mail-draft")).toHaveValue("");
+  await expect(page.locator("#mail-messages")).toContainText("My reply");
+  await page.screenshot({ path: info.outputPath("inbox.png") });
+  await control(page, "fail", "inbox.send", "Connection lost");
+  await page.locator("#mail-draft").fill("Keep this draft");
+  await page.locator("#mail-send").click();
+  await expect(page.locator("#mail-conversation-error")).toContainText("Your draft is kept");
+  await expect(page.locator("#mail-draft")).toHaveValue("Keep this draft");
+});
+
+test("Notifications recovers from account errors and fits a mobile screen", async ({ page, boot }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await boot();
+  await page.locator("#menu-toggle").click();
+  await control(page, "fail", "notifications.list", "Session expired");
+  await page.locator('[data-view="notifications"]').click();
+  await expect(page.locator("#mail-error")).toContainText("Session expired");
+  await control(page, "fail", "notifications.list", "");
+  await page.locator("#mail-refresh").click();
+  await expect(page.locator(".mail-notification")).toHaveCount(20);
+  await page.locator("#mail-inbox").click();
+  await page.locator(".mail-conversation-item").click();
+  await expect(page.locator("#mail-messages")).toContainText("Hello");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("Notifications ignores a stale response after switching accounts", async ({ page, boot }) => {
+  await boot();
+  await control(page, "hold", "notifications.list");
+  await page.locator('[data-view="notifications"]').click();
+  await expect(page.locator(".mail-skeleton")).toHaveCount(3);
+  await control(page, "unhold", "notifications.list");
+  await page.locator("#mail-account").selectOption("1");
+  await expect(page.locator(".mail-notification")).toHaveCount(20);
+  await control(page, "release", "notifications.list");
+  await expect(page.locator("#mail-account")).toHaveValue("1");
+  await expect(page.locator("#mail-error")).toBeHidden();
+  await expect(page.locator(".mail-notification")).toHaveCount(20);
+});
+
 test("Calendar shows deadlines, filters accounts, navigates months and opens safe event references", async ({ page, boot }, info) => {
   await boot();
   await page.locator('[data-view="calendar"]').click();

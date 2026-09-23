@@ -77,6 +77,12 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (failures[method]) { const message = failures[method]; delete failures[method]; throw new Error(message); }
     const save = () => { session?.setItem("mock.sessions", JSON.stringify(connected)); return status(); };
     if (method === "session.status") return status();
+    if (method === "notifications.counts") return [21, 1];
+    if (method === "notifications.list") return { items: Array.from({ length: input.offset ? 1 : 20 }, (_, index) => ({ id: (input.offset || 0) + index + 1, subject: `Notice ${(input.offset || 0) + index + 1}`, text: '<p>Course update</p><script>window.previewExecuted=true</script>', read: false, canOpen: true, timecreated: 1788940558 })), unread: 21, nextOffset: input.offset ? null : 20 };
+    if (method === "notifications.read" || method === "notifications.open" || method === "inbox.read") return true;
+    if (method === "inbox.list") return { items: [{ id: 42, name: "Course group", unread: 1, messages: [{ id: 1, userId: 500, text: "Hello", timecreated: 1788940558 }] }], nextOffset: null };
+    if (method === "inbox.messages") return { items: [{ id: 1, userId: 500, text: "Hello", timecreated: 1788940558 }], members: [{ id: 500, name: "Teacher" }], nextOffset: null };
+    if (method === "inbox.send") return [{ id: 2, userId: input.userId, text: input.text, timecreated: 1788940559 }];
     if (method === "calendar.announcements") return { items: [], errors: [] };
     if (method === "calendar.openAnnouncement") return;
     if (method === "calendar.settings") { if (input) remindersEnabled = input.enabled; return { enabled: remindersEnabled, supported: true, error: "" }; }
@@ -161,6 +167,8 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     unhold: (method: string) => held.delete(method),
   };
   window.uit = Object.fromEntries(Object.entries({
+    notifications: ["list", "counts", "read", "open"],
+    inbox: ["list", "messages", "read", "send"],
     calendar: ["list", "settings", "open", "announcements", "openAnnouncement"],
     session: ["status", "login", "ssoLogin", "logout"],
     courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
@@ -178,6 +186,7 @@ export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>
     const root = new URL("../../studio/renderer/", import.meta.url);
     const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/web-bridge.js": "web-bridge.js", "/hidden-markup.js": "hidden-markup.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png", "/assets/uit-dau-dau.svg": "assets/uit-dau-dau.svg", "/assets/dau-dau-agent.png": "assets/dau-dau-agent.png", "/assets/dau-dau-onboarding.png": "assets/dau-dau-onboarding.png" };
     assets["/calendar.js"] = "calendar.js";
+    assets["/notifications.js"] = "notifications.js";
     const server = createServer(async (request, response) => {
       const pathname = new URL(request.url!, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204).end(); return; }

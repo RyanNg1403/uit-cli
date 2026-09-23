@@ -27,6 +27,7 @@ import {
 import { runMcpServer, installMcpServer } from "./mcp-server.js";
 import { cmdLoginSso, type SsoLoginLauncher } from "./sso-login.js";
 import { VERSION } from "./version.js";
+import { registerNotificationCommands } from "./notification-commands.js";
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
 const LEGACY_SITE_BASE_URL = "https://coursesold.uit.edu.vn";
@@ -40,6 +41,10 @@ export const WORKFLOW = `
   uit view      <id>                   -> inspect any module (accepts module_id or assign_id)
   uit download  <course_id>            -> download files (whole course or targeted)
   uit announcements <course_id>        -> read course announcements
+  uit notifications list              -> read Moodle notifications
+  uit inbox list                       -> list Moodle conversations
+  uit inbox messages <conversation_id> -> read messages
+  uit inbox send <conversation_id> <message> -> send a reply
   uit deadlines                        -> assignment IDs and due dates
   uit events                           -> upcoming events: assignments, quizzes, more
   uit grades    <course_id>            -> view grades
@@ -131,6 +136,7 @@ export function createProgram(
     .exitOverride();
 
   program.hook("preAction", () => setJsonMode(Boolean(program.opts().json)));
+  registerNotificationCommands(program, api);
 
   program
     .command("login")

@@ -1,6 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import type { ApiClient } from "./types.js";
+import { createNotificationHandlers } from "./notifications.js";
 
 export const UIT_ASSIGNMENT_SUBMISSION_TOOL = "uit_submit_assignment";
 
@@ -9,6 +10,7 @@ export interface UitToolSpec {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean };
 }
 
 export interface UitToolContext {
@@ -41,6 +43,28 @@ export interface UitToolServices {
 
 const courseIdInput = { type: "integer", description: "Course ID from uit_courses or the current course." };
 
+const messagingActions = {
+  uit_notifications: "notifications:list",
+  uit_notification_counts: "notifications:counts",
+  uit_mark_notification_read: "notifications:read",
+  uit_mark_all_notifications_read: "notifications:read",
+  uit_inbox: "inbox:list",
+  uit_conversation_messages: "inbox:messages",
+  uit_mark_conversation_read: "inbox:read",
+  uit_send_message: "inbox:send"
+} as const;
+
+function messagingTool(name: keyof typeof messagingActions, description: string, properties: Record<string, unknown>, required: string[] = [], readOnly = true): UitToolSpec {
+  return {
+    type: "function", name, description,
+    inputSchema: { type: "object", properties, required, additionalProperties: false },
+    annotations: { readOnlyHint: readOnly, destructiveHint: false, idempotentHint: name !== "uit_send_message", openWorldHint: true }
+  };
+}
+
+const messageOffset = { type: "integer", minimum: 0, description: "Pagination offset; use nextOffset from the previous result. Default 0; 20 entries per page." };
+const conversationId = { type: "integer", minimum: 1, description: "Conversation ID from uit_inbox for the active account." };
+
 function resourceInput(
   kind: "module" | "file" | "assignment" | "announcement",
   idDescription: string,
@@ -70,6 +94,14 @@ const resourceSchema: Record<string, unknown> = {
 
 /** The one source of truth for the UIT tools exposed to Codex. */
 export const UIT_TOOLS: UitToolSpec[] = [
+  messagingTool("uit_notifications", "Read Moodle notifications for the active account, newest first. Does not mark them read. These are separate from course announcements.", { offset: messageOffset }),
+  messagingTool("uit_notification_counts", "Read unread notification and conversation counts for the active account. Returns [notificationCount, conversationCount]; null means unavailable, not zero.", {}),
+  messagingTool("uit_mark_notification_read", "Mark one Moodle notification as read. Changes server state; use only when the user requests it.", { id: { type: "integer", minimum: 1, description: "Notification ID from uit_notifications." } }, ["id"], false),
+  messagingTool("uit_mark_all_notifications_read", "Mark all notifications in the active Moodle account as read. Changes server state; use only when the user requests marking all notifications read.", {}, [], false),
+  messagingTool("uit_inbox", "List Moodle conversations for the active account without marking messages read.", { offset: messageOffset }),
+  messagingTool("uit_conversation_messages", "Read 20 messages from an existing Moodle conversation, newest first. Use nextOffset for older messages. Does not mark messages read.", { id: conversationId, offset: messageOffset }, ["id"]),
+  messagingTool("uit_mark_conversation_read", "Mark all messages in a Moodle conversation as read. Changes server state; use only when the user requests it.", { id: conversationId }, ["id"], false),
+  messagingTool("uit_send_message", "Send one plain-text reply to an existing Moodle conversation. Only send a message the user explicitly authorized. Never automatically retry a failed send; inspect the conversation first to avoid duplicate delivery.", { id: conversationId, text: { type: "string", minLength: 1, maxLength: 4096, description: "Authorized message text; maximum 4096 UTF-8 bytes." } }, ["id", "text"], false),
   {
     type: "function",
     name: "uit_courses",
@@ -235,6 +267,20 @@ export function createUitToolExecutor(services: UitToolServices) {
     context: UitToolContext
   ): Promise<unknown> {
     const args = rawArgs || {};
+
+    if (Object.hasOwn(messagingActions, requestedName)) {
+      const name = requestedName as keyof typeof messagingActions;
+      const spec = UIT_TOOLS.find((tool) => tool.name === name)!;
+      const properties = spec.inputSchema.properties as Record<string, unknown>;
+      if (typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !Object.hasOwn(properties, key))) {
+        throw new Error("Unexpected messaging tool arguments. Use the advertised schema; the account is selected by the authenticated session.");
+      }
+      const handlers = createNotificationHandlers(() => [context]);
+      return await handlers[messagingActions[name]]({
+        ...args, baseUrl: context.baseUrl, userId: context.userId,
+        ...(name === "uit_mark_all_notifications_read" ? { all: true } : {})
+      });
+    }
 
     switch (requestedName) {
       case "uit_courses":

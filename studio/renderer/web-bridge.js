@@ -2,6 +2,8 @@
   if (window.uit) return;
 
   const methods = {
+    notifications: { list: "notifications:list", counts: "notifications:counts", read: "notifications:read", open: "notifications:open" },
+    inbox: { list: "inbox:list", messages: "inbox:messages", read: "inbox:read", send: "inbox:send" },
     calendar: { announcements: "calendar:announcements", openAnnouncement: "calendar:open-announcement", list: "calendar:list", settings: "calendar:settings", open: "calendar:open" },
     session: {
       status: "session:status",

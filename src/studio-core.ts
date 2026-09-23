@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "./calendar.js";
+import { createNotificationHandlers } from "./notifications.js";
 import { classifySessionError, type SessionHealthState } from "./session-health.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
@@ -1407,6 +1408,7 @@ async function checkCalendarReminders(): Promise<void> {
 
 export function createStudioHandlers(): Record<string, StudioHandler> {
   const handlers: Record<string, StudioHandler> = {
+    ...createNotificationHandlers(allCourseSessions, (url) => host.openExternal(url)),
     "threads:read": () => readStudioThreadStore(host.userDataPath),
     "threads:write": (rawInput) => writeStudioThreadStore(host.userDataPath, rawInput),
     "studio:lease": (rawInput) => updateStudioClientLease(rawInput),
