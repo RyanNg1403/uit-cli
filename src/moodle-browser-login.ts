@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type BrowserContext, type LaunchOptions } from "playwright";
-import type { SsoSessionData } from "./config.js";
+import type { MoodleBrowserSessionData } from "./config.js";
 import { CliError } from "./output.js";
 
 export const PLAYWRIGHT_VERSION = "1.63.0";
@@ -19,36 +19,54 @@ type ChromiumManifest = {
   executablePath: string;
 };
 
-export interface SsoBrowserRuntime {
+export interface MoodleBrowserRuntime {
   executablePath(): string;
   launch(options?: LaunchOptions): Promise<Browser>;
 }
 
-export interface StudioSsoOptions {
-  runtime?: SsoBrowserRuntime;
+export interface MoodleBrowserLoginOptions {
+  runtime?: MoodleBrowserRuntime;
   executablePath?: string;
   timeoutMs?: number;
   onStatus?: (message: string) => void;
 }
 
-function normalizeBaseUrl(rawBaseUrl: string): string {
+function parseBaseUrl(rawBaseUrl: string): URL {
   let parsed: URL;
   try {
     parsed = new URL(rawBaseUrl);
   } catch {
-    throw new CliError("UIT SSO requires a valid HTTPS course-site URL.");
+    throw new CliError("UIT login requires a valid HTTPS course-site URL.");
   }
-  if (parsed.protocol !== "https:" || parsed.hostname !== "courses.uit.edu.vn" || parsed.port || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/") {
+  if (parsed.protocol !== "https:" || parsed.port || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new CliError("UIT login requires an official HTTPS course-site URL without credentials, ports, or query parameters.");
+  }
+  return parsed;
+}
+
+function normalizeSsoBaseUrl(rawBaseUrl: string): string {
+  const parsed = parseBaseUrl(rawBaseUrl);
+  if (parsed.hostname !== "courses.uit.edu.vn" || parsed.pathname !== "/") {
     throw new CliError("UIT SSO is available for the current UIT course site only.");
   }
   return parsed.origin;
+}
+
+function normalizeLegacyBaseUrl(rawBaseUrl: string): string {
+  const parsed = parseBaseUrl(rawBaseUrl);
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (parsed.hostname !== "coursesold.uit.edu.vn" || (pathname !== "" && pathname !== "/sdh")) {
+    throw new CliError("UIT Legacy login supports the undergraduate portal and the /sdh graduate portal only.");
+  }
+  return `${parsed.origin}${pathname}`;
 }
 
 function allowedNavigation(rawUrl: string, baseUrl: string): boolean {
   try {
     const target = new URL(rawUrl);
     const base = new URL(baseUrl);
-    return target.protocol === "https:" && (target.hostname === base.hostname || SSO_ALLOWED_HOSTS.has(target.hostname));
+    const ssoRedirect = base.hostname === "courses.uit.edu.vn" && SSO_ALLOWED_HOSTS.has(target.hostname);
+    return target.protocol === "https:" && (target.hostname === base.hostname || ssoRedirect);
   } catch {
     return false;
   }
@@ -66,11 +84,11 @@ function manifestPath(): string {
   return join(browserDirectory(), BROWSER_MANIFEST);
 }
 
-function developmentExecutablePath(runtime: SsoBrowserRuntime): string | undefined {
+function developmentExecutablePath(runtime: MoodleBrowserRuntime): string | undefined {
   // A source checkout may use the developer's Playwright cache for local tests
   // and `npm run dev`. Published packages and native artifacts must provide the
   // manifest below, so they never silently use that cache.
-  return existsSync(join(packageRoot(), "src", "studio-sso.ts")) ? runtime.executablePath() : undefined;
+  return existsSync(join(packageRoot(), "src", "moodle-browser-login.ts")) ? runtime.executablePath() : undefined;
 }
 
 function manifestExecutablePath(): string | undefined {
@@ -94,7 +112,7 @@ function manifestExecutablePath(): string | undefined {
   return executablePath;
 }
 
-function bundledExecutablePath(runtime: SsoBrowserRuntime, configured?: string): string {
+function bundledExecutablePath(runtime: MoodleBrowserRuntime, configured?: string): string {
   const explicit = configured || process.env.UIT_STUDIO_CHROMIUM_EXECUTABLE;
   const executablePath = explicit || manifestExecutablePath() || developmentExecutablePath(runtime);
   if (executablePath && existsSync(executablePath)) return executablePath;
@@ -132,7 +150,7 @@ function writeChromiumManifest(executablePath: string): void {
   writeFileSync(manifestPath(), `${JSON.stringify(manifest, null, 2)}\n`, { encoding: "utf8", mode: 0o644 });
 }
 
-function sessionCookies(context: BrowserContext, baseUrl: string): Promise<SsoSessionData["cookies"]> {
+function sessionCookies(context: BrowserContext, baseUrl: string): Promise<MoodleBrowserSessionData["cookies"]> {
   return context.cookies(baseUrl).then((cookies) => cookies.map((cookie) => ({
     name: cookie.name,
     value: cookie.value,
@@ -143,12 +161,38 @@ function sessionCookies(context: BrowserContext, baseUrl: string): Promise<SsoSe
   })));
 }
 
+type MoodleIdentitySnapshot = {
+  sesskey: string;
+  origin: string;
+  profileHref: string | null;
+};
+
+function profileUserId(href: string | null, origin: string): number {
+  if (!href) return 0;
+  try {
+    const url = new URL(href);
+    if (url.origin !== origin || !url.pathname.endsWith("/user/profile.php")) return 0;
+    const userId = Number(url.searchParams.get("id") || 0);
+    return Number.isSafeInteger(userId) && userId > 0 ? userId : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function readIdentity(page: { evaluate<T>(pageFunction: () => T): Promise<T> }): Promise<{ sesskey: string; userId: number } | null> {
   return page.evaluate(() => {
-    const cfg = (globalThis as { M?: { cfg?: { sesskey?: unknown; userId?: unknown; userid?: unknown } } }).M?.cfg || {};
-    const sesskey = String(cfg.sesskey || "");
-    const userId = Number(cfg.userId || cfg.userid || 0);
-    return sesskey && Number.isInteger(userId) && userId > 0 ? { sesskey, userId } : null;
+    const cfg = (globalThis as { M?: { cfg?: { sesskey?: unknown } } }).M?.cfg || {};
+    const loginInfo = document.querySelector(".logininfo");
+    return {
+      sesskey: String(cfg.sesskey || ""),
+      origin: location.origin,
+      profileHref: loginInfo?.querySelector<HTMLAnchorElement>('a[href*="/user/profile.php"]')?.href || null
+    };
+  }).then((snapshot) => {
+    const data = snapshot as MoodleIdentitySnapshot;
+    const sesskey = data.sesskey;
+    const userId = profileUserId(data.profileHref, data.origin);
+    return sesskey && Number.isSafeInteger(userId) && userId > 0 ? { sesskey, userId } : null;
   }).catch(() => null);
 }
 
@@ -157,23 +201,30 @@ function readIdentity(page: { evaluate<T>(pageFunction: () => T): Promise<T> }):
  * shipped with the package. The context is intentionally ephemeral: only the
  * Moodle cookies, sesskey, and account ID leave the authentication browser.
  */
-export class StudioSsoService {
-  private readonly runtime: SsoBrowserRuntime;
+export class MoodleBrowserLoginService {
+  private readonly runtime: MoodleBrowserRuntime;
   private readonly executablePath?: string;
   private readonly timeoutMs: number;
   private readonly onStatus?: (message: string) => void;
   private activeBrowser?: Browser;
 
-  constructor(options: StudioSsoOptions = {}) {
+  constructor(options: MoodleBrowserLoginOptions = {}) {
     this.runtime = options.runtime || chromium;
     this.executablePath = options.executablePath;
     this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
     this.onStatus = options.onStatus;
   }
 
-  async login(rawBaseUrl: string): Promise<SsoSessionData> {
-    const baseUrl = normalizeBaseUrl(rawBaseUrl);
-    if (this.activeBrowser) throw new CliError("UIT SSO login is already in progress.");
+  async login(rawBaseUrl: string): Promise<MoodleBrowserSessionData> {
+    return this.loginAt(normalizeSsoBaseUrl(rawBaseUrl), "UIT SSO");
+  }
+
+  async loginLegacy(rawBaseUrl: string): Promise<MoodleBrowserSessionData> {
+    return this.loginAt(normalizeLegacyBaseUrl(rawBaseUrl), "UIT Legacy");
+  }
+
+  private async loginAt(baseUrl: string, portalName: string): Promise<MoodleBrowserSessionData> {
+    if (this.activeBrowser) throw new CliError("A UIT browser login is already in progress.");
 
     const executablePath = bundledExecutablePath(this.runtime, this.executablePath);
     const browser = await this.runtime.launch({
@@ -182,7 +233,7 @@ export class StudioSsoService {
       args: ["--window-size=980,760"]
     });
     this.activeBrowser = browser;
-    this.onStatus?.("Opening bundled Chromium for UIT SSO login...");
+    this.onStatus?.(`Opening bundled Chromium for ${portalName} login...`);
 
     try {
       const context = await browser.newContext({ viewport: { width: 980, height: 760 } });
@@ -194,12 +245,12 @@ export class StudioSsoService {
       });
       const page = await context.newPage();
       await page.goto(`${baseUrl}/login/index.php`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-      this.onStatus?.("Sign in with your UIT account in the Chromium window.");
+      this.onStatus?.(`Sign in to ${portalName} in the Chromium window.`);
 
       const startedAt = Date.now();
       while (Date.now() - startedAt <= this.timeoutMs) {
         if (page.isClosed() || !browser.isConnected()) {
-          throw new CliError("UIT SSO login window was closed before login completed.");
+          throw new CliError(`${portalName} login window was closed before login completed.`);
         }
         let currentUrl = "";
         try { currentUrl = page.url(); } catch { /* The page may be closing during a redirect. */ }
@@ -217,7 +268,7 @@ export class StudioSsoService {
         }
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
-      throw new CliError("UIT SSO login timed out. Please try again.");
+      throw new CliError(`${portalName} login timed out. Please try again.`);
     } finally {
       await browser.close().catch(() => undefined);
       this.activeBrowser = undefined;

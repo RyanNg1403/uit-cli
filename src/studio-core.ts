@@ -6,7 +6,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, stat, writeFile } fr
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ApiClient } from "./types.js";
-import type { SsoSessionData } from "./config.js";
+import { readSessionsFile, resetConfigCache, writeSessionsFile, type LegacySessionData, type MoodleBrowserSessionData, type MoodleSessionCookie, type SessionsData } from "./config.js";
 import {
   isCodexThreadNotFoundError,
   type CodexJsonValue,
@@ -28,17 +28,20 @@ import { readStudioThreadStore, writeStudioThreadStore } from "./studio-thread-s
 import { UIT_ASSIGNMENT_SUBMISSION_TOOL } from "./uit-tools.js";
 
 type JsonRecord = Record<string, any>;
-export interface StudioSsoResult {
-  session: SsoSessionData;
+export interface StudioBrowserLoginResult {
+  session: MoodleBrowserSessionData;
   api: ApiClient;
 }
 
 export interface StudioHost {
   readonly userDataPath: string;
   /** Authenticate in the package-owned Playwright Chromium context. */
-  ssoLogin: (baseUrl: string) => Promise<StudioSsoResult>;
+  ssoLogin: (baseUrl: string) => Promise<StudioBrowserLoginResult>;
+  /** Authenticate a legacy Moodle portal in the same managed Chromium context. */
+  legacyLogin: (baseUrl: string) => Promise<StudioBrowserLoginResult>;
   /** Restore the shared session store without opening an authentication browser. */
-  restoreSsoSession: (session: SsoSessionData) => Promise<StudioSsoResult | null>;
+  restoreSsoSession: (session: MoodleBrowserSessionData) => Promise<StudioBrowserLoginResult | null>;
+  restoreLegacySession: (session: MoodleBrowserSessionData) => Promise<StudioBrowserLoginResult | null>;
   /** Cancel an active authentication browser and optionally clear its storage. */
   clearSsoBrowserData: (options: { clearStorage: boolean }) => Promise<void>;
   ensureMcpConfig(): Promise<void>;
@@ -53,7 +56,7 @@ type CourseReference = { courseId: number; baseUrl?: string; userId?: number };
 type ConnectedCourse = CourseSummary & {
   baseUrl: string;
   userId: number;
-  authMode: "token" | "sso";
+  authMode: "sso" | "session";
   siteLabel: string;
   discoveredVia?: "url";
 };
@@ -64,10 +67,11 @@ type AuthenticatedCourseSession = {
   baseUrl: string;
   userId: number;
   api: ApiClient;
-  authMode: "token" | "sso";
-  token?: string;
+  authMode: "sso" | "session";
+  sesskey?: string;
+  cookies?: MoodleSessionCookie[];
 };
-type SsoSession = Omit<AuthenticatedCourseSession, "authMode" | "token"> & { sesskey: string };
+type SsoSession = Omit<AuthenticatedCourseSession, "authMode"> & { authMode: "sso"; sesskey: string; cookies: MoodleSessionCookie[] };
 type ThreadBinding = CourseReference & {
   baseUrl: string;
   userId: number;
@@ -198,6 +202,8 @@ let codex!: CodexClient;
 let ssoSession: SsoSession | undefined;
 let webSsoLoginPromise: Promise<DesktopSession> | undefined;
 let webSsoLoginId: symbol | undefined;
+const legacyBrowserLoginPromises = new Map<string, Promise<DesktopSession>>();
+const legacyBrowserLoginIds = new Map<string, symbol>();
 const legacySessions = new Map<string, AuthenticatedCourseSession>();
 const threadBindings = new Map<string, ThreadBinding>();
 const approvals = new Map<CodexRequestId, AgentRequest>();
@@ -217,7 +223,6 @@ let studioLifecycleWrite = Promise.resolve();
 let studioTurnInterruption: Promise<void> | undefined;
 let studioLifecycleClosed = false;
 let idleLockTimer: NodeJS.Timeout | undefined;
-const SESSIONS_FILE = join(homedir(), ".uit", "sessions.json");
 const LINKED_COURSES_STORE_VERSION = 2;
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
@@ -256,16 +261,6 @@ async function loadService() {
   } catch {
     // Startup should not make the Studio unavailable. Starting a thread does
     // require this preflight and will surface an actionable error instead.
-  }
-  const configured = process.env.UIT_DISABLE_CONFIG === "1" ? undefined : service.configuredLegacySession?.();
-  if (configured?.session?.baseUrl && typeof configured.session.userId === "number") {
-    legacySessions.set(configured.session.baseUrl, {
-      baseUrl: configured.session.baseUrl,
-      userId: configured.session.userId,
-      authMode: "token",
-      api: configured.api,
-      token: configured.token
-    });
   }
   await restorePersistedLegacySessions();
   await restorePersistedSsoSession();
@@ -615,43 +610,27 @@ function requireCourseFileUrl(value: unknown, baseUrl: string): string {
   return fileUrl.toString();
 }
 
-async function readPersistedSessions(): Promise<JsonRecord> {
-  try {
-    const raw = JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw;
-    return {};
-  } catch {
-    return {};
-  }
+function readPersistedSessions(): SessionsData {
+  return readSessionsFile();
 }
 
-async function writePersistedSessions(data: JsonRecord): Promise<void> {
+function writePersistedSessions(data: SessionsData): void {
+  writeSessionsFile(data);
+  resetConfigCache();
+}
+
+async function persistSsoSession(sessionData: MoodleBrowserSessionData): Promise<void> {
   if (process.env.UIT_DISABLE_CONFIG === "1") return;
-  try {
-    const dir = join(homedir(), ".uit");
-    await mkdir(dir, { recursive: true });
-    await writeFile(`${SESSIONS_FILE}.part`, JSON.stringify(data, null, 2), { mode: 0o600 });
-    await rename(`${SESSIONS_FILE}.part`, SESSIONS_FILE);
-  } catch (error) {
-    console.error("Could not persist sessions:", errorMessage(error));
-  }
+  const data = readPersistedSessions();
+  data.sso = sessionData;
+  data.active = { authType: "sso", baseUrl: sessionData.baseUrl };
+  writePersistedSessions(data);
 }
 
-async function persistSsoSession(sessionData: JsonRecord): Promise<void> {
-  if (process.env.UIT_DISABLE_CONFIG === "1") return;
-  try {
-    const data = await readPersistedSessions();
-    data.sso = sessionData;
-    await writePersistedSessions(data);
-  } catch (error) {
-    console.error("Could not persist SSO session:", errorMessage(error));
-  }
-}
-
-function normalizeSsoSessionData(value: unknown, expectedBaseUrl?: string): SsoSessionData {
-  if (!isRecord(value)) throw new Error("The SSO provider returned an invalid session.");
+function normalizeBrowserSessionData(value: unknown, expectedBaseUrl?: string): MoodleBrowserSessionData {
+  if (!isRecord(value)) throw new Error("The Moodle browser login returned an invalid session.");
   const baseUrl = normalizeSiteUrl(value.baseUrl);
-  if (expectedBaseUrl && baseUrl !== expectedBaseUrl) throw new Error("The SSO provider returned a different course site.");
+  if (expectedBaseUrl && baseUrl !== expectedBaseUrl) throw new Error("The Moodle browser login returned a different course site.");
   const userId = Number(value.userId);
   const sesskey = typeof value.sesskey === "string" ? value.sesskey : "";
   const cookies = Array.isArray(value.cookies)
@@ -662,33 +641,41 @@ function normalizeSsoSessionData(value: unknown, expectedBaseUrl?: string): SsoS
       ...(typeof cookie.path === "string" ? { path: cookie.path } : {}),
       ...(typeof cookie.secure === "boolean" ? { secure: cookie.secure } : {}),
       ...(typeof cookie.httpOnly === "boolean" ? { httpOnly: cookie.httpOnly } : {})
-    })).filter((cookie) => cookie.name.length > 0 && cookie.value.length > 0)
+    })).filter((cookie) => /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(cookie.name) && cookie.value.length > 0 && !/[;\r\n]/.test(cookie.value))
     : [];
   if (!Number.isSafeInteger(userId) || userId <= 0 || !sesskey || cookies.length === 0) {
-    throw new Error("The SSO provider returned an incomplete session.");
+    throw new Error("The Moodle browser login returned an incomplete session.");
   }
   return { baseUrl, userId, sesskey, cookies, savedAt: Date.now() };
 }
 
-function normalizeSsoResult(value: unknown, expectedBaseUrl?: string): StudioSsoResult {
+function normalizeBrowserLoginResult(value: unknown, expectedBaseUrl?: string): StudioBrowserLoginResult {
   if (!isRecord(value) || !isRecord(value.api) || typeof value.api.call !== "function") {
-    throw new Error("The SSO provider did not return a usable course API.");
+    throw new Error("The Moodle browser login did not return a usable course API.");
   }
   return {
-    session: normalizeSsoSessionData(value.session, expectedBaseUrl),
+    session: normalizeBrowserSessionData(value.session, expectedBaseUrl),
     api: value.api as ApiClient
   };
 }
 
-async function installSsoResult(result: StudioSsoResult, expectedBaseUrl: string): Promise<DesktopSession> {
-  const normalized = normalizeSsoResult(result, expectedBaseUrl);
+async function installSsoResult(result: StudioBrowserLoginResult, expectedBaseUrl: string, persist = true): Promise<DesktopSession> {
+  const normalized = normalizeBrowserLoginResult(result, expectedBaseUrl);
+  const previous = ssoSession;
   ssoSession = {
     baseUrl: normalized.session.baseUrl,
     userId: normalized.session.userId,
+    authMode: "sso",
     sesskey: normalized.session.sesskey,
+    cookies: normalized.session.cookies,
     api: normalized.api
   };
-  await persistSsoSession(normalized.session);
+  try {
+    if (persist) await persistSsoSession(normalized.session);
+  } catch (error) {
+    ssoSession = previous;
+    throw error;
+  }
   return {
     authenticated: true,
     authMode: "sso",
@@ -697,30 +684,57 @@ async function installSsoResult(result: StudioSsoResult, expectedBaseUrl: string
   };
 }
 
-async function deletePersistedSsoSession() {
-  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+async function installLegacyBrowserResult(result: StudioBrowserLoginResult, expectedBaseUrl: string): Promise<DesktopSession> {
+  const normalized = normalizeBrowserLoginResult(result, expectedBaseUrl);
+  const session: AuthenticatedCourseSession = {
+    baseUrl: normalized.session.baseUrl,
+    userId: normalized.session.userId,
+    authMode: "session",
+    sesskey: normalized.session.sesskey,
+    cookies: normalized.session.cookies,
+    api: normalized.api
+  };
+  const previous = legacySessions.get(session.baseUrl);
+  legacySessions.set(session.baseUrl, session);
   try {
-    const data = await readPersistedSessions();
-    delete data.sso;
-    await writePersistedSessions(data);
-  } catch { /* A missing persisted SSO session is harmless. */ }
+    await persistLegacySessions(session.baseUrl);
+  } catch (error) {
+    if (previous) legacySessions.set(session.baseUrl, previous);
+    else legacySessions.delete(session.baseUrl);
+    throw error;
+  }
+  await disconnectAccount(session.baseUrl);
+  return { authenticated: true, authMode: "session", baseUrl: session.baseUrl, userId: session.userId };
 }
 
-async function persistLegacySessions(): Promise<void> {
+async function deletePersistedSsoSession() {
   if (process.env.UIT_DISABLE_CONFIG === "1") return;
-  try {
-    const records = [];
-    for (const session of legacySessions.values()) {
-      if (session.baseUrl && session.userId && session.token) {
-        records.push({ baseUrl: session.baseUrl, userId: session.userId, token: session.token });
-      }
+  const data = readPersistedSessions();
+  delete data.sso;
+  if (data.active?.authType === "sso") delete data.active;
+  writePersistedSessions(data);
+}
+
+async function persistLegacySessions(activeBaseUrl?: string): Promise<void> {
+  if (process.env.UIT_DISABLE_CONFIG === "1") return;
+  const records: LegacySessionData[] = [];
+  for (const session of legacySessions.values()) {
+    if (session.baseUrl && session.userId && session.authMode === "session" && session.sesskey && session.cookies?.length) {
+      records.push({
+        authType: "session",
+        baseUrl: session.baseUrl,
+        userId: session.userId,
+        sesskey: session.sesskey,
+        cookies: session.cookies
+      });
     }
-    const data = await readPersistedSessions();
-    data.legacy = records;
-    await writePersistedSessions(data);
-  } catch (error) {
-    console.error("Could not persist legacy sessions:", errorMessage(error));
   }
+  const data = readPersistedSessions();
+  data.legacy = records;
+  const activeRecord = activeBaseUrl ? records.find((record) => record.baseUrl === activeBaseUrl) : undefined;
+  if (activeRecord) data.active = { authType: "session", baseUrl: activeRecord.baseUrl };
+  else if (data.active?.authType === "session" && !records.some((record) => record.baseUrl === data.active?.baseUrl)) delete data.active;
+  writePersistedSessions(data);
 }
 
 async function restorePersistedLegacySessions() {
@@ -729,16 +743,20 @@ async function restorePersistedLegacySessions() {
     const data = await readPersistedSessions();
     if (Array.isArray(data.legacy)) {
       for (const item of data.legacy) {
-        if (item && item.baseUrl && item.token && item.userId) {
+        if (item && item.baseUrl && item.userId) {
           const baseUrl = normalizeSiteUrl(item.baseUrl);
-          if (!isCurrentSite(baseUrl) && service.createLegacySession) {
-            const restored = service.createLegacySession(baseUrl, item.token, Number(item.userId));
+          if (isCurrentSite(baseUrl)) continue;
+          if (item.authType === "session" && item.sesskey && Array.isArray(item.cookies)) {
+            const saved = normalizeBrowserSessionData(item, baseUrl);
+            const restored = await host.restoreLegacySession(saved);
+            if (!restored || restored.session.userId !== saved.userId) continue;
             legacySessions.set(baseUrl, {
               baseUrl,
-              userId: Number(item.userId),
-              authMode: "token",
-              api: restored.api,
-              token: item.token
+              userId: saved.userId,
+              authMode: "session",
+              sesskey: saved.sesskey,
+              cookies: saved.cookies,
+              api: restored.api
             });
           }
         }
@@ -756,11 +774,11 @@ async function restorePersistedSsoSession() {
     const saved = data?.sso;
     if (!saved || !saved.baseUrl || !saved.userId || !saved.sesskey) return;
 
-    const savedSession = normalizeSsoSessionData(saved);
+    const savedSession = normalizeBrowserSessionData(saved);
     const restored = await host.restoreSsoSession(savedSession);
     if (!restored) return;
     if (restored.session.userId !== savedSession.userId) throw new Error("The restored SSO account did not match the saved account.");
-    await installSsoResult(restored, savedSession.baseUrl);
+    await installSsoResult(restored, CURRENT_SITE_BASE_URL, false);
   } catch (error) {
     console.error("Could not auto-restore SSO session:", errorMessage(error));
   }
@@ -970,6 +988,8 @@ async function readThreadRollout(threadId: string, afterMtime = 0): Promise<Json
 async function clearSsoSession({ clearStorage = false }: { clearStorage?: boolean } = {}): Promise<void> {
   webSsoLoginId = undefined;
   webSsoLoginPromise = undefined;
+  legacyBrowserLoginIds.clear();
+  legacyBrowserLoginPromises.clear();
   ssoSession = undefined;
   await host.clearSsoBrowserData({ clearStorage });
   if (clearStorage) {
@@ -1000,6 +1020,29 @@ async function startSsoLogin(rawBaseUrl: unknown, forceReauthentication = false)
   }).catch(() => undefined);
   webSsoLoginId = loginId;
   webSsoLoginPromise = promise;
+  return promise;
+}
+
+async function startLegacyBrowserLogin(rawBaseUrl: unknown): Promise<DesktopSession> {
+  const baseUrl = normalizeSiteUrl(rawBaseUrl);
+  if (isCurrentSite(baseUrl)) throw new Error("The current UIT course site requires UIT SSO.");
+  const pending = legacyBrowserLoginPromises.get(baseUrl);
+  if (pending) return pending;
+
+  const loginId = Symbol("legacy-browser-login");
+  const promise = (async () => {
+    const result = await host.legacyLogin(baseUrl);
+    if (legacyBrowserLoginIds.get(baseUrl) !== loginId) throw new Error("UIT Legacy login was cancelled.");
+    return installLegacyBrowserResult(result, baseUrl);
+  })();
+  promise.finally(() => {
+    if (legacyBrowserLoginIds.get(baseUrl) === loginId) {
+      legacyBrowserLoginIds.delete(baseUrl);
+      legacyBrowserLoginPromises.delete(baseUrl);
+    }
+  }).catch(() => undefined);
+  legacyBrowserLoginIds.set(baseUrl, loginId);
+  legacyBrowserLoginPromises.set(baseUrl, promise);
   return promise;
 }
 
@@ -1460,15 +1503,9 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
     },
     "session:login": async (rawInput) => {
       const input = requireObject(rawInput, "Login input");
-      const baseUrl = normalizeSiteUrl(input?.baseUrl || CURRENT_SITE_BASE_URL);
+      const baseUrl = normalizeSiteUrl(requireString(input.baseUrl, "Course site"));
       if (isCurrentSite(baseUrl)) throw new Error("The current UIT course site requires UIT SSO. Use the SSO sign-in button.");
-      const username = requireString(input.username, "Student ID");
-      const password = requireString(input.password, "Password");
-      const result = await service.loginWithToken({ username, password, baseUrl }, false);
-      await disconnectAccount(baseUrl);
-      if (typeof result.session.userId !== "number") throw new Error("The legacy UIT account did not return a valid account ID.");
-      legacySessions.set(baseUrl, { baseUrl, userId: result.session.userId, authMode: "token", api: result.api, token: result.token });
-      await persistLegacySessions();
+      await startLegacyBrowserLogin(baseUrl);
       return sessionStatusPayload();
     },
     "session:sso-login": async (rawInput) => {
@@ -1480,16 +1517,35 @@ export function createStudioHandlers(): Record<string, StudioHandler> {
     },
     "session:logout": async (rawInput) => {
       const input = rawInput === undefined || rawInput === null ? {} : requireObject(rawInput, "Logout input");
-      await disconnectAccount(input.baseUrl ? normalizeSiteUrl(input.baseUrl) : undefined);
+      const onlyLegacy = input.legacy === true;
+      const targetBaseUrl = input.baseUrl ? normalizeSiteUrl(input.baseUrl) : undefined;
+      if (targetBaseUrl && legacyBrowserLoginIds.has(targetBaseUrl)) {
+        legacyBrowserLoginIds.delete(targetBaseUrl);
+        legacyBrowserLoginPromises.delete(targetBaseUrl);
+        await host.clearSsoBrowserData({ clearStorage: false });
+      }
+      if (onlyLegacy && !targetBaseUrl) {
+        const pendingBaseUrls = [...legacyBrowserLoginIds.keys()];
+        legacyBrowserLoginIds.clear();
+        legacyBrowserLoginPromises.clear();
+        if (pendingBaseUrls.length) await host.clearSsoBrowserData({ clearStorage: false });
+        for (const baseUrl of legacySessions.keys()) await disconnectAccount(baseUrl);
+      } else {
+        await disconnectAccount(targetBaseUrl);
+      }
       if (input.baseUrl) {
-        const baseUrl = normalizeSiteUrl(requireString(input.baseUrl, "Course site"));
+        const baseUrl = targetBaseUrl!;
         if (isCurrentSite(baseUrl)) await clearSsoSession({ clearStorage: true });
         else legacySessions.delete(baseUrl);
+      } else if (onlyLegacy) {
+        legacySessions.clear();
+        await persistLegacySessions();
       } else {
         await clearSsoSession({ clearStorage: true });
         legacySessions.clear();
+        await persistLegacySessions();
       }
-      await persistLegacySessions();
+      if (input.baseUrl && !isCurrentSite(targetBaseUrl!)) await persistLegacySessions();
       return sessionStatusPayload();
     },
     "courses:list": listConnectedCourses,

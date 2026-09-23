@@ -195,7 +195,7 @@ async function main() {
     const browserRoot = join(runtimeRoot, "browsers");
     const browserEnvironment = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browserRoot, UIT_STUDIO_CHROMIUM_DIR: browserRoot };
     delete browserEnvironment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD;
-    const installScript = `import { installBundledChromium } from ${JSON.stringify(pathToFileURL(join(runtimeRoot, "dist", "studio-sso.js")).href)}; installBundledChromium();`;
+    const installScript = `import { installBundledChromium } from ${JSON.stringify(pathToFileURL(join(runtimeRoot, "dist", "moodle-browser-login.js")).href)}; installBundledChromium();`;
     run(nodePath, ["--input-type=module", "-e", installScript], { cwd: appRoot, env: browserEnvironment });
     const executablePath = chromiumManifest(runtimeRoot, platform, architecture);
     console.log(`Bundled Chromium: ${executablePath}`);

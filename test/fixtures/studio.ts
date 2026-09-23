@@ -35,7 +35,7 @@ export const fileTypes = [
 ];
 const sessions = [
   { baseUrl: CURRENT, userId: 101, authMode: "sso", label: "Current Moodle" },
-  { baseUrl: LEGACY, userId: 202, authMode: "token", label: "Legacy Moodle" },
+  { baseUrl: LEGACY, userId: 202, authMode: "session", label: "Legacy Moodle" },
 ];
 
 type SessionHealth = "connected" | "expired" | "unavailable";
@@ -52,6 +52,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
   const held = new Set<string>();
   const pending: { method: string; input: any; resolve: (value: any) => void }[] = [];
   const failures = { ...seed.options.fail };
+  let nextLegacyUserId = 202;
   // Chromium can briefly expose a browser error document after a transient
   // navigation failure. Storage access is forbidden on that origin, so keep
   // the fixture boot script diagnostic-free until the page reaches localhost.
@@ -100,11 +101,19 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
         url: `${account.baseUrl}/mod/assign/view.php?id=701`,
       })),
     };
-    if (method === "session.logout") { connected = input?.baseUrl ? connected.filter((s: any) => s.baseUrl !== input.baseUrl) : []; return save(); }
+    if (method === "session.logout") {
+      connected = input?.baseUrl
+        ? connected.filter((session: any) => session.baseUrl !== input.baseUrl)
+        : input?.legacy === true
+          ? connected.filter((session: any) => session.authMode === "sso")
+          : [];
+      return save();
+    }
     if (method === "session.ssoLogin" || method === "session.login") {
-      const userId = method === "session.ssoLogin" ? 101 : Number(input.username);
+      const userId = method === "session.ssoLogin" ? 101 : nextLegacyUserId;
+      if (method === "session.login") nextLegacyUserId = 202;
       connected = connected.filter((s: any) => s.baseUrl !== input.baseUrl);
-      connected.push({ baseUrl: input.baseUrl, userId, authMode: method === "session.ssoLogin" ? "sso" : "token" });
+      connected.push({ baseUrl: input.baseUrl, userId, authMode: method === "session.ssoLogin" ? "sso" : "session" });
       return save();
     }
     if (method === "codex.status") return { state: "ready", installed: true, message: "Codex App Server is ready" };
@@ -159,6 +168,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     get threadStoreRaw() { return threadStore; },
     hold: (method: string) => held.add(method),
     fail: (method: string, message: string) => { failures[method] = message; },
+    setNextLegacyUserId: (userId: number) => { nextLegacyUserId = userId; },
     release: (method: string, index = 0) => {
       const item = pending.filter((item) => item.method === method)[index];
       if (!item) throw new Error(`No pending ${method} at ${index}`);

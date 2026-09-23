@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { CliError } from "./output.js";
 
-export interface SsoCookie {
+export interface MoodleSessionCookie {
   name: string;
   value: string;
   domain?: string;
@@ -13,33 +13,34 @@ export interface SsoCookie {
   httpOnly?: boolean;
 }
 
-export interface SsoSessionData {
+export interface MoodleBrowserSessionData {
   baseUrl: string;
   userId: number;
   sesskey: string;
-  cookies: SsoCookie[];
+  cookies: MoodleSessionCookie[];
   savedAt?: number;
 }
 
-export interface LegacySessionData {
-  baseUrl: string;
-  userId: number;
-  token: string;
+export interface LegacyBrowserSessionData extends MoodleBrowserSessionData {
+  authType: "session";
 }
 
+export type LegacySessionData = LegacyBrowserSessionData;
+
+export type SessionAuthType = "sso" | "session";
+
 export interface SessionsData {
-  sso?: SsoSessionData | null;
+  sso?: MoodleBrowserSessionData | null;
   legacy?: LegacySessionData[] | null;
-  active?: { authType: "token" | "sso"; baseUrl: string } | null;
+  active?: { authType: SessionAuthType; baseUrl: string } | null;
 }
 
 export interface Config {
-  authType: "token" | "sso";
+  authType: SessionAuthType;
   baseUrl: string;
   userId: number | null;
-  token?: string;
   sesskey?: string;
-  cookies?: SsoCookie[];
+  cookies?: MoodleSessionCookie[];
 }
 
 export const getSessionsFilePath = (): string => join(homedir(), ".uit", "sessions.json");
@@ -83,42 +84,61 @@ export function writeSessionsFile(data: SessionsData): void {
 function load(): Config {
   if (cfg) return cfg;
 
-  // 1. Environment variable override (e.g. CI/CD or scripts)
+  // Web-service-token authentication is no longer supported. Fail explicitly
+  // instead of silently selecting another saved session when stale env vars remain.
   if (process.env.UIT_TOKEN) {
-    const baseUrl = (process.env.UIT_BASE_URL || "https://courses.uit.edu.vn").replace(/\/+$/, "");
-    const userId = process.env.UIT_USER_ID ? Number.parseInt(process.env.UIT_USER_ID, 10) : null;
-    cfg = {
-      authType: "token",
-      token: process.env.UIT_TOKEN,
-      baseUrl,
-      userId: Number.isFinite(userId) ? userId : null
-    };
-    return cfg;
+    throw new CliError("UIT_TOKEN authentication is no longer supported. Run uit login or uit login --legacy to sign in in a browser.");
   }
 
-  // 2. Read ~/.uit/sessions.json
+  // Read the shared browser-session store.
   const sessions = readSessionsFile();
 
-  // 2a. Honor the last explicit CLI login when both session types exist.
-  if (sessions.active?.authType === "token") {
-    const record = (sessions.legacy || []).find((item) => item.baseUrl === sessions.active?.baseUrl);
-    if (record?.token) {
-      cfg = { authType: "token", token: record.token, baseUrl: record.baseUrl, userId: Number(record.userId) };
-      return cfg;
+  // An explicit selection is authoritative. Never fall through to another
+  // account when the selected session is missing or uses a retired auth mode.
+  if (sessions.active) {
+    const activeBaseUrl = sessions.active.baseUrl?.replace(/\/+$/, "");
+    if (sessions.active.authType === "session") {
+      const record = (sessions.legacy || []).find((item) => item.baseUrl?.replace(/\/+$/, "") === activeBaseUrl);
+      if (record && record.authType === "session" && record.sesskey && Array.isArray(record.cookies) && record.cookies.length) {
+        cfg = {
+          authType: "session",
+          baseUrl: record.baseUrl.replace(/\/+$/, ""),
+          userId: Number(record.userId),
+          sesskey: record.sesskey,
+          cookies: record.cookies
+        };
+        return cfg;
+      }
+      throw new CliError("The selected UIT session is no longer saved. Sign in again.");
     }
+    if (sessions.active.authType === "sso") {
+      const record = sessions.sso;
+      if (record && record.baseUrl?.replace(/\/+$/, "") === activeBaseUrl && record.sesskey && Array.isArray(record.cookies) && record.cookies.length) {
+        cfg = {
+          authType: "sso",
+          baseUrl: record.baseUrl.replace(/\/+$/, ""),
+          userId: Number(record.userId),
+          sesskey: record.sesskey,
+          cookies: record.cookies
+        };
+        return cfg;
+      }
+      throw new CliError("The selected UIT session is no longer saved. Sign in again.");
+    }
+    throw new CliError("The saved active UIT session uses an unsupported authentication method. Sign in again.");
   }
 
-  // 2b. Check SSO session
+  // With no explicit selection, use a saved SSO session before legacy sessions.
   if (
     sessions.sso &&
     sessions.sso.baseUrl &&
     sessions.sso.sesskey &&
     sessions.sso.userId &&
-    Array.isArray(sessions.sso.cookies)
+    Array.isArray(sessions.sso.cookies) &&
+    sessions.sso.cookies.length
   ) {
     cfg = {
       authType: "sso",
-      token: "",
       baseUrl: sessions.sso.baseUrl.replace(/\/+$/, ""),
       userId: Number(sessions.sso.userId),
       sesskey: sessions.sso.sesskey,
@@ -127,20 +147,17 @@ function load(): Config {
     return cfg;
   }
 
-  // 2c. Check Legacy token session
-  if (sessions.legacy && sessions.legacy.length > 0) {
-    const record = sessions.legacy[0];
-    if (record && record.token) {
-      const baseUrl = (record.baseUrl || "https://coursesold.uit.edu.vn").replace(/\/+$/, "");
-      const userId = record.userId ? Number.parseInt(String(record.userId), 10) : null;
-      cfg = {
-        authType: "token",
-        token: record.token,
-        baseUrl,
-        userId: Number.isFinite(userId) ? userId : null
-      };
-      return cfg;
-    }
+  // Use a saved legacy browser session if no account was explicitly selected.
+  const record = (sessions.legacy || []).find((item) => item.authType === "session" && item.sesskey && Array.isArray(item.cookies) && item.cookies.length);
+  if (record) {
+    cfg = {
+      authType: "session",
+      baseUrl: record.baseUrl.replace(/\/+$/, ""),
+      userId: Number(record.userId),
+      sesskey: record.sesskey,
+      cookies: record.cookies
+    };
+    return cfg;
   }
 
   throw new CliError("No active UIT session found. Run: uit login (SSO) or uit login --legacy");
@@ -152,38 +169,17 @@ export function getActiveConfig(options: { fresh?: boolean } = {}): Readonly<Con
   return load();
 }
 
-export function get(key: "token"): string;
 export function get(key: "baseUrl"): string;
 export function get(key: "userId"): number | null;
 export function get(key: "sesskey"): string | undefined;
-export function get(key: "cookies"): SsoCookie[] | undefined;
-export function get(key: "authType"): "token" | "sso";
+export function get(key: "cookies"): MoodleSessionCookie[] | undefined;
+export function get(key: "authType"): SessionAuthType;
 export function get(key: keyof Config): Config[keyof Config] {
   const c = load();
-  if (key === "token") return c.token || "";
   return c[key];
 }
 
-export function save(token: string, userId: number, baseUrl: string): string {
-  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
-  const sessions = readSessionsFile();
-  const legacyList = (sessions.legacy || []).filter((item) => item.baseUrl !== cleanBaseUrl);
-  legacyList.unshift({ baseUrl: cleanBaseUrl, userId, token });
-  sessions.legacy = legacyList;
-  sessions.active = { authType: "token", baseUrl: cleanBaseUrl };
-  writeSessionsFile(sessions);
-  const path = getSessionsFilePath();
-  console.error(`Saved to ${path}`);
-  cfg = {
-    authType: "token",
-    token,
-    userId,
-    baseUrl: cleanBaseUrl
-  };
-  return path;
-}
-
-export function saveSsoSession(sessionData: SsoSessionData): string {
+export function saveSsoSession(sessionData: MoodleBrowserSessionData): string {
   const sessions = readSessionsFile();
   sessions.sso = sessionData;
   sessions.active = { authType: "sso", baseUrl: sessionData.baseUrl.replace(/\/+$/, "") };
@@ -192,7 +188,6 @@ export function saveSsoSession(sessionData: SsoSessionData): string {
   console.error(`SSO session saved to ${path}`);
   cfg = {
     authType: "sso",
-    token: "",
     baseUrl: sessionData.baseUrl.replace(/\/+$/, ""),
     userId: sessionData.userId,
     sesskey: sessionData.sesskey,
@@ -201,13 +196,32 @@ export function saveSsoSession(sessionData: SsoSessionData): string {
   return path;
 }
 
+export function saveLegacyBrowserSession(sessionData: MoodleBrowserSessionData): string {
+  const cleanBaseUrl = sessionData.baseUrl.replace(/\/+$/, "");
+  const sessions = readSessionsFile();
+  sessions.legacy = (sessions.legacy || []).filter((item) => item.authType === "session" && item.baseUrl !== cleanBaseUrl);
+  sessions.legacy.unshift({ ...sessionData, baseUrl: cleanBaseUrl, authType: "session" });
+  sessions.active = { authType: "session", baseUrl: cleanBaseUrl };
+  writeSessionsFile(sessions);
+  const path = getSessionsFilePath();
+  console.error(`Legacy Moodle session saved to ${path}`);
+  cfg = {
+    authType: "session",
+    baseUrl: cleanBaseUrl,
+    userId: sessionData.userId,
+    sesskey: sessionData.sesskey,
+    cookies: sessionData.cookies
+  };
+  return path;
+}
+
 /** Select an already-persisted account without changing or re-saving credentials. */
-export function activateSession(authType: "token" | "sso", baseUrl: string): void {
+export function activateSession(authType: SessionAuthType, baseUrl: string): void {
   const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
   const sessions = readSessionsFile();
   const available = authType === "sso"
     ? sessions.sso?.baseUrl?.replace(/\/+$/, "") === cleanBaseUrl
-    : (sessions.legacy || []).some((item) => item.baseUrl?.replace(/\/+$/, "") === cleanBaseUrl && Boolean(item.token));
+    : (sessions.legacy || []).some((item) => item.baseUrl?.replace(/\/+$/, "") === cleanBaseUrl && item.authType === "session" && Boolean(item.sesskey && item.cookies?.length));
   if (!available) throw new CliError("The selected UIT account is no longer saved. Sign in again.");
   sessions.active = { authType, baseUrl: cleanBaseUrl };
   writeSessionsFile(sessions);
@@ -227,10 +241,10 @@ export function deleteLegacySession(baseUrl?: string): void {
   if (baseUrl) {
     const clean = baseUrl.replace(/\/+$/, "");
     sessions.legacy = (sessions.legacy || []).filter((item) => item.baseUrl !== clean);
-    if (sessions.active?.authType === "token" && sessions.active.baseUrl === clean) delete sessions.active;
+    if (sessions.active?.authType === "session" && sessions.active.baseUrl === clean) delete sessions.active;
   } else {
     sessions.legacy = [];
-    if (sessions.active?.authType === "token") delete sessions.active;
+    if (sessions.active?.authType === "session") delete sessions.active;
   }
   writeSessionsFile(sessions);
   cfg = undefined;

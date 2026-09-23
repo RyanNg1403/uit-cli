@@ -86,7 +86,7 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ### `uit login`
 
-Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` restores the v1.0/v1.1 Student ID/password flow for the old Moodle portal.
+Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` opens the selected legacy Moodle portal in bundled Chromium.
 
 ```bash
 # Recommended: Sign in via UIT SSO in browser (default)
@@ -95,16 +95,16 @@ uit login
 # Explicit SSO:
 uit login --sso
 
-# Legacy Moodle: prompts for Student ID and password, then stores the returned token:
+# Undergraduate legacy Moodle:
 uit login --legacy
 
-# Non-interactive legacy token setup:
-uit login --legacy --username YOUR_STUDENT_ID --password YOUR_PASSWORD
+# Graduate legacy Moodle:
+uit login --legacy --graduate
 ```
 
-Prefer the interactive browser login (`uit login`) or `uit login --legacy` for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
+Both flows open the official portal in bundled Chromium. Sign in there; UIT stores the Moodle session cookies and `sesskey`, never the password. Web-service-token authentication is not supported.
 
-SSO and token sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix) and shared with UIT Studio. The user ID is discovered during login and stored with the session. Re-run `uit login` at any time to refresh or rotate it.
+Sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix) and shared with UIT Studio. The user ID is discovered during login and stored with the session. Re-run the relevant `uit login` command to refresh it.
 
 ---
 
@@ -372,7 +372,7 @@ uit grades 19207
 
 ### `uit functions [keyword]`
 
-List the 420+ Moodle web service functions available to your token. Grouped by module.
+List the Moodle API functions exposed to your signed-in account, grouped by module.
 
 ```bash
 uit functions                     # list all
