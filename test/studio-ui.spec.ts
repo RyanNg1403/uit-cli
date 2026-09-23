@@ -702,9 +702,7 @@ for (const selected of ["older", "all"] as const) {
       window.uit.courses.list = async () => (await list()).map((course: any) => course.baseUrl === legacy && course.semester ? { ...course, semester } : course.baseUrl !== legacy && course.id === 1 ? { ...course, id: 807, shortname: "AI505.R11", fullname: "Khoá luận tốt nghiệp - AI505.R11", semester: undefined } : course);
     }, { legacy: LEGACY, semester: semesters[1] });
     await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
-    await page.getByLabel("Student ID", { exact: true }).fill("202");
-    await page.getByLabel("Password", { exact: true }).fill("fixture-only-password");
-    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await page.getByRole("button", { name: "Continue in browser" }).click();
     await expect(page.locator("#semester-select")).toHaveValue("all");
     await expect(page.locator("#session-summary")).toContainText("Account 202");
     await page.getByRole("button", { name: "Close accounts" }).click();
@@ -714,7 +712,7 @@ for (const selected of ["older", "all"] as const) {
     await page.getByRole("button", { name: "Continue with UIT SSO" }).click();
     await expect(page.locator("#session-summary .session-row")).toHaveCount(2);
     await expect(page.locator("#session-summary")).toContainText("UIT SSO");
-    await expect(page.locator("#session-summary")).toContainText("Student ID");
+    await expect(page.locator("#session-summary")).toContainText("UIT Legacy");
     await expect(page.locator("#semester-select")).toHaveValue("all");
     await page.getByRole("button", { name: "Close accounts" }).click();
     await expect(page.locator(".course-row")).toHaveCount(19);
@@ -1267,11 +1265,13 @@ test("disconnect and reconnect isolates threads by portal AND account", async ({
   await page.getByRole("button", { name: "Save name" }).click();
   await page.locator("#account-button").click();
   await page.locator(`.session-row[data-base-url="${LEGACY}"]`).getByRole("button", { name: "Disconnect", exact: true }).click();
+  expect((await calls(page, "session.logout")).map((call) => call.input)).toEqual([{ legacy: true }]);
+  expect((await page.evaluate(() => window.uit.session.status())).sessions.map((session: any) => session.baseUrl)).toEqual([CURRENT]);
   await expect(page.locator("#account-label")).toHaveText("Course accounts (1)");
-  await page.getByLabel("Student ID", { exact: true }).fill("303");
-  await page.getByLabel("Password", { exact: true }).fill("fake-password-only");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.evaluate(() => window.__mock.setNextLegacyUserId(303));
+  await page.getByRole("button", { name: "Continue in browser" }).click();
   await expect(page.locator("#session-summary")).toContainText("Account 303");
+  expect((await calls(page, "session.login"))[0].input).toEqual({ baseUrl: LEGACY });
   await page.getByRole("button", { name: "Close accounts" }).click();
   await page.locator('.nav-item[data-view="agent"]').click();
   await expect(page.locator(".thread-link")).toHaveCount(0);
@@ -1290,9 +1290,7 @@ test("disconnect and reconnect isolates threads by portal AND account", async ({
   await expect(page.locator("#course-nav .project")).toHaveCount(1);
   await page.locator("#account-button").click();
   await page.locator("#legacy-relogin").click();
-  await page.getByLabel("Student ID", { exact: true }).fill("202");
-  await page.getByLabel("Password", { exact: true }).fill("fake-password-only");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Continue in browser" }).click();
   await expect(page.locator("#session-summary")).toContainText("Account 202");
   await page.getByRole("button", { name: "Close accounts" }).click();
   await page.locator(".thread-link").filter({ hasText: "Private legacy thread" }).click();
@@ -1307,40 +1305,32 @@ test("disconnect and reconnect isolates threads by portal AND account", async ({
   const stored = await threadStore(page);
   expect(stored.projects.map((project: any) => project.userId)).toEqual([202, 303]);
   expect(stored.threads).toHaveLength(1);
-  expect(JSON.stringify(await threadStore(page))).not.toContain("fake-password-only");
+  expect((await calls(page, "session.login")).map((call) => call.input)).toEqual([{ baseUrl: LEGACY }]);
 });
 
-test("login form failure, retry, dual session success, password clearing and logout", async ({ page, boot }) => {
+test("legacy browser login failure, retry, dual session success and logout", async ({ page, boot }) => {
   await boot({ authenticated: false });
   await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  expect(await calls(page, "session.login")).toHaveLength(0);
-  await page.getByLabel("Student ID", { exact: true }).fill("202");
-  await page.getByLabel("Password", { exact: true }).fill("invalid-fixture-password");
-  await control(page, "fail", "session.login", "Fixture: invalid credentials");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.locator("#login-error")).toContainText("Fixture: invalid credentials");
-  await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
-  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeEnabled();
-  await page.getByLabel("Password", { exact: true }).fill("valid-fixture-password");
+  await control(page, "fail", "session.login", "Fixture: browser login failed");
+  await page.getByRole("button", { name: "Continue in browser" }).click();
+  await expect(page.locator("#login-error")).toContainText("Fixture: browser login failed");
+  await expect(page.getByRole("button", { name: "Continue in browser" })).toBeEnabled();
   await control(page, "hold", "session.login");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Connect", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Continue in browser" }).click();
+  await expect(page.getByRole("button", { name: "Continue in browser" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Continue with UIT SSO" })).toBeDisabled();
   await control(page, "release", "session.login");
-  await expect(page.locator("#login-status")).toContainText("Student ID login connected");
-  await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+  await expect(page.locator("#login-status")).toContainText("UIT Legacy connected.");
   await page.getByRole("button", { name: "Continue with UIT SSO" }).click();
   await expect(page.locator("#session-summary .session-row")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Re-login with UIT SSO", exact: true })).toBeVisible();
   expect((await calls(page, "session.ssoLogin"))[0].input).toEqual({ baseUrl: CURRENT });
-  expect((await calls(page, "session.login"))[1].input).toEqual({ username: "202", password: "valid-fixture-password", baseUrl: LEGACY });
+  expect((await calls(page, "session.login")).map((call) => call.input)).toEqual([{ baseUrl: LEGACY }, { baseUrl: LEGACY }]);
   await page.getByRole("button", { name: "Disconnect all portals" }).click();
   await expect(page.locator("#session-summary .session-row")).toHaveCount(0);
   await page.getByRole("button", { name: "Close accounts" }).click();
   await expect(page.getByRole("button", { name: "Connect UIT account", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain("fixture-password");
 });
 
 test("Course accounts show live session health and recovery actions", async ({ page, boot }) => {
@@ -1369,18 +1359,18 @@ test("expired accounts are excluded from the count and expose inline SSO recover
 test("account load failures use the shared warning UI and fresh users see onboarding", async ({ page, boot }) => {
   await boot({
     health: { [CURRENT]: "expired", [LEGACY]: "expired" },
-    fail: { "courses.list": "Moodle: Dịch vụ web không tồn tại. Legacy Moodle: Token không hợp lệ" }
+    fail: { "courses.list": "UIT session expired. Legacy Moodle session expired. Backend detail hidden." }
   });
   await expect(page.locator("#app-error")).toContainText("UIT SSO session expired. Sign in again to reconnect.");
-  await expect(page.locator("#app-error")).toContainText("Student ID session expired. Sign in again to reconnect.");
+  await expect(page.locator("#app-error")).toContainText("UIT Legacy session expired. Sign in again to reconnect.");
   await expect(page.getByRole("button", { name: "Sign in again with UIT SSO", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Sign in again with UIT Legacy", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Sign in again with UIT Legacy", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Sign in again with UIT Legacy/ })).toBeVisible();
+  await page.getByRole("button", { name: /Sign in again with UIT Legacy/ }).click();
   await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();
   await expect(page.locator("#login-form")).toBeVisible();
-  await expect(page.getByLabel("Student ID", { exact: true })).toBeFocused();
+  await expect(page.getByRole("combobox", { name: "Portal", exact: true })).toBeFocused();
   await expect(page.locator("#course-grid [role=alert]")).toHaveCount(0);
-  await expect(page.locator("#course-grid")).not.toContainText("Dịch vụ web không tồn tại");
+  await expect(page.locator("#course-grid")).not.toContainText("Backend detail hidden");
 });
 
 test("fresh users see onboarding without account failure warnings", async ({ page, boot }) => {
@@ -1684,7 +1674,7 @@ test("storage quota failure is visible and a later draft save recovers", async (
   await expect(page.getByLabel("Message Codex")).toHaveValue("Recovered draft");
 });
 
-test("SSO cancellation can retry and graduate legacy form sends the selected portal", async ({ page, boot }) => {
+test("SSO cancellation can retry and graduate legacy browser login uses the selected portal", async ({ page, boot }) => {
   await boot({ authenticated: false });
   await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
   await control(page, "fail", "session.ssoLogin", "Fixture SSO window was closed");
@@ -1693,15 +1683,13 @@ test("SSO cancellation can retry and graduate legacy form sends the selected por
   await page.getByRole("button", { name: "Continue with UIT SSO" }).click();
   await expect(page.locator("#session-summary")).toContainText("Account 101");
   await page.getByRole("combobox", { name: "Portal", exact: true }).selectOption(`${LEGACY}/sdh`);
-  await page.getByLabel("Student ID", { exact: true }).fill("404");
-  await page.getByLabel("Password", { exact: true }).fill("graduate-fixture-password");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.evaluate(() => window.__mock.setNextLegacyUserId(404));
+  await page.getByRole("button", { name: "Continue in browser" }).click();
   await expect(page.locator("#session-summary .session-row")).toHaveCount(2);
-  expect((await calls(page, "session.login"))[0].input).toEqual({ baseUrl: `${LEGACY}/sdh`, username: "404", password: "graduate-fixture-password" });
+  expect((await calls(page, "session.login"))[0].input).toEqual({ baseUrl: `${LEGACY}/sdh` });
   await page.getByRole("button", { name: "Close accounts" }).click();
   await page.locator("#account-button").click();
-  await expect(page.getByLabel("Student ID", { exact: true })).toHaveValue("");
-  await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+  await expect(page.locator("#login-form")).toBeHidden();
 });
 
 test("completed conversation persists, stream output deduplicates and offline reload never sends", async ({ page, boot }) => {
@@ -1900,7 +1888,8 @@ for (const width of [390, 320]) {
     await expect(page.getByRole("dialog", { name: "Course accounts", exact: true })).toBeVisible();
     await noOverflow();
     await page.locator("#legacy-relogin").click();
-    await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+    await expect(page.locator("#login-form")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue in browser" })).toBeVisible();
   });
 }
 
@@ -2147,7 +2136,7 @@ test("dark PDF toolbar and dialog leave the white document canvas and rendered p
   for (const method of ["courses.materialize", "courses.open", "shell.open"]) expect(await calls(page, method)).toHaveLength(0);
 });
 
-test("dark login dialog, native fields and visible credential error remain readable", async ({ page, boot }, info) => {
+test("dark login dialog and browser-login error remain readable", async ({ page, boot }, info) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await boot({ authenticated: false });
   await page.getByRole("button", { name: "Connect UIT account", exact: true }).click();
@@ -2156,17 +2145,13 @@ test("dark login dialog, native fields and visible credential error remain reada
   await expect(dialog).toHaveCSS("background-color", "rgb(21, 25, 35)");
   await expect(dialog).toHaveCSS("color", "rgb(235, 238, 243)");
   await expect(dialog).toHaveCSS("color-scheme", "dark");
-  for (const field of [dialog.getByRole("combobox", { name: "Portal", exact: true }), dialog.getByLabel("Student ID", { exact: true }), dialog.getByLabel("Password", { exact: true })]) {
-    await expect(field).toHaveCSS("background-color", "rgb(21, 25, 35)");
-    await expect(field).toHaveCSS("color", "rgb(235, 238, 243)");
-  }
-  await page.getByLabel("Student ID", { exact: true }).fill("202");
-  await page.getByLabel("Password", { exact: true }).fill("fixture-only-password");
-  await control(page, "fail", "session.login", "Fixture: invalid credentials");
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.locator("#login-error")).toContainText("Fixture: invalid credentials");
+  const portal = dialog.getByRole("combobox", { name: "Portal", exact: true });
+  await expect(portal).toHaveCSS("background-color", "rgb(21, 25, 35)");
+  await expect(portal).toHaveCSS("color", "rgb(235, 238, 243)");
+  await control(page, "fail", "session.login", "Fixture: browser login failed");
+  await page.getByRole("button", { name: "Continue in browser" }).click();
+  await expect(page.locator("#login-error")).toContainText("Fixture: browser login failed");
   await expect(page.locator("#login-error")).toHaveCSS("color", "rgb(255, 170, 160)");
-  await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
   await page.screenshot({ path: info.outputPath("dark-login.png"), fullPage: true });
   await page.getByRole("button", { name: "Close accounts" }).click();
   await expect(dialog).not.toBeVisible();

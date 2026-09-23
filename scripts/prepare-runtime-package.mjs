@@ -24,7 +24,7 @@ const sharedModules = [
   "studio-core",
   "notifications",
   "studio-thread-store",
-  "studio-sso",
+  "moodle-browser-login",
   "studio-web-server",
   "studio-web-launcher",
   "moodle-session-client",

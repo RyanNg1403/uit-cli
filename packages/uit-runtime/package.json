@@ -17,7 +17,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "postinstall": "node dist/studio-sso.js --install-browser",
+    "postinstall": "node dist/moodle-browser-login.js --install-browser",
     "prepack": "npm --prefix ../.. run build && node ../../scripts/prepare-runtime-package.mjs"
   },
   "dependencies": {

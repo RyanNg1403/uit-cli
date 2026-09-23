@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:f
 import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
-import { createTokenApiClient, credentialFreeUrl, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
+import { credentialFreeUrl, createSessionApiClient, fetchCourseFile, MAX_PREVIEW_BYTES, readCourseFile } from "../src/api.js";
 import { clearCourseCache, courseWorkspace, getAssignmentSubmission, getCourseContents, listAnnouncements, listAssignments, listCourses, listForumDiscussions, materializeCourseFile, materializeFile, previewableMime, previewFile, resolveClassCodeSemesters, resolveCourseFile, resolveCourseResource } from "../src/desktop-service.js";
 import type { ApiClient, MoodleRecord } from "../src/types.js";
 import { makeZip } from "./zip-fixture.js";
@@ -591,7 +591,7 @@ describe("in-memory preview", () => {
   });
 });
 
-describe("authenticated token files", () => {
+describe("authenticated browser-session files", () => {
   it.each([
     [`https://user:password@courses.uit.edu.vn/pluginfile.php/1/a.pdf?TOKEN=one&token=two&wstoken=three&sesskey=four&authkey=five&key=six&file=%2F1%2Fa.pdf`, `${site}/pluginfile.php/1/a.pdf?file=%2F1%2Fa.pdf`],
     ["javascript:alert(1)", undefined],
@@ -601,49 +601,28 @@ describe("authenticated token files", () => {
     expect(credentialFreeUrl(input)).toBe(expected);
   });
 
-  it("uses cleaned service metadata with each client's own token", async () => {
-    const signed = `${site}/sdh/tokenpluginfile.php/signedkey/1/mod_resource/content/2/a.pdf?forcedownload=1`;
-    const fetchMock = vi.fn(async (input: string | URL) => {
-      const url = new URL(input);
-      if (url.pathname.endsWith("/server.php")) return Response.json([{ modules: [{ id: 10, contents: [{ ...file, fileurl: signed }] }] }]);
-      return new Response("hello", { headers: { "content-type": "application/pdf" } });
-    });
+  it("removes Moodle URL signatures before fetching through the browser session", async () => {
+    const signed = `${site}/sdh/tokenpluginfile.php/signedkey/1/mod_resource/content/2/a.pdf?token=secret&forcedownload=1`;
+    const fetchMock = vi.fn().mockResolvedValue(new Response("hello", { headers: { "content-type": "application/pdf" } }));
     vi.stubGlobal("fetch", fetchMock);
-    for (const token of ["first-mobile", "second-mobile"]) {
-      const api = createTokenApiClient(`${site}/sdh`, token);
-      const [module] = await getCourseContents(42, api);
-      const clean = module.files[0].fileurl;
-      expect(clean).toBe(`${site}/sdh/pluginfile.php/1/mod_resource/content/2/a.pdf?forcedownload=1`);
-      await resolveCourseResource(42, { kind: "file", id: 10, fileUrl: clean }, api);
-      await previewFile(42, clean, "ignored", api);
-      const requested = new URL(fetchMock.mock.calls.at(-1)![0]);
-      expect(requested.pathname).toBe("/sdh/webservice/pluginfile.php/1/mod_resource/content/2/a.pdf");
-      expect(requested.searchParams.get("token")).toBe(token);
-      expect(requested.href).not.toContain("signedkey");
-    }
+
+    await fetchCourseFile(`${site}/sdh`, signed, { Cookie: "MoodleSession=session-cookie" });
+
+    const [requested, options] = fetchMock.mock.calls[0];
+    const url = new URL(requested);
+    expect(url.pathname).toBe("/sdh/pluginfile.php/1/mod_resource/content/2/a.pdf");
+    expect(url.search).toBe("?forcedownload=1");
+    expect(options.headers).toEqual({ Cookie: "MoodleSession=session-cookie" });
   });
 
   it("preserves the graduate installation and query across relative redirects", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "?file=%2F1%2Fa.pdf&forcedownload=1" } }))
       .mockResolvedValueOnce(new Response("hello", { headers: { "content-type": "application/pdf" } }));
     vi.stubGlobal("fetch", fetchMock);
-    await createTokenApiClient(`${site}/sdh`, "mobile").readFile!("pluginfile.php?file=%2F1%2Fa.pdf");
-    expect(String(fetchMock.mock.calls[1][0])).toBe(`${site}/sdh/webservice/pluginfile.php?file=%2F1%2Fa.pdf&forcedownload=1&token=mobile`);
-  });
-
-  it.each([
-    ["/pluginfile.php/1/mod_resource/content/2/a%20b.pdf?forcedownload=1", "/webservice/pluginfile.php/1/mod_resource/content/2/a%20b.pdf?forcedownload=1&token=mobile"],
-    ["/webservice/pluginfile.php/1/a.pdf?token=old", "/webservice/pluginfile.php/1/a.pdf?token=mobile"],
-    ["/pluginfile.php?file=%2F1%2Fa%20b.pdf&forcedownload=1", "/webservice/pluginfile.php?file=%2F1%2Fa+b.pdf&forcedownload=1&token=mobile"],
-    ["/tokenpluginfile.php/signedkey/1/mod_resource/content/2/a.pdf?forcedownload=1", "/webservice/pluginfile.php/1/mod_resource/content/2/a.pdf?forcedownload=1&token=mobile"],
-    ["/tokenpluginfile.php?file=%2F1%2Fa.pdf&token=signedkey", "/webservice/pluginfile.php?file=%2F1%2Fa.pdf&token=mobile"]
-  ])("normalizes supported file endpoint %s with installation prefixes", async (input, expected) => {
-    for (const prefix of ["", "/sdh"]) {
-      const fetchMock = vi.fn().mockResolvedValue(new Response("hello", { headers: { "content-type": "text/plain" } }));
-      vi.stubGlobal("fetch", fetchMock);
-      await createTokenApiClient(`${site}${prefix}/`, "mobile").readFile!(`${site}${prefix}${input}`);
-      expect(String(fetchMock.mock.calls[0][0])).toBe(`${site}${prefix}${expected}`);
-    }
+    await fetchCourseFile(`${site}/sdh`, "pluginfile.php?file=%2F1%2Fa.pdf", { Cookie: "MoodleSession=session-cookie" });
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${site}/sdh/pluginfile.php?file=%2F1%2Fa.pdf`);
+    expect(String(fetchMock.mock.calls[1][0])).toBe(`${site}/sdh/pluginfile.php?file=%2F1%2Fa.pdf&forcedownload=1`);
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({ Cookie: "MoodleSession=session-cookie" });
   });
 
   it("normalizes signed URLs to credential-free URLs usable with session cookies", async () => {
@@ -659,22 +638,16 @@ describe("authenticated token files", () => {
     expect(fetchMock.mock.calls[0][1].headers).toEqual({ Cookie: "MoodleSession=secret" });
   });
 
-  it.each(["/mod/resource/view.php?id=1", "/pluginfile.php.evil/1/a.pdf", "/other/pluginfile.php/1/a.pdf", "/tokenpluginfile.php/bad"])("does not attach mobile tokens to unsupported endpoints %s", async (path) => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(createTokenApiClient(`${site}/sdh`, "secret").readFile!(`${site}${path}`)).rejects.toThrow(/Unsupported/);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("authenticates same-origin redirects without leaking tokens", async () => {
+  it("streams downloads with the Moodle session cookie and follows same-origin redirects", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "/pluginfile.php/final" } }))
       .mockResolvedValueOnce(new Response("hello", { headers: { "content-type": "text/plain; charset=utf-8" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const api = createTokenApiClient(site, "secret");
+    const api = createSessionApiClient(site, "sesskey", [{ name: "MoodleSession", value: "session-cookie" }]);
     expect(Buffer.from((await api.readFile!(file.fileurl)).data).toString()).toBe("hello");
     for (const [url, options] of fetchMock.mock.calls) {
-      expect(new URL(url).searchParams.get("token")).toBe("secret");
-      expect(new URL(url).pathname).toMatch(/^\/webservice\/pluginfile\.php\//);
+      expect(new URL(url).searchParams.has("token")).toBe(false);
+      expect(new URL(url).pathname).toMatch(/^\/pluginfile\.php\//);
+      expect(options.headers).toEqual({ Cookie: "MoodleSession=session-cookie" });
       expect(options.redirect).toBe("manual");
     }
     await expect(api.readFile!("https://evil.example/file")).rejects.toThrow("another origin");
@@ -683,13 +656,13 @@ describe("authenticated token files", () => {
 
   it.each(["text/html", "application/octet-stream"])("rejects login HTML labeled %s", async (mimeType) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('<html><form id="login"><input name="password"></form></html>', { headers: { "content-type": mimeType } })));
-    await expect(createTokenApiClient(site, "secret").readFile!(file.fileurl)).rejects.toThrow("login page");
+    await expect(fetchCourseFile(site, file.fileurl, { Cookie: "MoodleSession=session-cookie" })).rejects.toThrow("login page");
   });
 
   it.each(["https://evil.example/file", "/login/index.php"])("rejects redirect to %s before sending credentials", async (location) => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 302, headers: { location } }));
     vi.stubGlobal("fetch", fetchMock);
-    await expect(createTokenApiClient(site, "secret").readFile!(file.fileurl)).rejects.toThrow();
+    await expect(fetchCourseFile(site, file.fileurl, { Cookie: "MoodleSession=session-cookie" })).rejects.toThrow();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
@@ -896,24 +869,15 @@ describe("deterministic materialization", () => {
     expect(api.downloadFile).toHaveBeenLastCalledWith(file.fileurl, expect.any(String), { atomic: false });
   });
 
-  it("streams a production token-client download into the pinned destination", async () => {
-    await home();
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify([{ modules: [{ id: 10, contents: [file] }] }])))
-      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 7, username: "23521146", fullname: "Nguyễn Thuận Phát" }])))
-      .mockResolvedValueOnce(new Response("from-production-client")));
-    const identity = { baseUrl: site, userId: 7, shortname: "CS" };
-    const destination = await materializeFile(42, file.fileurl, file.filename, createTokenApiClient(site, "secret"), identity);
-    expect(await readFile(destination, "utf8")).toBe("from-production-client");
-  });
-
-  it("uses the documented token endpoint for explicit downloads", async () => {
+  it("downloads through the normal Moodle pluginfile endpoint", async () => {
     await home();
     const fetchMock = vi.fn().mockResolvedValue(new Response("complete"));
     vi.stubGlobal("fetch", fetchMock);
     const destination = join(state.home, "download.pdf");
-    await createTokenApiClient(`${site}/sdh`, "mobile").downloadFile(`${site}/sdh/pluginfile.php/1/a.pdf?forcedownload=1`, destination);
-    expect(String(fetchMock.mock.calls[0][0])).toBe(`${site}/sdh/webservice/pluginfile.php/1/a.pdf?forcedownload=1&token=mobile`);
+    const api = createSessionApiClient(`${site}/sdh`, "sesskey", [{ name: "MoodleSession", value: "session-cookie" }]);
+    await api.downloadFile(`${site}/sdh/webservice/pluginfile.php/1/a.pdf?forcedownload=1&token=obsolete`, destination);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${site}/sdh/pluginfile.php/1/a.pdf?forcedownload=1`);
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ Cookie: "MoodleSession=session-cookie" });
     expect(await readFile(destination, "utf8")).toBe("complete");
   });
 });

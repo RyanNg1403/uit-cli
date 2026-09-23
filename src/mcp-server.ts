@@ -18,7 +18,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ApiClient } from "./types.js";
-import { createTokenApiClient, createSessionApiClient } from "./api.js";
+import { createSessionApiClient } from "./api.js";
 import { getActiveConfig } from "./config.js";
 import { createUitToolExecutor, UIT_ASSIGNMENT_SUBMISSION_TOOL, UIT_TOOLS, type UitToolServices } from "./uit-tools.js";
 import * as desktopService from "./desktop-service.js";
@@ -56,19 +56,11 @@ export function resolveAvailableSession(cwd: string = process.cwd()): { api: Api
   const config = getActiveConfig({ fresh: true });
   const userId = Number(config.userId);
   if (!Number.isSafeInteger(userId) || userId <= 0) {
-    throw new Error("The active UIT session has no valid user ID. Sign in again or set UIT_USER_ID.");
+    throw new Error("The active UIT session has no valid user ID. Sign in again.");
   }
-  if (config.authType === "sso") {
-    if (!config.sesskey || !config.cookies) throw new Error("The active UIT SSO session is incomplete. Sign in again.");
-    return {
-      api: createSessionApiClient(config.baseUrl, config.sesskey, config.cookies),
-      userId,
-      baseUrl: config.baseUrl
-    };
-  }
-  if (!config.token) throw new Error("The active UIT token session is incomplete. Sign in again.");
+  if (!config.sesskey || !config.cookies?.length) throw new Error("The active UIT browser session is incomplete. Sign in again.");
   return {
-    api: createTokenApiClient(config.baseUrl, config.token),
+    api: createSessionApiClient(config.baseUrl, config.sesskey, config.cookies),
     userId,
     baseUrl: config.baseUrl
   };

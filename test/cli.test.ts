@@ -3,18 +3,25 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgram, main } from "../src/cli.js";
-import { resetConfigCache } from "../src/config.js";
+import { resetConfigCache, saveSsoSession } from "../src/config.js";
 import type { ApiClient } from "../src/types.js";
 import { VERSION } from "../src/version.js";
 import { makeZip } from "./zip-fixture.js";
 
 const originalCwd = process.cwd();
+const testState = vi.hoisted(() => ({ home: "" }));
 let tempDir: string;
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
 let stdoutWriteSpy: ReturnType<typeof vi.spyOn>;
 let stdout = "";
 let stderr = "";
+let originalUitToken: string | undefined;
+
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: () => testState.home || actual.homedir() };
+});
 
 function mockApi(responses: Record<string, any>): ApiClient {
   return {
@@ -28,12 +35,18 @@ function mockApi(responses: Record<string, any>): ApiClient {
 }
 
 beforeEach(() => {
+  originalUitToken = process.env.UIT_TOKEN;
+  delete process.env.UIT_TOKEN;
   tempDir = mkdtempSync(join(tmpdir(), "uit-cli-test-"));
-  process.env.UIT_TOKEN = "token-123";
-  process.env.UIT_BASE_URL = "https://courses.uit.edu.vn";
-  process.env.UIT_USER_ID = "42";
+  testState.home = tempDir;
   process.chdir(tempDir);
   resetConfigCache();
+  saveSsoSession({
+    baseUrl: "https://courses.uit.edu.vn",
+    userId: 42,
+    sesskey: "test-session-key",
+    cookies: [{ name: "MoodleSession", value: "test-session-cookie" }]
+  });
   stdout = "";
   stderr = "";
   stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
@@ -49,14 +62,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.UIT_TOKEN;
-  delete process.env.UIT_BASE_URL;
-  delete process.env.UIT_USER_ID;
   stdoutSpy.mockRestore();
   stderrSpy.mockRestore();
   stdoutWriteSpy.mockRestore();
   process.chdir(originalCwd);
   resetConfigCache();
+  if (originalUitToken === undefined) delete process.env.UIT_TOKEN;
+  else process.env.UIT_TOKEN = originalUitToken;
+  testState.home = "";
   rmSync(tempDir, { recursive: true, force: true });
 });
 

@@ -1,4 +1,4 @@
-import { fetchCourseFile, readCourseFile, writeCourseFile } from "./api.js";
+import { fetchCourseFile, readCourseFile, resolveMoodleUrl, writeCourseFile } from "./api.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 
 export interface BrowserSessionTransport {
@@ -66,7 +66,7 @@ export class MoodleSessionApi implements ApiClient {
   }
 
   private async pageQuery<T>(path: string, mapper: string): Promise<T> {
-    const url = new URL(path, this.baseUrl).toString();
+    const url = resolveMoodleUrl(this.baseUrl, path).toString();
     if (new URL(url).origin !== new URL(this.baseUrl).origin) throw new Error("Course page belongs to another origin.");
     const script = `(async()=>{const pageUrl=${JSON.stringify(url)};const response=await fetch(pageUrl,{credentials:"include",redirect:"error",signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error("HTTP "+response.status+": "+response.statusText);if(!/^(text\\/html|application\\/xhtml\\+xml)(;|$)/i.test(response.headers.get('content-type')||'')||/attachment/i.test(response.headers.get('content-disposition')||'')){await response.body?.cancel();throw new Error('Expected a Moodle HTML page, not a download.');}const html=await response.text();const doc=new DOMParser().parseFromString(html,"text/html");if(doc.querySelector('input[name="logintoken"],input[type="password"]'))throw new Error("UIT session expired. Please sign in again.");if(doc.querySelector('.errorbox,[data-rel="fatalerror"]'))throw new Error('Moodle could not display this page.');return (${mapper})(doc,pageUrl);})()`;
     return await this.transport.execute(script) as T;
@@ -175,7 +175,7 @@ export class MoodleSessionApi implements ApiClient {
         if(value>0)result[field]=value;
       }
       const grader=links.find((url)=>url.pathname.endsWith('/mod/assign/view.php')&&Number(url.searchParams.get('id'))===${Number(module.id)}&&url.searchParams.get('action')==='grader');
-      if(modname==='assign'&&!result.instance&&grader)result.graderUrl=new URL('/mod/assign/view.php?id='+${Number(module.id)}+'&action=grader',pageUrl).toString();
+      if(modname==='assign'&&!result.instance&&grader){const prefix=new URL(pageUrl).pathname.match(/^\/sdh(?:\/|$)/)?'/sdh':'';result.graderUrl=new URL(prefix+'/mod/assign/view.php?id='+${Number(module.id)}+'&action=grader',pageUrl).toString();}
       return result;
     }`);
     // The grader app exposes data-assignmentid. Only visit an existing read-only
@@ -241,7 +241,8 @@ export class MoodleSessionApi implements ApiClient {
         const times=Array.from(row.querySelectorAll('time[data-timestamp]')).map((time)=>Number(time.dataset.timestamp));
         const replies=row.querySelector('.replies a,.replies,td.text-center span');
         const count=Number(replies?.textContent?.trim());
-        return {discussion,name:link?.getAttribute('title')||link?.textContent?.trim()||'',url:new URL('/mod/forum/discuss.php?d='+discussion,pageUrl).toString(),userfullname:row.querySelector('.author .author-info > div,.author a[href*="/user/"]')?.textContent?.trim(),...(times[0]?{created:times[0]}:{}),...(times.length?{timemodified:times[times.length-1]}:{}),...(replies&&Number.isFinite(count)?{numreplies:count}:{})};
+        const prefix=new URL(pageUrl).pathname.match(/^\/sdh(?:\/|$)/)?'/sdh':'';
+        return {discussion,name:link?.getAttribute('title')||link?.textContent?.trim()||'',url:new URL(prefix+'/mod/forum/discuss.php?d='+discussion,pageUrl).toString(),userfullname:row.querySelector('.author .author-info > div,.author a[href*="/user/"]')?.textContent?.trim(),...(times[0]?{created:times[0]}:{}),...(times.length?{timemodified:times[times.length-1]}:{}),...(replies&&Number.isFinite(count)?{numreplies:count}:{})};
       }).filter(Boolean);
     }`);
     for (let start = 0; start < discussions.length; start += 4) {

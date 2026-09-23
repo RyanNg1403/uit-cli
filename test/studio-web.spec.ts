@@ -7,7 +7,7 @@ import { startStudioWebServer, type StudioWebServer } from "../src/studio-web-se
 
 const currentSessions = [
   { baseUrl: "https://courses.uit.edu.vn", userId: 101, authMode: "sso", label: "Current Moodle", health: { state: "connected", checkedAt: Date.now() } },
-  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "token", label: "Legacy Moodle", health: { state: "connected", checkedAt: Date.now() } }
+  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "session", label: "Legacy Moodle", health: { state: "connected", checkedAt: Date.now() } }
 ];
 
 type WebTrace = { leases: any[]; agents: any[] };

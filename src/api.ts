@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { get } from "./config.js";
+import { getActiveConfig } from "./config.js";
 import { buildAjaxInfo, normalizeArgs, unwrapAjaxResponse } from "./ajax-helpers.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 
@@ -15,6 +15,34 @@ declare module "./types.js" {
 }
 
 export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
+
+/** Resolve Moodle paths without dropping an installation prefix such as /sdh. */
+export function resolveMoodleUrl(baseUrl: string, path: string): URL {
+  const base = new URL(baseUrl);
+  const prefix = base.pathname.replace(/\/+$/, "");
+  const root = new URL(`${base.origin}${prefix}/`);
+  const target = new URL(path, root);
+  if (target.origin === base.origin && prefix && target.pathname !== prefix && !target.pathname.startsWith(`${prefix}/`)) {
+    target.pathname = `${prefix}${target.pathname.startsWith("/") ? "" : "/"}${target.pathname}`;
+  }
+  return target;
+}
+
+function resolveMoodleRedirect(baseUrl: string, currentUrl: URL, location: string): URL {
+  const target = new URL(location, currentUrl);
+  const base = new URL(baseUrl);
+  const prefix = base.pathname.replace(/\/+$/, "");
+  if (target.origin === base.origin && prefix && target.pathname !== prefix && !target.pathname.startsWith(`${prefix}/`)) {
+    target.pathname = `${prefix}${target.pathname.startsWith("/") ? "" : "/"}${target.pathname}`;
+  }
+  return target;
+}
+
+function moodleBaseUrlFromPage(pageUrl: string): string {
+  const page = new URL(pageUrl);
+  const prefix = page.pathname.match(/^\/sdh(?:\/|$)/) ? "/sdh" : "";
+  return page.origin + prefix;
+}
 
 function unavailableSessionMethod(error: unknown): boolean {
   const code = String((error as { errorcode?: string })?.errorcode || "");
@@ -104,7 +132,7 @@ function hasSubmissionFormError(html: string): boolean {
 
 function fileRecord(rawUrl: string, pageUrl: string): MoodleRecord | undefined {
   try {
-    const url = new URL(rawUrl, pageUrl);
+    const url = resolveMoodleUrl(moodleBaseUrlFromPage(pageUrl), rawUrl);
     if (url.origin !== new URL(pageUrl).origin || !/(?:token)?pluginfile\.php(?:\/|$)|\/mod_forum\/attachment(?:\/|$)/i.test(url.pathname)) return undefined;
     let filename = basename(url.pathname) || "resource";
     try { filename = decodeURIComponent(filename); } catch { /* Preserve malformed Moodle filenames verbatim. */ }
@@ -134,10 +162,10 @@ export function credentialFreeUrl(value: unknown): string | undefined {
 }
 
 /** Follow redirects manually so credentials never leave the authenticated origin. */
-export async function fetchCourseFile(baseUrl: string, fileUrl: string, headers: Record<string, string> = {}, token?: string): Promise<Response> {
+export async function fetchCourseFile(baseUrl: string, fileUrl: string, headers: Record<string, string> = {}): Promise<Response> {
   const base = new URL(baseUrl);
   const installationPath = base.pathname.replace(/\/+$/, "");
-  let url = new URL(fileUrl, `${baseUrl.replace(/\/+$/, "")}/`);
+  let url = resolveMoodleUrl(baseUrl, fileUrl);
   const signal = AbortSignal.timeout(120_000);
   for (let redirects = 0; redirects <= 5; redirects++) {
     if (url.origin !== base.origin || url.username || url.password) throw new Error("Refusing to send UIT credentials to another origin.");
@@ -147,19 +175,15 @@ export async function fetchCourseFile(baseUrl: string, fileUrl: string, headers:
     url = new URL(clean);
     const path = url.pathname.slice(installationPath.length);
     const pluginfile = url.pathname.startsWith(`${installationPath}/`) && /^\/(?:webservice\/)?pluginfile\.php(?:\/|$)/.test(path);
-    if (token && !pluginfile) throw new Error("Unsupported token course file endpoint.");
     if (pluginfile) {
-      // https://moodledev.io/docs/4.5/apis/subsystems/external/files
-      // Mobile tokens use webservice/pluginfile; cookies use ordinary pluginfile.
-      url.pathname = `${installationPath}${path.replace(/^\/(?:webservice\/)?pluginfile\.php/, token ? "/webservice/pluginfile.php" : "/pluginfile.php")}`;
+      url.pathname = `${installationPath}${path.replace(/^\/(?:webservice\/)?pluginfile\.php/, "/pluginfile.php")}`;
     }
-    if (token) url.searchParams.set("token", token);
     const response = await fetch(url, { headers, redirect: "manual", signal });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await response.body?.cancel();
       const location = response.headers.get("location");
       if (!location) throw new Error("Course file redirect has no destination.");
-      url = new URL(location, url);
+      url = resolveMoodleRedirect(baseUrl, url, location);
       continue;
     }
     if (!response.ok) {
@@ -250,68 +274,6 @@ export async function writeCourseFile(response: Response, destPath: string, opti
   }
 }
 
-function appendParams(url: URL, params: Record<string, any>): void {
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue;
-    url.searchParams.set(key, String(value));
-  }
-}
-
-export function createTokenApiClient(baseUrl: string, token: string): ApiClient {
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
-  const callWithToken = async <T = any>(name: string, params: Record<string, any> = {}): Promise<T> => {
-    const url = new URL(`${normalizedBaseUrl}/webservice/rest/server.php`);
-    appendParams(url, {
-      ...params,
-      wstoken: token,
-      wsfunction: name,
-      moodlewsrestformat: "json"
-    });
-
-    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    const data = await response.json();
-    if (data && typeof data === "object" && "exception" in data) {
-      const error = new Error(data.message || data.error || JSON.stringify(data)) as Error & {
-        errorcode?: string;
-        moodleException?: string;
-      };
-      if (typeof data.errorcode === "string") error.errorcode = data.errorcode;
-      if (typeof data.exception === "string") error.moodleException = data.exception;
-      throw error;
-    }
-    return data as T;
-  };
-
-  const uploadWithToken = async (filepath: string): Promise<MoodleRecord> => {
-    const form = new FormData();
-    form.append("token", token);
-    form.append("filearea", "draft");
-    form.append("itemid", "0");
-    form.append("file", await openAsBlob(filepath), basename(filepath));
-
-    const response = await fetch(`${normalizedBaseUrl}/webservice/upload.php`, {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(120_000)
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    const data = await response.json();
-    if (Array.isArray(data) && data.length > 0) return data[0];
-    if (data && typeof data === "object" && "error" in data) throw new Error(String(data.error));
-    return data as MoodleRecord;
-  };
-
-  const downloadWithToken = async (fileUrl: string, destPath: string, options?: { atomic?: boolean }): Promise<{ sha256: string }> => {
-    return writeCourseFile(await fetchCourseFile(normalizedBaseUrl, fileUrl, {}, token), destPath, options);
-  };
-
-  return {
-    call: callWithToken, uploadFile: uploadWithToken, downloadFile: downloadWithToken,
-    readFile: async (fileUrl) => readCourseFile(await fetchCourseFile(normalizedBaseUrl, fileUrl, {}, token))
-  };
-}
-
 export async function call<T = any>(name: string, params: Record<string, any> = {}): Promise<T> {
   return defaultApiClient.call<T>(name, params);
 }
@@ -349,7 +311,7 @@ export class NodeSessionApiClient implements ApiClient {
   }
 
   private async fetchHtmlPage(path: string): Promise<{ html: string; url: string }> {
-    const url = new URL(path, `${this.baseUrl}/`);
+    const url = resolveMoodleUrl(this.baseUrl, path);
     if (url.origin !== new URL(this.baseUrl).origin) throw new Error("Course page belongs to another origin.");
     const res = await fetch(url, {
       headers: { Cookie: this.cookieHeader },
@@ -407,7 +369,7 @@ export class NodeSessionApiClient implements ApiClient {
         course: courseId,
         name: name || "Activity",
         modname: modnameMatch?.[1] || (/\/mod\/([^/]+)\//i.exec(urlMatch?.[1] || "")?.[1]) || "resource",
-        url: urlMatch ? new URL(urlMatch[1].replace(/&amp;/gi, "&"), pageUrl).toString() : "",
+        url: urlMatch ? resolveMoodleUrl(this.baseUrl, urlMatch[1].replace(/&amp;/gi, "&")).toString() : "",
         description: htmlVisibleText(/class=["'][^"']*\b(?:contentwithoutlink|activity-description)\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/i.exec(block)?.[1]),
         contents
       });
@@ -418,7 +380,7 @@ export class NodeSessionApiClient implements ApiClient {
       await Promise.all(modules.slice(start, start + 4).map(async (module) => {
         if (!["resource", "folder", "url"].includes(String(module.modname))) return;
         try {
-          const activityUrl = new URL(String(module.url || `/mod/${module.modname}/view.php?id=${module.id}`), pageUrl);
+          const activityUrl = resolveMoodleUrl(this.baseUrl, String(module.url || `/mod/${module.modname}/view.php?id=${module.id}`));
           if (activityUrl.origin !== new URL(this.baseUrl).origin || !activityUrl.pathname.includes(`/mod/${module.modname}/`)) {
             throw new Error("Moodle returned an invalid activity URL.");
           }
@@ -449,7 +411,7 @@ export class NodeSessionApiClient implements ApiClient {
       const modules = sections.flatMap((section) => section.modules || []).filter((module) => module.modname === "assign");
       const assignments = await Promise.all(modules.map(async (module) => {
         try {
-          const activityUrl = new URL(String(module.url || `/mod/assign/view.php?id=${module.id}`), this.baseUrl);
+          const activityUrl = resolveMoodleUrl(this.baseUrl, String(module.url || `/mod/assign/view.php?id=${module.id}`));
           if (activityUrl.origin !== new URL(this.baseUrl).origin || !activityUrl.pathname.includes("/mod/assign/")) {
             throw new Error("Moodle returned an invalid assignment URL.");
           }
@@ -492,7 +454,7 @@ export class NodeSessionApiClient implements ApiClient {
   }
 
   private async fetchForumActivityHtml(module: MoodleRecord): Promise<MoodleRecord> {
-    const activityUrl = new URL(String(module.url || ("/mod/forum/view.php?id=" + module.id)), this.baseUrl);
+    const activityUrl = resolveMoodleUrl(this.baseUrl, String(module.url || ("/mod/forum/view.php?id=" + module.id)));
     if (activityUrl.origin !== new URL(this.baseUrl).origin || !activityUrl.pathname.includes("/mod/forum/")) {
       throw new Error("Moodle returned an invalid forum URL.");
     }
@@ -555,7 +517,7 @@ export class NodeSessionApiClient implements ApiClient {
     const path = byModule
       ? "/mod/forum/view.php?id=" + cmid + "&forceview=1&p=" + page + "&s=" + perpage
       : "/mod/forum/view.php?f=" + forumId + "&p=" + page + "&s=" + perpage;
-    const { html, url: pageUrl } = await this.fetchHtmlPage(path);
+    const { html } = await this.fetchHtmlPage(path);
     if (!/(?:discussion-list|forumheaderlist|forumnodiscuss|forumpost)/i.test(html)) {
       throw new Error("Unable to read forum discussions.");
     }
@@ -581,7 +543,7 @@ export class NodeSessionApiClient implements ApiClient {
       let discussionUrl: URL | undefined;
       if (linkMatch) {
         try {
-          const candidate = new URL(linkMatch[2].replace(/&amp;/gi, "&"), pageUrl);
+          const candidate = resolveMoodleUrl(this.baseUrl, linkMatch[2].replace(/&amp;/gi, "&"));
           if (candidate.origin === new URL(this.baseUrl).origin && candidate.pathname.includes("/mod/forum/")) discussionUrl = candidate;
         } catch { /* Ignore malformed discussion links. */ }
       }
@@ -598,7 +560,7 @@ export class NodeSessionApiClient implements ApiClient {
       const repliesMatch = /<([a-z0-9]+)\b[^>]*class=["'][^"']*\breplies\b[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i.exec(row) ||
         /<td\b[^>]*class=["'][^"']*\btext-center\b[^"']*["'][^>]*>([\s\S]*?)<\/td>/i.exec(row);
       const count = Number(htmlText(repliesMatch?.[2] || repliesMatch?.[1]));
-      const cleanUrl = credentialFreeUrl(discussionUrl?.toString() || new URL("/mod/forum/discuss.php?d=" + discussion, pageUrl).toString());
+      const cleanUrl = credentialFreeUrl(discussionUrl?.toString() || resolveMoodleUrl(this.baseUrl, "/mod/forum/discuss.php?d=" + discussion).toString());
       discussions.push({
         discussion,
         name: htmlText(title || (linkMatch ? linkMatch[3] : "")),
@@ -699,7 +661,7 @@ export class NodeSessionApiClient implements ApiClient {
       };
       if (avatar) {
         try {
-          const avatarUrl = credentialFreeUrl(new URL(avatar.replace(/&amp;/gi, "&"), pageUrl).toString());
+          const avatarUrl = credentialFreeUrl(resolveMoodleUrl(this.baseUrl, avatar.replace(/&amp;/gi, "&")).toString());
           if (avatarUrl) user.profileimageurl = avatarUrl;
         } catch { /* Ignore malformed avatar URLs. */ }
       }
@@ -773,7 +735,7 @@ export class NodeSessionApiClient implements ApiClient {
     }
 
     if (module.modname === "forum") {
-      const activityUrl = new URL(String(module.url || `/mod/forum/view.php?id=${cmid}`), this.baseUrl);
+      const activityUrl = resolveMoodleUrl(this.baseUrl, String(module.url || `/mod/forum/view.php?id=${cmid}`));
       if (activityUrl.origin !== new URL(this.baseUrl).origin || !activityUrl.pathname.includes("/mod/forum/")) {
         throw new Error("Moodle returned an invalid forum URL.");
       }
@@ -969,7 +931,7 @@ export class NodeSessionApiClient implements ApiClient {
   }
 
   private async postHtmlForm(path: string, body: URLSearchParams): Promise<{ html: string; url: string }> {
-    const url = new URL(path, `${this.baseUrl}/`);
+    const url = resolveMoodleUrl(this.baseUrl, path);
     if (url.origin !== new URL(this.baseUrl).origin) throw new Error("Course page belongs to another origin.");
     const res = await fetch(url, {
       method: "POST",
@@ -983,10 +945,10 @@ export class NodeSessionApiClient implements ApiClient {
     });
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.get("location") || "";
-      if (/\/login(?:\/|$)/i.test(new URL(location, url).pathname)) {
+      const destination = resolveMoodleRedirect(this.baseUrl, url, location);
+      if (/\/login(?:\/|$)/i.test(destination.pathname)) {
         throw new Error("UIT session expired. Please sign in again.");
       }
-      const destination = new URL(location, url);
       if (destination.origin !== url.origin) throw new Error("Moodle form redirected to another origin.");
       return { html: "", url: destination.toString() };
     }
@@ -1021,10 +983,11 @@ export class NodeSessionApiClient implements ApiClient {
     }
 
     const response = await this.postHtmlForm(`/mod/assign/view.php?id=${cmid}`, body);
-    const responseUrl = new URL(response.url, `${this.baseUrl}/`);
+    const responseUrl = resolveMoodleUrl(this.baseUrl, response.url);
+    const installationPath = new URL(this.baseUrl).pathname.replace(/\/+$/, "");
     if (
       responseUrl.origin !== new URL(this.baseUrl).origin ||
-      responseUrl.pathname !== "/mod/assign/view.php" ||
+      responseUrl.pathname !== `${installationPath}/mod/assign/view.php` ||
       responseUrl.searchParams.get("id") !== String(cmid)
     ) {
       throw new Error("Moodle returned an unexpected submission response.");
@@ -1138,15 +1101,9 @@ export function createSessionApiClient(
 }
 
 export function getActiveApiClient(): ApiClient {
-  const authType = get("authType");
-  if (authType === "sso") {
-    const sesskey = get("sesskey");
-    const cookies = get("cookies");
-    if (sesskey && cookies) {
-      return createSessionApiClient(get("baseUrl"), sesskey, cookies);
-    }
-  }
-  return createTokenApiClient(get("baseUrl"), get("token"));
+  const config = getActiveConfig();
+  if (!config.sesskey || !config.cookies?.length) throw new Error("The active UIT browser session is incomplete. Sign in again.");
+  return createSessionApiClient(config.baseUrl, config.sesskey, config.cookies);
 }
 
 export const defaultApiClient: ApiClient = {

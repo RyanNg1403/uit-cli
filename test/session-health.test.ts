@@ -12,9 +12,7 @@ describe("session health", () => {
     "requireloginerror",
     "servicerequireslogin",
     "invalidsesskey",
-    "notloggedin",
-    "invalidtoken",
-    "tokenexpired"
+    "notloggedin"
   ])("classifies %s as expired", (errorcode) => {
     expect(classifySessionError(error("provider rejected session", errorcode))).toBe("expired");
   });
@@ -24,15 +22,18 @@ describe("session health", () => {
   });
 
   it("classifies Moodle's Vietnamese expired-session response as expired", () => {
-    expect(classifySessionError(new Error("Moodle: Dịch vụ web không tồn tại. (Phiên đăng nhập đã hết hạn hoặc đã đăng xuất)."))).toBe("expired");
+    expect(classifySessionError(new Error("Phiên đăng nhập đã hết hạn hoặc đã đăng xuất."))).toBe("expired");
   });
 
-  it("classifies Moodle's Vietnamese invalid-token response as expired", () => {
-    expect(classifySessionError(new Error("Token không hợp lệ - token không được tìm thấy"))).toBe("expired");
+  it.each([
+    "Token không hợp lệ - token không được tìm thấy",
+    "Dịch vụ web không tồn tại"
+  ])("does not classify obsolete web-service errors as an expired browser session: %s", (message) => {
+    expect(classifySessionError(new Error(message))).toBe("unavailable");
   });
 
   it("walks wrapped causes", () => {
-    expect(classifySessionError(error("Moodle request failed", undefined, error("Invalid token", "invalidtoken")))).toBe("expired");
+    expect(classifySessionError(error("Moodle request failed", undefined, error("Invalid sesskey", "invalidsesskey")))).toBe("expired");
   });
 
   it("keeps access and transport failures unavailable", () => {

@@ -16,10 +16,10 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 import { createProgram, main } from "../src/cli.js";
-import { get, getActiveConfig, resetConfigCache, save, saveSsoSession, type SsoSessionData } from "../src/config.js";
+import { get, getActiveConfig, resetConfigCache, saveLegacyBrowserSession, saveSsoSession, type MoodleBrowserSessionData } from "../src/config.js";
 import { NodeSessionApiClient, createSessionApiClient } from "../src/api.js";
 import { defaultSsoLauncher } from "../src/sso-login.js";
-import { StudioSsoService } from "../src/studio-sso.js";
+import { MoodleBrowserLoginService } from "../src/moodle-browser-login.js";
 import { workspacePath } from "../src/desktop-service.js";
 import { executeMcpTool, resolveAvailableSession } from "../src/mcp-server.js";
 import type { ApiClient } from "../src/types.js";
@@ -29,6 +29,7 @@ let tempDir: string;
 let stdout = "";
 let stdoutSpy: ReturnType<typeof vi.spyOn>;
 let stderrSpy: ReturnType<typeof vi.spyOn>;
+let originalUitToken: string | undefined;
 
 function mockApi(responses: Record<string, any>): ApiClient {
   return {
@@ -42,6 +43,8 @@ function mockApi(responses: Record<string, any>): ApiClient {
 }
 
 beforeEach(() => {
+  originalUitToken = process.env.UIT_TOKEN;
+  delete process.env.UIT_TOKEN;
   tempDir = mkdtempSync(join(tmpdir(), "uit-sso-cli-test-"));
   testState.home = tempDir;
   process.chdir(tempDir);
@@ -59,12 +62,14 @@ afterEach(() => {
   stderrSpy.mockRestore();
   process.chdir(originalCwd);
   resetConfigCache();
+  if (originalUitToken === undefined) delete process.env.UIT_TOKEN;
+  else process.env.UIT_TOKEN = originalUitToken;
   rmSync(tempDir, { recursive: true, force: true });
 });
 
 describe("SSO CLI workflow and session resolution", () => {
   it("saves SSO session and updates active config", () => {
-    const ssoData: SsoSessionData = {
+    const ssoData: MoodleBrowserSessionData = {
       baseUrl: "https://courses.uit.edu.vn",
       userId: 19589,
       sesskey: "sesskey-12345",
@@ -78,7 +83,6 @@ describe("SSO CLI workflow and session resolution", () => {
     expect(get("userId")).toBe(19589);
     expect(get("sesskey")).toBe("sesskey-12345");
     expect(get("cookies")).toEqual([{ name: "MoodleSession", value: "cookie-value-abc" }]);
-    expect(get("token")).toBe("");
     const configDir = join(tempDir, ".uit");
     expect(readdirSync(configDir)).toEqual(["sessions.json"]);
     if (process.platform !== "win32") {
@@ -86,7 +90,7 @@ describe("SSO CLI workflow and session resolution", () => {
     }
   });
 
-  it("uses environment credentials consistently when they override a saved session", () => {
+  it("rejects obsolete web-service tokens instead of silently selecting a saved session", () => {
     saveSsoSession({
       baseUrl: "https://courses.uit.edu.vn",
       userId: 19589,
@@ -94,41 +98,42 @@ describe("SSO CLI workflow and session resolution", () => {
       cookies: [{ name: "MoodleSession", value: "saved-cookie" }]
     });
     process.env.UIT_TOKEN = "environment-token";
-    process.env.UIT_BASE_URL = "https://coursesold.uit.edu.vn/";
-    process.env.UIT_USER_ID = "42";
     try {
-      expect(getActiveConfig({ fresh: true })).toMatchObject({
-        authType: "token",
-        baseUrl: "https://coursesold.uit.edu.vn",
-        token: "environment-token",
-        userId: 42
-      });
+      expect(() => getActiveConfig({ fresh: true })).toThrow("UIT_TOKEN authentication is no longer supported");
     } finally {
       delete process.env.UIT_TOKEN;
-      delete process.env.UIT_BASE_URL;
-      delete process.env.UIT_USER_ID;
     }
   });
 
-  it("makes an explicit token login active when an SSO session already exists", () => {
+  it("makes a legacy browser session active when an SSO session already exists", () => {
     saveSsoSession({
       baseUrl: "https://courses.uit.edu.vn",
       userId: 19589,
       sesskey: "saved-sesskey",
       cookies: [{ name: "MoodleSession", value: "saved-cookie" }]
     });
-    save("replacement-token", 42, "https://courses.uit.edu.vn");
+    saveLegacyBrowserSession({
+      baseUrl: "https://coursesold.uit.edu.vn",
+      userId: 42,
+      sesskey: "legacy-sesskey",
+      cookies: [{ name: "MoodleSession", value: "legacy-cookie" }]
+    });
 
     expect(getActiveConfig({ fresh: true })).toMatchObject({
-      authType: "token",
-      baseUrl: "https://courses.uit.edu.vn",
-      token: "replacement-token",
+      authType: "session",
+      baseUrl: "https://coursesold.uit.edu.vn",
+      sesskey: "legacy-sesskey",
       userId: 42
     });
   });
 
   it("uses the active session for every managed course workspace", () => {
-    save("legacy-token", 77, "https://coursesold.uit.edu.vn");
+    saveLegacyBrowserSession({
+      baseUrl: "https://coursesold.uit.edu.vn",
+      userId: 77,
+      sesskey: "legacy-sesskey",
+      cookies: [{ name: "MoodleSession", value: "legacy-cookie" }]
+    });
     saveSsoSession({
       baseUrl: "https://courses.uit.edu.vn",
       userId: 19589,
@@ -146,7 +151,7 @@ describe("SSO CLI workflow and session resolution", () => {
     });
   });
 
-  it("honors environment credentials in every managed course workspace", () => {
+  it("does not allow an obsolete web-service token in a managed course workspace", () => {
     saveSsoSession({
       baseUrl: "https://courses.uit.edu.vn",
       userId: 19589,
@@ -154,22 +159,20 @@ describe("SSO CLI workflow and session resolution", () => {
       cookies: [{ name: "MoodleSession", value: "saved-cookie" }]
     });
     process.env.UIT_TOKEN = "environment-token";
-    process.env.UIT_BASE_URL = "https://coursesold.uit.edu.vn";
-    process.env.UIT_USER_ID = "42";
     try {
-      expect(resolveAvailableSession(workspacePath(7, "https://courses.uit.edu.vn", 19589))).toMatchObject({
-        baseUrl: "https://coursesold.uit.edu.vn",
-        userId: 42
-      });
+      expect(() => resolveAvailableSession(workspacePath(7, "https://courses.uit.edu.vn", 19589))).toThrow("UIT_TOKEN authentication is no longer supported");
     } finally {
       delete process.env.UIT_TOKEN;
-      delete process.env.UIT_BASE_URL;
-      delete process.env.UIT_USER_ID;
     }
   });
 
   it("allows cross-course MCP selection inside the managed workspace", async () => {
-    save("legacy-token", 77, "https://coursesold.uit.edu.vn");
+    saveLegacyBrowserSession({
+      baseUrl: "https://coursesold.uit.edu.vn",
+      userId: 77,
+      sesskey: "legacy-sesskey",
+      cookies: [{ name: "MoodleSession", value: "legacy-cookie" }]
+    });
     const workspace = workspacePath(42, "https://coursesold.uit.edu.vn", 77);
 
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ exception: "MoodleException", message: "fixture unavailable" })));
@@ -186,6 +189,23 @@ describe("SSO CLI workflow and session resolution", () => {
     writeFileSync(join(configDir, ".env"), 'UIT_TOKEN="old-token"\nUIT_USER_ID=42\n', "utf8");
 
     expect(() => getActiveConfig({ fresh: true })).toThrow("No active UIT session found");
+  });
+
+  it("does not restore legacy web-service-token records from the canonical session store", () => {
+    const configDir = join(tempDir, ".uit");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "sessions.json"), JSON.stringify({
+      sso: {
+        baseUrl: "https://courses.uit.edu.vn",
+        userId: 99,
+        sesskey: "sso-sesskey",
+        cookies: [{ name: "MoodleSession", value: "sso-cookie" }]
+      },
+      legacy: [{ baseUrl: "https://coursesold.uit.edu.vn", userId: 42, token: "old-token" }],
+      active: { authType: "token", baseUrl: "https://coursesold.uit.edu.vn" }
+    }), "utf8");
+
+    expect(() => getActiveConfig({ fresh: true })).toThrow("unsupported authentication method");
   });
 
   it.each([
@@ -240,51 +260,42 @@ describe("SSO CLI workflow and session resolution", () => {
     expect(JSON.parse(stdout)).toMatchObject({ status: "ok", auth: "sso", user_id: 2027 });
   });
 
-  it("restores uit login --legacy and persists the token from Student ID/password", async () => {
-    const mockLauncher = vi.fn(async () => {
-      throw new Error("SSO must not run for legacy login");
-    });
-    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "https://coursesold.uit.edu.vn/login/token.php") {
-        expect(init?.method).toBe("POST");
-        expect((init?.body as URLSearchParams).get("username")).toBe("2026");
-        expect((init?.body as URLSearchParams).get("password")).toBe("legacy-password");
-        return Response.json({ token: "legacy-token-2026" });
-      }
-
-      const parsed = new URL(url);
-      expect(parsed.origin).toBe("https://coursesold.uit.edu.vn");
-      expect(parsed.pathname).toBe("/webservice/rest/server.php");
-      expect(parsed.searchParams.get("wstoken")).toBe("legacy-token-2026");
-      return Response.json({ userid: 2026, fullname: "Legacy Student", sitename: "Legacy Moodle" });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const program = createProgram(mockApi({}), { ssoLauncher: mockLauncher });
+  it.each([
+    ["undergraduate", "https://coursesold.uit.edu.vn", false],
+    ["graduate", "https://coursesold.uit.edu.vn/sdh", true]
+  ])("signs in to the %s legacy portal in the browser and persists its session", async (_portal, baseUrl, graduate) => {
+    const mockLauncher = vi.fn(async (site: string) => ({
+      baseUrl: site,
+      userId: 2026,
+      sesskey: "legacy-sesskey-2026",
+      cookies: [{ name: "MoodleSession", value: "legacy-cookie-2026" }]
+    }));
+    const program = createProgram(mockApi({}), { legacyLauncher: mockLauncher });
     await program.parseAsync([
       "node",
       "uit",
       "--json",
       "login",
       "--legacy",
-      "--username",
-      "2026",
-      "--password",
-      "legacy-password"
+      ...(graduate ? ["--graduate"] : [])
     ]);
 
-    expect(mockLauncher).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockLauncher).toHaveBeenCalledWith(baseUrl);
     expect(JSON.parse(stdout)).toEqual({
       status: "ok",
-      user: "Legacy Student",
+      auth: "legacy-session",
       user_id: 2026,
-      site: "Legacy Moodle"
+      site: baseUrl
     });
     expect(JSON.parse(readFileSync(join(tempDir, ".uit", "sessions.json"), "utf8"))).toMatchObject({
-      legacy: [{ baseUrl: "https://coursesold.uit.edu.vn", userId: 2026, token: "legacy-token-2026" }],
-      active: { authType: "token", baseUrl: "https://coursesold.uit.edu.vn" }
+      legacy: [{
+        authType: "session",
+        baseUrl,
+        userId: 2026,
+        sesskey: "legacy-sesskey-2026",
+        cookies: [{ name: "MoodleSession", value: "legacy-cookie-2026" }]
+      }],
+      active: { authType: "session", baseUrl }
     });
   });
 
@@ -299,7 +310,7 @@ describe("SSO CLI workflow and session resolution", () => {
   });
 
   it("falls back to SSO session when .env is absent and executes courses", async () => {
-    const ssoData: SsoSessionData = {
+    const ssoData: MoodleBrowserSessionData = {
       baseUrl: "https://courses.uit.edu.vn",
       userId: 3333,
       sesskey: "sso-3333",
@@ -353,7 +364,11 @@ describe("SSO CLI workflow and session resolution", () => {
     const mockPage = {
       goto: vi.fn().mockResolvedValue(undefined),
       url: vi.fn().mockReturnValue("https://courses.uit.edu.vn/my/"),
-      evaluate: vi.fn().mockResolvedValue({ sesskey: "sso-key", userId: 99 }),
+      evaluate: vi.fn().mockResolvedValue({
+        sesskey: "sso-key",
+        origin: "https://courses.uit.edu.vn",
+        profileHref: "https://courses.uit.edu.vn/user/profile.php?id=99"
+      }),
       isClosed: vi.fn().mockReturnValue(false)
     };
     const mockContext = {
@@ -390,9 +405,47 @@ describe("SSO CLI workflow and session resolution", () => {
     }
   });
 
+  it("opens the graduate legacy portal in bundled Chromium and captures its browser session", async () => {
+    const baseUrl = "https://coursesold.uit.edu.vn/sdh";
+    const mockPage = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn().mockReturnValue(`${baseUrl}/my/`),
+      evaluate: vi.fn().mockResolvedValue({
+        sesskey: "legacy-key",
+        origin: "https://coursesold.uit.edu.vn",
+        profileHref: "https://coursesold.uit.edu.vn/sdh/user/profile.php?id=2026"
+      }),
+      isClosed: vi.fn().mockReturnValue(false)
+    };
+    const mockContext = {
+      route: vi.fn().mockResolvedValue(undefined),
+      newPage: vi.fn().mockResolvedValue(mockPage),
+      cookies: vi.fn().mockResolvedValue([{ name: "MoodleSession", value: "legacy-cookie", domain: "coursesold.uit.edu.vn", path: "/" }])
+    };
+    const mockBrowser = {
+      newContext: vi.fn().mockResolvedValue(mockContext),
+      isConnected: vi.fn().mockReturnValue(true),
+      close: vi.fn().mockResolvedValue(undefined)
+    };
+    const launch = vi.fn().mockResolvedValue(mockBrowser);
+    const service = new MoodleBrowserLoginService({
+      executablePath: process.execPath,
+      runtime: { executablePath: () => process.execPath, launch }
+    });
+
+    const session = await service.loginLegacy(baseUrl);
+
+    expect(mockPage.goto).toHaveBeenCalledWith(`${baseUrl}/login/index.php`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    expect(mockContext.cookies).toHaveBeenCalledWith(baseUrl);
+    expect(session).toMatchObject({ baseUrl, userId: 2026, sesskey: "legacy-key" });
+    expect(session.cookies).toHaveLength(1);
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ executablePath: process.execPath, headless: false }));
+    expect(mockBrowser.close).toHaveBeenCalledOnce();
+  });
+
   it("reports a missing bundled browser instead of trying a system browser", async () => {
     const launch = vi.fn();
-    const service = new StudioSsoService({
+    const service = new MoodleBrowserLoginService({
       executablePath: join(tempDir, "missing-chromium"),
       runtime: {
         executablePath: () => join(tempDir, "unused-chromium"),

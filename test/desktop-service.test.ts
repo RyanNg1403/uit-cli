@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultApiClient } from "../src/api.js";
-import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, login, lookupCourse, readParticipantAvatar, sessionStatus } from "../src/desktop-service.js";
+import { clearCourseCache, codexStatus, getCourseContents, getCourseGrades, listAnnouncements, listAssignments, listCourseParticipants, listCourses, lookupCourse, readParticipantAvatar, sessionStatus } from "../src/desktop-service.js";
 import type { ApiClient } from "../src/types.js";
 
 const codexProbe = vi.hoisted(() => ({ connect: vi.fn(), readAccount: vi.fn(), disconnect: vi.fn() }));
@@ -85,10 +85,6 @@ describe("desktop service", () => {
     codexProbe.connect.mockRejectedValueOnce(new Error("Codex app-server failed to start"));
     await expect(codexStatus()).resolves.toMatchObject({ state: "unavailable", installed: true });
     expect(codexProbe.disconnect).toHaveBeenCalledTimes(2);
-  });
-
-  it("rejects password/token login for the current SSO-only site", async () => {
-    await expect(login({ username: "student", password: "not-used", baseUrl: "https://courses.uit.edu.vn" })).rejects.toThrow("requires UIT SSO");
   });
 
   it("normalizes assignments from the Moodle response", async () => {

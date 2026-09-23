@@ -14,7 +14,6 @@ import {
   cmdEvents,
   cmdFunctions,
   cmdGrades,
-  cmdInit,
   cmdOpen,
   cmdRaw,
   cmdReply,
@@ -25,17 +24,19 @@ import {
   createContext
 } from "./commands.js";
 import { runMcpServer, installMcpServer } from "./mcp-server.js";
-import { cmdLoginSso, type SsoLoginLauncher } from "./sso-login.js";
+import { cmdLoginLegacy, cmdLoginSso, type LegacyLoginLauncher, type SsoLoginLauncher } from "./sso-login.js";
 import { VERSION } from "./version.js";
 import { registerNotificationCommands } from "./notification-commands.js";
 
 const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
 const LEGACY_SITE_BASE_URL = "https://coursesold.uit.edu.vn";
+const GRADUATE_SITE_BASE_URL = `${LEGACY_SITE_BASE_URL}/sdh`;
 
 export const WORKFLOW = `
   workflow:
   uit login                            -> sign in via UIT SSO (default)
-  uit login --legacy                   -> sign in to legacy Moodle with Student ID/password
+  uit login --legacy                   -> sign in to undergraduate legacy Moodle in Chromium
+  uit login --legacy --graduate        -> sign in to graduate legacy Moodle in Chromium
   uit courses --current                -> get course IDs
   uit contents  <course_id>            -> browse modules (shows module IDs)
   uit view      <id>                   -> inspect any module (accepts module_id or assign_id)
@@ -53,7 +54,7 @@ export const WORKFLOW = `
   uit view-discussion <discussion_id>  -> read forum thread (shows post IDs)
   uit reply     <post_id> <message>    -> reply to a forum post
   uit open      <id>                   -> open in browser (module, course, or URL)
-  uit functions [keyword]              -> discover 420+ raw API functions
+  uit functions [keyword]              -> discover available Moodle API functions
   uit raw <function> key=value         -> call any Moodle API function
 
   ID chain: courses   -> course_id  -> contents / download / announcements / deadlines / grades
@@ -122,7 +123,7 @@ function printLanding(): void {
 
 export function createProgram(
   api: ApiClient = defaultApiClient,
-  options: { openBrowser?: boolean; ssoLauncher?: SsoLoginLauncher } = {}
+  options: { openBrowser?: boolean; ssoLauncher?: SsoLoginLauncher; legacyLauncher?: LegacyLoginLauncher } = {}
 ): Command {
   const ctx = createContext(api);
   const program = new Command();
@@ -142,23 +143,13 @@ export function createProgram(
     .command("login")
     .description("Sign in via UIT SSO (default) or legacy Moodle")
     .option("--sso", "Sign in via UIT SSO in browser window")
-    .option("--legacy", "Sign in to legacy Moodle with Student ID/password")
-    .option("-u, --username <username>", "Student ID for legacy token setup")
-    .option("-p, --password <password>", "Password for non-interactive legacy token setup")
+    .option("--legacy", "Sign in to legacy Moodle in a browser window")
+    .option("--graduate", "Use the graduate legacy portal (/sdh); requires --legacy")
     .action(async (opts) => {
-      const hasLegacyCredentials = Boolean(opts.username || opts.password);
-      if (opts.legacy && opts.sso) {
-        throw new CliError("Choose one login method: --sso or --legacy.");
-      }
-      if (opts.sso && hasLegacyCredentials) {
-        throw new CliError("--sso cannot be combined with --username or --password.");
-      }
-      if (opts.legacy || hasLegacyCredentials) {
-        await cmdInit({
-          url: LEGACY_SITE_BASE_URL,
-          username: opts.username,
-          password: opts.password
-        });
+      if (opts.legacy && opts.sso) throw new CliError("Choose one login method: --sso or --legacy.");
+      if (opts.graduate && !opts.legacy) throw new CliError("--graduate requires --legacy.");
+      if (opts.legacy) {
+        await cmdLoginLegacy({ url: opts.graduate ? GRADUATE_SITE_BASE_URL : LEGACY_SITE_BASE_URL }, options.legacyLauncher);
         return;
       }
       await cmdLoginSso({ url: CURRENT_SITE_BASE_URL }, options.ssoLauncher);
@@ -265,7 +256,7 @@ export function createProgram(
 
   program
     .command("functions")
-    .description("List/search available Moodle API functions (420+)")
+    .description("List/search Moodle API functions exposed to your account")
     .argument("[query]", "Filter by keyword, e.g. 'assign', 'quiz', 'forum'", "")
     .action((query) => cmdFunctions({ query }, ctx));
 

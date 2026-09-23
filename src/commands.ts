@@ -2,10 +2,8 @@ import { existsSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createInterface } from "node:readline/promises";
-import { Writable } from "node:stream";
 import { defaultApiClient } from "./api.js";
-import { get, save } from "./config.js";
+import { get } from "./config.js";
 import { listH5pActivities, readH5pActivity } from "./h5p.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 import { extractH5pPackage } from "./unzip.js";
@@ -54,90 +52,6 @@ export function courseDownloadPath(root: string, filepath: unknown, filename: un
 
 function formatSize(size: number): string {
   return size < 1_048_576 ? `${(size / 1024).toFixed(0)}KB` : `${(size / 1_048_576).toFixed(1)}MB`;
-}
-
-async function initSiteInfo(token: string, baseUrl: string): Promise<MoodleRecord> {
-  const url = new URL(`${baseUrl}/webservice/rest/server.php`);
-  url.searchParams.set("wstoken", token);
-  url.searchParams.set("wsfunction", "core_webservice_get_site_info");
-  url.searchParams.set("moodlewsrestformat", "json");
-  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  return response.json() as Promise<MoodleRecord>;
-}
-
-export async function requestMobileToken(baseUrl: string, username: string, password: string): Promise<string> {
-  const response = await fetch(`${baseUrl}/login/token.php`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      username,
-      password,
-      service: "moodle_mobile_app"
-    }),
-    signal: AbortSignal.timeout(15_000)
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  const data = (await response.json()) as MoodleRecord;
-  if (data.error) die(String(data.error));
-  if (!data.token) die("Moodle did not return a token", "Check your username/password and whether Moodle Mobile services are enabled.");
-  return String(data.token);
-}
-
-async function promptText(label: string): Promise<string> {
-  if (!process.stdin.isTTY) die("Cannot prompt for credentials without an interactive terminal.");
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    return (await rl.question(label)).trim();
-  } finally {
-    rl.close();
-  }
-}
-
-async function promptPassword(label: string): Promise<string> {
-  if (!process.stdin.isTTY) die("Cannot prompt for credentials without an interactive terminal.");
-  process.stderr.write(label);
-  const mutedOutput = new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    }
-  }) as Writable & { isTTY?: boolean; columns?: number };
-  mutedOutput.isTTY = true;
-  mutedOutput.columns = process.stderr.columns || 80;
-
-  const rl = createInterface({
-    input: process.stdin,
-    output: mutedOutput,
-    terminal: true
-  });
-  try {
-    return await rl.question("");
-  } finally {
-    rl.close();
-    process.stderr.write("\n");
-  }
-}
-
-async function resolveInitToken(args: { token?: string; username?: string; password?: string }, baseUrl: string): Promise<string> {
-  if (args.token) return args.token;
-
-  const username = args.username || (await promptText("Student ID: "));
-  const password = args.password || (await promptPassword("Password: "));
-  if (!username) die("Student ID is required.");
-  if (!password) die("Password is required.");
-
-  loading("Requesting Moodle token...");
-  return requestMobileToken(baseUrl, username, password);
-}
-
-export async function cmdInit(args: { token?: string; url: string; username?: string; password?: string }): Promise<void> {
-  const baseUrl = args.url.replace(/\/+$/, "");
-  const token = await resolveInitToken(args, baseUrl);
-  const data = await initSiteInfo(token, baseUrl);
-  if (data.exception) die(data.message || "invalid token");
-  const userId = data.userid;
-  save(token, userId, baseUrl);
-  out({ status: "ok", user: data.fullname, user_id: userId, site: data.sitename });
 }
 
 export async function cmdCourses(args: { current?: boolean }, ctx = createContext()): Promise<void> {
@@ -775,9 +689,7 @@ export async function cmdDownload(
           if (isH5p && args.extract) extractPackage(record, dest);
           results.push(record);
         } catch (error) {
-          let message = error instanceof Error ? error.message : String(error);
-          const token = get("token");
-          if (token && message.includes(token)) message = message.replaceAll(token, "***");
+          const message = error instanceof Error ? error.message : String(error);
           results.push({ file: file.filename, status: "error", error: message });
           if (!isJsonMode()) console.log(`  FAIL: ${message}`);
         }
