@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { afterEach, vi } from "vitest";
-import { courseDownloadPath, requestMobileToken } from "../src/commands.js";
+import { courseDownloadPath } from "../src/commands.js";
 import { clean, extractUrls, htmlToText, idOrUrl, parseMoodleUrl, sanitize, ts } from "../src/output.js";
 import { extractH5pPackage, parseZip, readZipEntry } from "../src/unzip.js";
 import { makeZip } from "./zip-fixture.js";
@@ -11,7 +11,6 @@ import { makeZip } from "./zip-fixture.js";
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
 describe("output helpers", () => {
   it("parses integer IDs and Moodle URLs", () => {
     expect(idOrUrl("428837")).toBe(428837);
@@ -128,33 +127,5 @@ describe("h5p package extraction", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-});
-
-
-describe("Moodle token request", () => {
-  it("requests a mobile web-service token with form data", async () => {
-    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      const body = init.body as URLSearchParams;
-      expect(init.method).toBe("POST");
-      expect(init.headers).toEqual({ "Content-Type": "application/x-www-form-urlencoded" });
-      expect(body.get("username")).toBe("student");
-      expect(body.get("password")).toBe("secret");
-      expect(body.get("service")).toBe("moodle_mobile_app");
-      return Response.json({ token: "mobile-token" });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(requestMobileToken("https://courses.uit.edu.vn", "student", "secret")).resolves.toBe("mobile-token");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://courses.uit.edu.vn/login/token.php",
-      expect.objectContaining({ method: "POST" })
-    );
-  });
-
-  it("surfaces Moodle login errors", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Invalid login" })));
-
-    await expect(requestMobileToken("https://courses.uit.edu.vn", "student", "wrong")).rejects.toThrow("Invalid login");
   });
 });

@@ -6,6 +6,7 @@ const CURRENT_SITE = "https://courses.uit.edu.vn";
 const THREAD_STORE_VERSION = 2;
 let streamFrame = null, streamPersistTimer = null, draftPersistTimer = null;
 let calendar;
+let notifications;
 let threadStoreWrite = Promise.resolve();
 let threadStoreLastSerialized = "";
 let threadStoreReady = false;
@@ -344,7 +345,7 @@ function showView(view) {
   if (view !== "agent") discardUnsent();
   if (view !== "course") state.detailGeneration++;
   state.view = view;
-  for (const name of ["courses", "course", "agent", "calendar"]) $("#view-" + name).hidden = name !== view;
+  for (const name of ["courses", "course", "agent", "calendar", "notifications"]) $("#view-" + name).hidden = name !== view;
   const threadHeader = $(".thread-header");
   if (threadHeader) threadHeader.hidden = view !== "agent" || !activeThread();
   const pageTitle = $("#page-title");
@@ -356,7 +357,7 @@ function showView(view) {
     pageTitle.setAttribute("title", "Codex home");
     pageTitle.classList.add("page-title-action");
   } else {
-    pageTitle.textContent = view === "calendar" ? "Calendar" : "Courses";
+    pageTitle.textContent = view === "notifications" ? "Notifications" : view === "calendar" ? "Calendar" : "Courses";
     pageTitle.removeAttribute("role");
     pageTitle.removeAttribute("tabindex");
     pageTitle.removeAttribute("aria-label");
@@ -369,6 +370,7 @@ function showView(view) {
   });
   if (view === "agent") renderConversation();
   if (view === "calendar") calendar.show();
+  if (view === "notifications") notifications.show();
   renderRail();
   window.uitSidebar.closeMobile();
 }
@@ -3163,6 +3165,7 @@ function applySessionHealth(result, renderCourses = true) {
 function applySessions(result) {
   calendar.reset();
   state.sessions = Array.isArray(result.sessions) ? result.sessions.map(({ baseUrl, userId, authMode, label, health }) => ({ baseUrl, userId, authMode, label, health: normalizeSessionHealth(health) })) : [];
+  notifications.setAccounts(state.sessions);
   state.loginFormOpen = false;
   state.listGeneration++; state.detailGeneration++;
   state.courses = state.courses.filter(connected);
@@ -3213,7 +3216,7 @@ function aggregateSessionHealth(sessions) {
 }
 function sessionDisplayName(session) {
   if (!session) return "UIT course account";
-  return session.baseUrl === CURRENT_SITE || session.authMode === "sso" ? "UIT SSO" : portalKind(session.baseUrl) === "Graduate" ? "Graduate Moodle" : "Student ID";
+  return session.baseUrl === CURRENT_SITE || session.authMode === "sso" ? "UIT SSO" : portalKind(session.baseUrl) + " UIT Legacy";
 }
 function sessionForPortalError(entry) {
   return state.sessions.find((session) => String(session.baseUrl).replace(/\/+$/, "") === String(entry?.baseUrl || "").replace(/\/+$/, ""));
@@ -3243,7 +3246,7 @@ function portalNotice(status) {
     const action = session && ["expired", "unavailable"].includes(healthState) && (session.authMode === "sso" || session.baseUrl === CURRENT_SITE)
       ? { kind: "account", label: "Sign in again with UIT SSO", run: async () => { await authAction(() => window.uit.session.ssoLogin({ baseUrl: session.baseUrl }), "UIT SSO connected."); } }
       : session && ["expired", "unavailable"].includes(healthState)
-        ? { kind: "account", label: "Sign in again with UIT Legacy", run: () => openLogin({ legacy: true }) }
+        ? { kind: "account", label: "Sign in again with UIT Legacy (" + portalKind(session.baseUrl).toLowerCase() + ")", run: () => openLogin({ legacy: true, baseUrl: session.baseUrl }) }
         : { kind: "account", label: "Open Course accounts", run: openLogin };
     if (!actionLabels.has(action.label)) { actionLabels.add(action.label); actions.push(action); }
   }
@@ -3326,10 +3329,14 @@ function renderSessions() {
 }
 function openLogin(options = {}) {
   state.loginFormOpen = options?.legacy === true;
+  if (state.loginFormOpen) {
+    const preferredBaseUrl = options.baseUrl || state.sessions.find((session) => session.baseUrl !== CURRENT_SITE)?.baseUrl;
+    if (preferredBaseUrl) $("#course-site").value = preferredBaseUrl;
+  }
   $("#login-error").textContent = ""; $("#login-status").textContent = "";
   renderSessions();
   if (!$("#login-modal").open) $("#login-modal").showModal();
-  if (state.loginFormOpen) $("#login-form input[name='username']").focus();
+  if (state.loginFormOpen) $("#course-site").focus();
   window.uit.session.status().then(renderDiscovery).catch(() => { $("#discovery-report").textContent = "Could not read discovery diagnostics."; });
 }
 async function authAction(action, success) {
@@ -3660,18 +3667,17 @@ $("#sso-disconnect").addEventListener("click", () => {
   const currentSession = state.sessions.find((s) => s.baseUrl === CURRENT_SITE);
   if (currentSession) authAction(() => window.uit.session.logout({ baseUrl: currentSession.baseUrl }), "UIT SSO disconnected.");
 });
-$("#legacy-relogin").addEventListener("click", () => openLogin({ legacy: true }));
-$("#legacy-disconnect").addEventListener("click", () => {
-  const legacy = state.sessions.find((s) => s.baseUrl !== CURRENT_SITE);
-  if (legacy) authAction(() => window.uit.session.logout({ baseUrl: legacy.baseUrl }), "Student ID disconnected.");
+$("#legacy-relogin").addEventListener("click", () => {
+  const legacy = state.sessions.find((session) => session.baseUrl !== CURRENT_SITE && ["expired", "unavailable"].includes(sessionHealthState(session))) || state.sessions.find((session) => session.baseUrl !== CURRENT_SITE);
+  openLogin({ legacy: true, baseUrl: legacy?.baseUrl });
 });
+$("#legacy-disconnect").addEventListener("click", () => authAction(() => window.uit.session.logout({ legacy: true }), "UIT Legacy disconnected."));
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   const fields = new FormData(form);
-  const input = { username: fields.get("username"), password: fields.get("password"), baseUrl: fields.get("baseUrl") };
-  try { await authAction(() => window.uit.session.login(input), "Student ID login connected."); }
-  finally { form.elements.password.value = ""; input.password = ""; }
+  const input = { baseUrl: fields.get("baseUrl") };
+  await authAction(() => window.uit.session.login(input), "UIT Legacy connected.");
 });
 $("#logout-button").addEventListener("click", () => authAction(() => window.uit.session.logout(), "All portals disconnected. Local threads will be available when the same accounts reconnect."));
 $("#agent-messages").addEventListener("click", (event) => {
@@ -3687,6 +3693,7 @@ window.addEventListener("beforeunload", () => { flushStreamUpdates(); persist();
 
 (async function initializeStudio() {
   await restore();
+  notifications = new window.UitNotifications();
   calendar = new window.UitCalendar({
     notify: toast,
     navigate: () => showView("calendar"),

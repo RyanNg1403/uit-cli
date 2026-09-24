@@ -18,14 +18,14 @@ import { realpathSync } from "node:fs";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSessionApiClient } from "./api.js";
-import type { SsoSessionData } from "./config.js";
+import type { MoodleBrowserSessionData } from "./config.js";
 import {
   createStudioCore,
   type StudioCore,
   type StudioHandler,
   type StudioHost
 } from "./studio-core.js";
-import { StudioSsoService } from "./studio-sso.js";
+import { MoodleBrowserLoginService } from "./moodle-browser-login.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -352,16 +352,18 @@ export function createStudioWebHost(options: {
   platform?: NodeJS.Platform;
 }): StudioHost {
   const platform = options.platform || process.platform;
-  const ssoService = new StudioSsoService();
-  const sessionResult = (session: SsoSessionData) => ({
+  const browserLoginService = new MoodleBrowserLoginService();
+  const sessionResult = (session: MoodleBrowserSessionData) => ({
     session,
     api: createSessionApiClient(session.baseUrl, session.sesskey, session.cookies)
   });
   return {
     userDataPath: options.userDataPath,
-    ssoLogin: async (baseUrl) => sessionResult(await ssoService.login(baseUrl)),
+    ssoLogin: async (baseUrl) => sessionResult(await browserLoginService.login(baseUrl)),
+    legacyLogin: async (baseUrl) => sessionResult(await browserLoginService.loginLegacy(baseUrl)),
     restoreSsoSession: async (session) => session.cookies.length > 0 ? sessionResult(session) : null,
-    clearSsoBrowserData: async (_options) => ssoService.cancel(),
+    restoreLegacySession: async (session) => session.cookies.length > 0 ? sessionResult(session) : null,
+    clearSsoBrowserData: async (_options) => browserLoginService.cancel(),
     ensureMcpConfig: async () => {
       if (process.env.UIT_DISABLE_CONFIG === "1") return;
       const mcp = await import("./mcp-server.js");

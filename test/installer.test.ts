@@ -9,7 +9,8 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("curl installer", () => {
+// These fixtures exercise the POSIX installer with /bin tools, signals, and symlinks.
+describe.skipIf(process.platform === "win32")("curl installer", () => {
   it("rejects Windows shells and points users to the Node installer", async () => {
     const directory = await mkdtemp(`${tmpdir()}/uit-windows-installer-test-`);
     directories.push(directory);

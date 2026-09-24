@@ -62,7 +62,7 @@ for (const required of [
   "dist/session-health.js",
   "dist/studio-core.js",
   "dist/studio-thread-store.js",
-  "dist/studio-sso.js",
+  "dist/moodle-browser-login.js",
   "dist/studio-web-server.js",
   "dist/studio-web-launcher.js",
   "dist/uit-tools.js",

@@ -86,7 +86,7 @@ uit grades 'https://courses.uit.edu.vn/course/view.php?id=19207'
 
 ### `uit login`
 
-Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` restores the v1.0/v1.1 Student ID/password flow for the old Moodle portal.
+Sign in to UIT Moodle. **UIT SSO is the default**; `--legacy` opens the selected legacy Moodle portal in bundled Chromium.
 
 ```bash
 # Recommended: Sign in via UIT SSO in browser (default)
@@ -95,16 +95,16 @@ uit login
 # Explicit SSO:
 uit login --sso
 
-# Legacy Moodle: prompts for Student ID and password, then stores the returned token:
+# Undergraduate legacy Moodle:
 uit login --legacy
 
-# Non-interactive legacy token setup:
-uit login --legacy --username YOUR_STUDENT_ID --password YOUR_PASSWORD
+# Graduate legacy Moodle:
+uit login --legacy --graduate
 ```
 
-Prefer the interactive browser login (`uit login`) or `uit login --legacy` for normal use. Passwords passed as command-line arguments can be saved in shell history. The CLI does not save your password; it stores only the session/token.
+Both flows open the official portal in bundled Chromium. Sign in there; UIT stores the Moodle session cookies and `sesskey`, never the password. Web-service-token authentication is not supported.
 
-SSO and token sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix) and shared with UIT Studio. The user ID is discovered during login and stored with the session. Re-run `uit login` at any time to refresh or rotate it.
+Sessions are saved to `~/.uit/sessions.json` (mode `0600` on Unix) and shared with UIT Studio. The user ID is discovered during login and stored with the session. Re-run the relevant `uit login` command to refresh it.
 
 ---
 
@@ -372,7 +372,7 @@ uit grades 19207
 
 ### `uit functions [keyword]`
 
-List the 420+ Moodle web service functions available to your token. Grouped by module.
+List the Moodle API functions exposed to your signed-in account, grouped by module.
 
 ```bash
 uit functions                     # list all
@@ -415,6 +415,27 @@ For full parameter schemas, see the [Moodle Web Service API functions reference]
 
 ---
 
+### `uit notifications` and `uit inbox`
+
+Use the active CLI account. Lists return up to 20 entries; use `--offset` for
+the next page. Listing or reading content does not mark it as read.
+
+| Command | Purpose |
+|---|---|
+| `uit notifications list [--full] [--offset <n>]` | List notifications; `--full` includes message bodies. |
+| `uit notifications counts` | Show unread notification and conversation counts. |
+| `uit notifications read <id>` | Mark one notification as read. |
+| `uit notifications read-all` | Mark all account notifications as read. |
+| `uit inbox list [--offset <n>]` | List conversations. |
+| `uit inbox messages <id> [--offset <n>]` | Read conversation messages; larger offsets load older messages. |
+| `uit inbox read <id>` | Mark a conversation as read. |
+| `uit inbox send <id> "Message"` | Send a plain-text reply, up to 4096 UTF-8 bytes. |
+
+Add `--json` before the command for structured output; pages include `nextOffset`
+(null at the end). After a failed send, check the conversation before retrying.
+
+---
+
 ### `uit mcp`
 
 Run the UIT Model Context Protocol (MCP) server for Codex over stdin/stdout,
@@ -429,10 +450,28 @@ uit mcp install  # Add or update [mcp_servers.uit] in ~/.codex/config.toml
 entry. The MCP server is available only from inside a UIT course workspace and
 uses the active session from `~/.uit/sessions.json`.
 
-Agent mode also exposes `uit_submit_assignment`. It verifies the assignment and
-the local file, then uploads and submits the file to Moodle. This is the only
-write-capable UIT MCP tool and UIT Studio always asks for a fresh confirmation
-immediately before it runs, including when YOLO mode is enabled.
+| Tool | Purpose | Effect |
+|---|---|---|
+| `uit_courses` | List accessible courses. | Read |
+| `uit_course_contents` | Read course modules, assignments, and announcements. | Read |
+| `uit_read_resource` | Read a course resource. | Read |
+| `uit_course_members` | List course members. | Read |
+| `uit_course_grades` | Read course grades. | Read |
+| `uit_download_material` | Download a course file. | Local write |
+| `uit_submit_assignment` | Submit a local file to an assignment. | Moodle write |
+| `uit_notifications` | Read a notification page (`offset?`). | Read |
+| `uit_notification_counts` | Read unread counts: `[notifications, conversations]`; null means unavailable. | Read |
+| `uit_inbox` | Read a conversation page (`offset?`). | Read |
+| `uit_conversation_messages` | Read messages (`id`, `offset?`). | Read |
+| `uit_mark_notification_read` | Mark one notification read (`id`). | Moodle write |
+| `uit_mark_all_notifications_read` | Mark all account notifications read. | Moodle write |
+| `uit_mark_conversation_read` | Mark a conversation read (`id`). | Moodle write |
+| `uit_send_message` | Send an authorized reply (`id`, `text`). | Moodle write |
+
+Messaging tools use the active account and the same pagination as the CLI.
+Sending is never retried automatically. Host approval policies apply;
+`uit_submit_assignment` additionally requires fresh confirmation in Studio,
+including with YOLO enabled.
 
 ---
 

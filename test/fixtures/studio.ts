@@ -35,7 +35,7 @@ export const fileTypes = [
 ];
 const sessions = [
   { baseUrl: CURRENT, userId: 101, authMode: "sso", label: "Current Moodle" },
-  { baseUrl: LEGACY, userId: 202, authMode: "token", label: "Legacy Moodle" },
+  { baseUrl: LEGACY, userId: 202, authMode: "session", label: "Legacy Moodle" },
 ];
 
 type SessionHealth = "connected" | "expired" | "unavailable";
@@ -52,6 +52,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
   const held = new Set<string>();
   const pending: { method: string; input: any; resolve: (value: any) => void }[] = [];
   const failures = { ...seed.options.fail };
+  let nextLegacyUserId = 202;
   // Chromium can briefly expose a browser error document after a transient
   // navigation failure. Storage access is forbidden on that origin, so keep
   // the fixture boot script diagnostic-free until the page reaches localhost.
@@ -77,6 +78,12 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     if (failures[method]) { const message = failures[method]; delete failures[method]; throw new Error(message); }
     const save = () => { session?.setItem("mock.sessions", JSON.stringify(connected)); return status(); };
     if (method === "session.status") return status();
+    if (method === "notifications.counts") return [21, 1];
+    if (method === "notifications.list") return { items: Array.from({ length: input.offset ? 1 : 20 }, (_, index) => ({ id: (input.offset || 0) + index + 1, subject: `Notice ${(input.offset || 0) + index + 1}`, text: '<p>Course update</p><script>window.previewExecuted=true</script>', read: false, canOpen: true, timecreated: 1788940558 })), unread: 21, nextOffset: input.offset ? null : 20 };
+    if (method === "notifications.read" || method === "notifications.open" || method === "inbox.read") return true;
+    if (method === "inbox.list") return { items: [{ id: 42, name: "Course group", unread: 1, messages: [{ id: 1, userId: 500, text: "Hello", timecreated: 1788940558 }] }], nextOffset: null };
+    if (method === "inbox.messages") return { items: [{ id: 1, userId: 500, text: "Hello", timecreated: 1788940558 }], members: [{ id: 500, name: "Teacher" }], nextOffset: null };
+    if (method === "inbox.send") return [{ id: 2, userId: input.userId, text: input.text, timecreated: 1788940559 }];
     if (method === "calendar.announcements") return { items: [], errors: [] };
     if (method === "calendar.openAnnouncement") return;
     if (method === "calendar.settings") { if (input) remindersEnabled = input.enabled; return { enabled: remindersEnabled, supported: true, error: "" }; }
@@ -94,11 +101,19 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
         url: `${account.baseUrl}/mod/assign/view.php?id=701`,
       })),
     };
-    if (method === "session.logout") { connected = input?.baseUrl ? connected.filter((s: any) => s.baseUrl !== input.baseUrl) : []; return save(); }
+    if (method === "session.logout") {
+      connected = input?.baseUrl
+        ? connected.filter((session: any) => session.baseUrl !== input.baseUrl)
+        : input?.legacy === true
+          ? connected.filter((session: any) => session.authMode === "sso")
+          : [];
+      return save();
+    }
     if (method === "session.ssoLogin" || method === "session.login") {
-      const userId = method === "session.ssoLogin" ? 101 : Number(input.username);
+      const userId = method === "session.ssoLogin" ? 101 : nextLegacyUserId;
+      if (method === "session.login") nextLegacyUserId = 202;
       connected = connected.filter((s: any) => s.baseUrl !== input.baseUrl);
-      connected.push({ baseUrl: input.baseUrl, userId, authMode: method === "session.ssoLogin" ? "sso" : "token" });
+      connected.push({ baseUrl: input.baseUrl, userId, authMode: method === "session.ssoLogin" ? "sso" : "session" });
       return save();
     }
     if (method === "codex.status") return { state: "ready", installed: true, message: "Codex App Server is ready" };
@@ -153,6 +168,7 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     get threadStoreRaw() { return threadStore; },
     hold: (method: string) => held.add(method),
     fail: (method: string, message: string) => { failures[method] = message; },
+    setNextLegacyUserId: (userId: number) => { nextLegacyUserId = userId; },
     release: (method: string, index = 0) => {
       const item = pending.filter((item) => item.method === method)[index];
       if (!item) throw new Error(`No pending ${method} at ${index}`);
@@ -161,6 +177,8 @@ function installBridge(seed: { courses: typeof courses; files: typeof fileTypes;
     unhold: (method: string) => held.delete(method),
   };
   window.uit = Object.fromEntries(Object.entries({
+    notifications: ["list", "counts", "read", "open"],
+    inbox: ["list", "messages", "read", "send"],
     calendar: ["list", "settings", "open", "announcements", "openAnnouncement"],
     session: ["status", "login", "ssoLogin", "logout"],
     courses: ["list", "refresh", "contents", "assignments", "announcements", "participants", "grades", "submission", "forum", "preview", "materialize", "open"],
@@ -178,6 +196,7 @@ export const test = base.extend<{ boot: (options?: BootOptions) => Promise<void>
     const root = new URL("../../studio/renderer/", import.meta.url);
     const assets: Record<string, string> = { "/": "index.html", "/index.html": "index.html", "/renderer.js": "renderer.js", "/sidebar.js": "sidebar.js", "/appearance.js": "appearance.js", "/web-bridge.js": "web-bridge.js", "/hidden-markup.js": "hidden-markup.js", "/styles.css": "styles.css", "/chevron.svg": "chevron.svg", "/pdf-preview.js": "pdf-preview.js", "/assets/uit-logo.png": "assets/uit-logo.png", "/assets/uit-dau-dau.svg": "assets/uit-dau-dau.svg", "/assets/dau-dau-agent.png": "assets/dau-dau-agent.png", "/assets/dau-dau-onboarding.png": "assets/dau-dau-onboarding.png" };
     assets["/calendar.js"] = "calendar.js";
+    assets["/notifications.js"] = "notifications.js";
     const server = createServer(async (request, response) => {
       const pathname = new URL(request.url!, "http://localhost").pathname;
       if (pathname === "/favicon.ico") { response.writeHead(204).end(); return; }

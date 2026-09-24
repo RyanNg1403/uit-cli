@@ -19,6 +19,7 @@
           <button class="nav-item" data-view="courses"><span aria-hidden="true">&#9776;</span>Courses</button>
           <!-- CalendarDays, Lucide. License: assets/lucide-LICENSE.txt -->
           <button class="nav-item" data-view="calendar"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4M16 2v4M3 10h18"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>Calendar</button>
+          <button class="nav-item" data-view="notifications"><svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>Notifications</button>
           <button class="nav-item" data-view="agent"><span class="nav-logo" aria-hidden="true"><img src="assets/uit-dau-dau.svg" alt=""></span>Codex<span class="codex-dot" id="codex-dot" aria-hidden="true"></span></button>
         </nav>
         <button class="project-create" id="new-project" hidden><svg class="action-icon" aria-hidden="true" viewBox="0 0 20 20"><path d="M2 5h6l2 2h8v10H2V5ZM12 9v6M9 12h6"/></svg>New project</button>
@@ -71,6 +72,27 @@
             <div id="calendar-announcements-list" class="calendar-agenda"></div>
             <button id="calendar-announcements-more" class="text-button" hidden>Show more announcements</button>
           </section>
+        </section>
+        <section id="view-notifications" class="view" aria-label="Notifications and inbox" hidden>
+          <div class="page-heading"><h1>Notifications</h1><button id="mail-refresh" class="secondary-button">Refresh</button></div>
+          <p class="muted">Your Moodle notifications and conversations. Reading here does not automatically mark items as read.</p>
+          <div class="mail-toolbar">
+            <label class="field">Account<select id="mail-account"></select></label>
+            <div class="mail-tabs" role="group" aria-label="Message type"><button id="mail-notifications" class="secondary-button" aria-pressed="true">Notifications</button><button id="mail-inbox" class="secondary-button" aria-pressed="false">Inbox</button></div>
+          </div>
+          <div class="mail-toolbar"><p id="mail-status" class="muted" role="status"></p><button id="mail-read-all" class="text-button" hidden>Mark all notifications as read</button></div>
+          <p id="mail-error" class="form-error" role="alert" hidden></p>
+          <div id="mail-layout" class="mail-layout">
+            <div><div id="mail-list" class="mail-list" aria-busy="false"></div><button id="mail-more" class="secondary-button" hidden>Load more</button></div>
+            <p id="mail-select" class="empty" hidden>Select a conversation to read and reply.</p>
+            <section id="mail-conversation" class="mail-conversation" aria-label="Conversation" hidden>
+              <div class="mail-toolbar"><h2 id="mail-title"></h2><button id="mail-read-conversation" class="text-button">Mark conversation as read</button></div>
+              <p id="mail-conversation-error" class="form-error" role="alert" hidden></p>
+              <button id="mail-older" class="text-button" hidden>Load older messages</button>
+              <div id="mail-messages" class="mail-messages" aria-busy="false"></div>
+              <form id="mail-reply" class="mail-reply"><label class="field">Reply<textarea id="mail-draft" rows="3" maxlength="4096" placeholder="Write a message…" required></textarea></label><div class="mail-toolbar"><span class="muted">Sent to this Moodle conversation.</span><button id="mail-send" class="primary-button" type="submit">Send reply</button></div></form>
+            </section>
+          </div>
         </section>
         <section id="view-agent" class="conversation" aria-label="Codex thread" hidden>
           <header class="thread-header">
@@ -176,7 +198,7 @@
         <section id="legacy-section" class="portal-card">
           <div class="portal-card-top">
             <div class="portal-card-heading">
-              <strong class="portal-name">Student ID</strong>
+              <strong class="portal-name">UIT Legacy</strong>
               <span class="portal-domain">coursesold.uit.edu.vn</span>
             </div>
             <span id="legacy-pill" class="status-pill disconnected">Not connected</span>
@@ -188,9 +210,8 @@
           </div>
           <form id="login-form">
             <label class="field">Portal<select id="course-site" name="baseUrl"><option value="https://coursesold.uit.edu.vn">Undergraduate</option><option value="https://coursesold.uit.edu.vn/sdh">Graduate</option></select></label>
-            <label class="field">Student ID<input name="username" autocomplete="username" required /></label>
-            <label class="field">Password<input name="password" type="password" autocomplete="current-password" required /></label>
-            <button id="legacy-submit" class="secondary-button" type="submit">Connect</button>
+            <p class="muted">A Chromium window will open for you to sign in. UIT Studio stores the Moodle session, not your password.</p>
+            <button id="legacy-submit" class="secondary-button" type="submit">Continue in browser</button>
           </form>
         </section>
       </div>
@@ -216,6 +237,7 @@
     <script src="./web-bridge.js"></script>
     <script src="./sidebar.js"></script>
     <script src="./calendar.js"></script>
+    <script src="./notifications.js"></script>
     <script src="./hidden-markup.js"></script>
     <script src="./renderer.js"></script>
   </body>

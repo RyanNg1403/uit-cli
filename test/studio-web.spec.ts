@@ -7,7 +7,7 @@ import { startStudioWebServer, type StudioWebServer } from "../src/studio-web-se
 
 const currentSessions = [
   { baseUrl: "https://courses.uit.edu.vn", userId: 101, authMode: "sso", label: "Current Moodle", health: { state: "connected", checkedAt: Date.now() } },
-  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "token", label: "Legacy Moodle", health: { state: "connected", checkedAt: Date.now() } }
+  { baseUrl: "https://coursesold.uit.edu.vn", userId: 202, authMode: "session", label: "Legacy Moodle", health: { state: "connected", checkedAt: Date.now() } }
 ];
 
 type WebTrace = { leases: any[]; agents: any[] };
@@ -26,6 +26,9 @@ function fakeCore(trace: WebTrace) {
       "session:login": status,
       "session:sso-login": status,
       "session:logout": status,
+      "notifications:counts": () => [1, 0],
+      "notifications:list": () => ({ items: [{ id: 1, subject: "Moodle notification", text: "A course update", read: false, timecreated: 1788940558 }], unread: 1, nextOffset: null }),
+      "inbox:list": () => ({ items: [], nextOffset: null }),
       "courses:list": () => courses,
       "courses:link": (input: any) => input,
       "courses:refresh": () => courses,
@@ -105,6 +108,24 @@ test("opens the current Studio renderer through the authenticated web bridge", a
 
     const hash = await page.evaluate(() => window.location.hash);
     expect(hash).toBe("");
+  } finally {
+    await page.close();
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Notifications and Inbox load through the authenticated web bridge", async ({ page }) => {
+  const { server, directory } = await startFixtureServer();
+  try {
+    await page.goto(server.launchUrl());
+    await expect(page.locator("#account-label")).toHaveText("Course accounts (2)");
+    await page.locator('[data-view="notifications"]').click();
+    await expect(page.locator(".mail-notification")).toHaveCount(1);
+    await expect(page.locator("#mail-list")).toContainText("Moodle notification");
+    await page.locator("#mail-inbox").click();
+    await expect(page.locator("#mail-list")).toContainText("No conversations");
+    await expect(page.locator("#mail-error")).toBeHidden();
   } finally {
     await page.close();
     await server.close();

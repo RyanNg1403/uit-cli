@@ -4,37 +4,24 @@ import { createHash, randomUUID } from "node:crypto";
 import { createInflateRaw } from "node:zlib";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
-import { createTokenApiClient, credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
+import { credentialFreeUrl, defaultApiClient, MAX_PREVIEW_BYTES } from "./api.js";
 import { submitAssignmentFile } from "./assignment-submission.js";
-import { activateSession as selectActiveSession, get, save } from "./config.js";
-import { requestMobileToken } from "./commands.js";
+import { activateSession as selectActiveSession, get, type SessionAuthType } from "./config.js";
 import { CodexClient } from "./codex-client.js";
 import { readH5pActivity, type H5pContentSummary } from "./h5p.js";
 import type { ApiClient, MoodleRecord } from "./types.js";
 export { calendarMonth, listCalendarEvents, addAssignmentIntervals, calendarReminders } from "./calendar.js";
 
-export interface DesktopLoginInput {
-  username: string;
-  password: string;
-  baseUrl?: string;
-}
-
 export const CURRENT_SITE_BASE_URL = "https://courses.uit.edu.vn";
 
 export interface DesktopSession {
   authenticated: boolean;
-  authMode?: "token" | "sso";
+  authMode?: SessionAuthType;
   baseUrl?: string;
   userId?: number | null;
 }
 
-export interface DesktopLoginResult {
-  session: DesktopSession;
-  api: ApiClient;
-  token?: string;
-}
-
-export function activateSession(authMode: "token" | "sso", baseUrl: string): void {
+export function activateSession(authMode: "sso" | "session", baseUrl: string): void {
   selectActiveSession(authMode, baseUrl);
 }
 
@@ -47,7 +34,7 @@ export interface CourseSummary {
   startdate?: number;
   enddate?: number;
   baseUrl?: string;
-  authMode?: "token" | "sso";
+  authMode?: SessionAuthType;
   siteLabel?: string;
   discoveredVia?: "url";
   category?: { id?: number; name?: string };
@@ -141,7 +128,7 @@ function metadata<T>(api: ApiClient, name: string, params: Record<string, any>):
   // The default CLI client follows persisted configuration, unlike desktop session clients.
   let identity = "";
   if (api === defaultApiClient) {
-    try { identity = createHash("sha256").update(`${get("baseUrl")}:${get("userId")}:${get("token")}`).digest("hex"); }
+    try { identity = createHash("sha256").update(JSON.stringify([get("baseUrl"), get("userId"), get("authType"), get("sesskey"), get("cookies")])).digest("hex"); }
     catch { /* The API reports missing CLI configuration when the call executes. */ }
   }
   const key = JSON.stringify([identity, name, params]);
@@ -282,59 +269,10 @@ function unavailableFrom(value: unknown): Record<string, string> | undefined {
 export function sessionStatus(): DesktopSession {
   try {
     const baseUrl = get("baseUrl").replace(/\/+$/, "");
-    if (baseUrl === CURRENT_SITE_BASE_URL) {
-      return { authenticated: false, authMode: "sso", baseUrl, userId: get("userId") };
-    }
-    return { authenticated: Boolean(get("token")), authMode: "token", baseUrl, userId: get("userId") };
+    const authMode = get("authType");
+    return { authenticated: Boolean(get("sesskey") && get("cookies")?.length), authMode, baseUrl, userId: get("userId") };
   } catch {
     return { authenticated: false };
-  }
-}
-
-export async function loginWithToken(input: DesktopLoginInput, persist = false): Promise<DesktopLoginResult> {
-  const baseUrl = (input.baseUrl || "https://courses.uit.edu.vn").replace(/\/+$/, "");
-  if (baseUrl === CURRENT_SITE_BASE_URL) {
-    throw new Error("The current UIT course site requires UIT SSO. Use the SSO sign-in button.");
-  }
-  const token = await requestMobileToken(baseUrl, input.username, input.password);
-  const url = new URL(`${baseUrl}/webservice/rest/server.php`);
-  url.searchParams.set("wstoken", token);
-  url.searchParams.set("wsfunction", "core_webservice_get_site_info");
-  url.searchParams.set("moodlewsrestformat", "json");
-  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  const info = (await response.json()) as MoodleRecord;
-  if (info.exception) throw new Error(String(info.message || "UIT authentication failed"));
-  const userId = Number(info.userid);
-  if (!Number.isInteger(userId) || userId <= 0) throw new Error("UIT did not return a valid student identity.");
-  if (persist) save(token, userId, baseUrl);
-  return {
-    session: { authenticated: true, authMode: "token", baseUrl, userId },
-    api: createTokenApiClient(baseUrl, token),
-    token
-  };
-}
-
-export function createLegacySession(baseUrl: string, token: string, userId: number): DesktopLoginResult {
-  return {
-    session: { authenticated: true, authMode: "token", baseUrl, userId },
-    api: createTokenApiClient(baseUrl, token),
-    token
-  };
-}
-
-export async function login(input: DesktopLoginInput): Promise<DesktopSession> {
-  return (await loginWithToken(input, true)).session;
-}
-
-export function configuredLegacySession(): DesktopLoginResult | undefined {
-  try {
-    const session = sessionStatus();
-    if (!session.authenticated || session.authMode !== "token" || !session.baseUrl) return undefined;
-    const token = get("token");
-    return { session, api: createTokenApiClient(session.baseUrl, token), token };
-  } catch {
-    return undefined;
   }
 }
 
