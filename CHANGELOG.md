@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.0] - 2026-09-24
+
+- Added Moodle notifications and inbox support across UIT Studio, the CLI, and MCP tools.
+- Replaced legacy Moodle web-service token login with browser-based session authentication for CLI and Studio.
+- Refreshed the Studio landing page and README with the launch video and clearer installation guidance.
+
+## [2.0.0] - 2026-09-19
+
+- Introduced UIT Studio as a local Moodle workspace, with Codex threads, managed course projects, and account recovery.
+- Added course calendars, deadline reminders, announcements, assignment submission, and H5P resource support.
+- Added browser-based SSO with packaged Chromium and cross-platform Studio packaging and installers.
+
 ## [1.3.3] - 2026-09-12
 
 - Unified UIT MCP tools between Codex-hosted and Studio agent sessions, including explicit course-resource reads and downloads.
