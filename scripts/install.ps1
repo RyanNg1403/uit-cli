@@ -15,7 +15,7 @@ Usage:
   .\install.ps1 -Help
 
 Environment:
-  UIT_INSTALL_VERSION        Release tag to install, for example v2.0.0
+  UIT_INSTALL_VERSION        Release tag to install, for example v2.1.0
   UIT_INSTALL_REPOSITORY     GitHub repository, default RyanNg1403/uit-cli
   UIT_INSTALL_BASE_URL       Override the release asset base URL (useful for tests)
   UIT_INSTALL_STUDIO_DIR     Install directory, default %LOCALAPPDATA%\UIT\Studio
@@ -43,7 +43,7 @@ function Get-ReleaseBaseUrl {
         return "https://github.com/$repository/releases/latest/download"
     }
     if ($release -notmatch '^v\d+\.\d+\.\d+$') {
-        throw "UIT_INSTALL_VERSION must be a release tag such as v2.0.0."
+        throw "UIT_INSTALL_VERSION must be a release tag such as v2.1.0."
     }
     return "https://github.com/$repository/releases/download/$release"
 }
